@@ -10,6 +10,7 @@ class EmailService {
     getTransport() {
 
         
+        
         var emailPassword = process.env.EMAIL_PASSWORD;
 
         console.log('emailPassword ', emailPassword);
@@ -200,23 +201,20 @@ class EmailService {
 
 
           // send mail with defined transport object
-          this.getTransport().sendMail(mailOptions, (error, info) => {
-              if (error) {
-                  return console.log(error);
-              }
-              console.log('Message sent: %s', info.messageId);
-              // Preview only available when sending through an Ethereal account
-              console.log('Preview URL: %s', nodemailer.getTestMessageUrl(info));
+            this.getTransport().sendMail(mailOptions, (error, info) => {
+                if (error) {
+                    return console.log(error);
+                }
+                console.log('Message sent: %s', info.messageId);
+                // Preview only available when sending through an Ethereal account
+                console.log('Preview URL: %s', nodemailer.getTestMessageUrl(info));
 
-              // Message sent: <redacted@example.invalid>
-              // Preview URL: https://ethereal.email/message/WaQKMgKddxQDoou...
-          });
+                // Message sent: <redacted@example.invalid>
+                // Preview URL: https://ethereal.email/message/WaQKMgKddxQDoou...
+            });
 
           }
 
-
-
-    
 }
 
 
