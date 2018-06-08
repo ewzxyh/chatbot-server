@@ -3,4 +3,5 @@ module.exports = {
   'username': 'redacted@example.invalid',
   'from': 'redacted@example.invalid',
   'bcc': 'redacted@example.invalid',
+  // 'bcc': 'redacted@example.invalid',
 };
