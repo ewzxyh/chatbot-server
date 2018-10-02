@@ -26,6 +26,7 @@ describe('LeadService()', function () {
          expect(savedLead.fullname).to.equal("fullname");
          expect(savedLead.email).to.equal("redacted@example.invalid");
          expect(savedLead.id_project).to.equal(savedProject._id.toString());
+         expect(savedLead.lead_id).to.not.equal(null);
 
         done();
     }).catch(function(err) {
@@ -38,7 +39,7 @@ describe('LeadService()', function () {
 
 
 
-  it('createIfNotExists', function (done) {
+  it('createIfNotExists-already-exists', function (done) {
     projectService.create("test1", userid).then(function(savedProject) {
     // create(fullname, email, id_project, createdBy)
      leadService.create("fullname", "redacted@example.invalid", savedProject._id, userid).then(function(savedLead) {
@@ -49,7 +50,8 @@ describe('LeadService()', function () {
          expect(savedLead.email).to.equal("redacted@example.invalid");
          expect(savedLead.id_project).to.equal(savedProject._id.toString());
          expect(savedLeadIfNotExists._id.toString()).to.equal(savedLead._id.toString());
-         
+         expect(savedLeadIfNotExists.lead_id).to.not.equal(null);
+
         done();
     }).catch(function(err) {
         console.error("test reject", err);
@@ -57,12 +59,24 @@ describe('LeadService()', function () {
         done();
     });
 
+   });
+  });
+  });
+
+
+
+  it('createIfNotExists-not-exists', function (done) {
+    projectService.create("test1", userid).then(function(savedProject) {
+    // create(fullname, email, id_project, createdBy)
+ 
+    
     leadService.createIfNotExists("fullname2", "redacted@example.invalid", savedProject._id, userid).then(function(savedLeadIfNotExists) {
       console.log("savedLeadIfNotExists", savedLeadIfNotExists);
        expect(savedLeadIfNotExists.fullname).to.equal("fullname2");
        expect(savedLeadIfNotExists.email).to.equal("redacted@example.invalid");
        expect(savedLeadIfNotExists.id_project).to.equal(savedProject._id.toString());
-       
+       expect(savedLeadIfNotExists.lead_id).to.not.equal(null);
+
       done();
     }).catch(function(err) {
       console.error("test reject", err);
@@ -70,9 +84,15 @@ describe('LeadService()', function () {
       done();
   });
 
-   });
+  
   });
   });
+
+
+
+
+
+
 
 
 });
