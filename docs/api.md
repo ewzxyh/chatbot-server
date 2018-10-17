@@ -74,6 +74,12 @@ curl -v -X POST -d 'email=redacted@example.invalid&password=123456' http://local
 curl -v -X POST -d 'email=redacted@example.invalid&password=123456' http://localhost:3000/firebase/auth/signin
 ```
 
+## Firebase createtoken
+
+```
+curl -v -X POST -u redacted@example.invalid:123456 http://localhost:3000/firebase/createtoken
+```
+
 ## Requests 
 
 ### Create 
