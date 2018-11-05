@@ -9,8 +9,8 @@ class EmailService {
 
   getTransport() {
 
-    var emailPassword = "REDACTED_SECRET";
-    //var emailPassword = process.env.EMAIL_PASSWORD;
+  
+    var emailPassword = process.env.EMAIL_PASSWORD;
 
     // console.log('emailPassword ', emailPassword);
 
