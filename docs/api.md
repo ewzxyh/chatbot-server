@@ -99,6 +99,10 @@ curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:1
 curl -v -X PATCH -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"rating":5, "rating_message":"Great"}' http://localhost:3000/5ab0f32757066e0014bfd718/requests/5b800a7f52ee93a525ca0d8c
 ```
 
+### Share by email
+```
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 [REDACTED_BASIC_AUTH_URL]
+```
 
 ## Departments 
 
