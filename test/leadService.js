@@ -21,12 +21,15 @@ describe('LeadService()', function () {
   it('create', function (done) {
     projectService.create("test1", userid).then(function(savedProject) {
     // create(fullname, email, id_project, createdBy)
-     leadService.create("fullname", "redacted@example.invalid", savedProject._id, userid).then(function(savedLead) {
+    var attr = {myprop:123};
+     leadService.create("fullname", "redacted@example.invalid", savedProject._id, userid, attr).then(function(savedLead) {
         console.log("resolve", savedLead);
          expect(savedLead.fullname).to.equal("fullname");
          expect(savedLead.email).to.equal("redacted@example.invalid");
          expect(savedLead.id_project).to.equal(savedProject._id.toString());
          expect(savedLead.lead_id).to.not.equal(null);
+         expect(savedLead.attributes).to.equal(attr);
+         expect(savedLead.attributes.myprop).to.equal(123);
 
         done();
     }).catch(function(err) {
@@ -49,7 +52,7 @@ describe('LeadService()', function () {
          expect(savedLead.email).to.equal(null);
          expect(savedLead.id_project).to.equal(savedProject._id.toString());
          expect(savedLead.lead_id).to.not.equal(null);
-
+         expect(savedLead.attributes).to.equal(undefined);
         done();
     }).catch(function(err) {
         console.error("test reject", err);
