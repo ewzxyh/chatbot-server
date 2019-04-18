@@ -59,7 +59,7 @@ Example .env.list file
 FIREBASE_APIKEY=123
 FIREBASE_CLIENT_EMAIL=redacted@example.invalid
 FIREBASE_PRIVATE_KEY=[REDACTED_PRIVATE_KEY]\nMXYX
-FIREBASE_PROJECT_ID=chat21-pre-01
+FIREBASE_PROJECT_ID=tiledesk321-pre-01
 DATABASE_URI=mongodb://mongo/test
 
 
