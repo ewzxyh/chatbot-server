@@ -1,4 +1,4 @@
 [submodule "modules"]
 	path = modules
-	url = [REDACTED_BASIC_AUTH_URL]
+	url = https://redacted@example.invalid/andrealeo83/tiledesk-server-modules.git
     branch = master
