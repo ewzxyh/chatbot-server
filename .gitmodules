@@ -1,3 +1,4 @@
 [submodule "modules"]
 	path = modules
 	url = [REDACTED_BASIC_AUTH_URL]
+    branch = master
