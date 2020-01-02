@@ -63,3 +63,8 @@ curl -v -X GET -u redacted@example.invalid:123456 https://api.tiledesk.com/v1/5a
 ```
 curl -v -X GET -u redacted@example.invalid:123456 https://api.tiledesk.com/v1/5ad5bd52c975820014ba900a/analytics/requests/waiting/month
 ```
+
+
+```
+curl -v -X GET -u redacted@example.invalid:123456 https://api.tiledesk.com/v1/5ad5bd52c975820014ba900a/analytics/requests/aggregate/dayoftheweek/hours
+```
