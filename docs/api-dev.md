@@ -4,6 +4,8 @@
 
 ```
 curl -v -X POST -d 'email=redacted@example.invalid&password=123456' http://localhost:3000/auth/signup
+
+curl -v -X POST -d 'email=redacted@example.invalid&password=123456' https://tiledesk-server-pre.herokuapp.com/auth/signup
 ```
 
 
@@ -11,7 +13,51 @@ curl -v -X POST -d 'email=redacted@example.invalid&password=123456' http://local
 
 ```
 curl -v -X POST -d 'email=redacted@example.invalid&password=123456' http://localhost:3000/auth/signin
+
+curl -v -X POST -d 'email=redacted@example.invalid&password=123456' https://tiledesk-server-pre.herokuapp.com/auth/signin
 ```
+
+
+## Signin anonymously
+
+```
+curl -v -X POST -H 'Content-Type:application/json' -d '{"firstname":"Andrew", "lastname":"Lee", "id_project":"123"}' http://localhost:3000/auth/signinAnonymously
+```
+
+curl -v -X POST -H 'Content-Type:application/json' -d '{"id_project":"5e28108c361fbb001729e960"}' https://tiledesk-server-pre.herokuapp.com/auth/signinAnonymously
+
+
+## Signin custom token
+
+
+{
+  "_id": "123456",
+  "firstname": "andrea custom",
+  "lastname": "leo custom",
+  "email": "redacted@example.invalid",
+  "custom1": "val1",
+  "attributes": {"c1":"v1"},
+  "sub": "userexternal",
+  "aud": "https://tiledesk.com/projects/5e28108c361fbb001729e960"
+}
+
+
+custom project secret: REDACTED_SECRET
+
+generato su https://jwt.io/
+
+https://jwt.io/
+
+[REDACTED_JWT]
+
+
+curl -v -X POST -H 'Content-Type:application/json' \
+ -H "Authorization: JWT [REDACTED_JWT]" \
+ https://tiledesk-server-pre.herokuapp.com/auth/signinWithCustomToken
+
+
+
+
 
 
 ## Firebase signin
@@ -44,6 +90,27 @@ curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:1
 ```
 curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"sender":"io", "sender_fullname":"Andrea Leo", "text":"firstText"}' http://localhost:3000/5ca366fdee19dbc72e98e96f/requests/req123456/messages
 ```
+
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"text":"firstText22"}' https://tiledesk-server-pre.herokuapp.com/5df2240cecd41b00173a06bb/requests/support-group-5544/messages
+
+
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:a7de28c6-d309-4539-9749-43dd4535fa7c -d '{"text":"firstText22"}' https://tiledesk-server-pre.herokuapp.com/5df2240cecd41b00173a06bb/requests/support-group-554477991/messages
+
+
+con anonym user
+curl -v -X POST -H 'Content-Type:application/json' \
+ -H "Authorization: JWT [REDACTED_JWT]" \
+ -d '{"text":"firstTextAnon"}' https://tiledesk-server-pre.herokuapp.com/5e28108c361fbb001729e960/requests/support-group-55447799177/messages
+
+con ct user:
+
+curl -v -X POST -H 'Content-Type:application/json' \
+ -H "Authorization: JWT [REDACTED_JWT]" \
+ -d '{"text":"firstTextCT"}' https://tiledesk-server-pre.herokuapp.com/5e28108c361fbb001729e960/requests/support-group-5544779917789/messages
+
+
+
+
 ### Get
 ```
 smessages/5beeb3835d34344cd4962a8c
@@ -56,9 +123,6 @@ smessages/5beeb3835d34344cd4962a8c
 
 ### Create 
 
-```
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"request_id":"request_id", "requester_id":"requester_id", "text":"text"}' http://localhost:3000/5ca366fdee19dbc72e98e96f/requests
-```
 
 
 ### List
