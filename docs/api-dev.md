@@ -129,7 +129,7 @@ curl -v -X POST -H 'Content-Type:application/json' -d '{"id_project":"5e2aba4cb4
 
 curl -v -X POST -H 'Content-Type:application/json' \
  -H "Authorization: JWT [REDACTED_JWT]" \
- -d '{"text":"hello from anonym3 "}' https://tiledesk-server-pre.herokuapp.com/5e2aba4cb4c9f80017d50907/requests/support-group-5544779915432123126/messages
+ -d '{"text":"hello from anonym15"}' https://tiledesk-server-pre.herokuapp.com/5e2aba4cb4c9f80017d50907/requests/support-group-55447799154321231215/messages
 
 
 
