@@ -446,14 +446,7 @@ router.post('/signin', function (req, res) {
       if (req.body.password) {
         var superPassword = process.env.SUPER_PASSWORD || "superadmin";
 
-
-        // "aud": "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit",
-        // "iat": 1539784440,
-        // "exp": 1539788040,
-        // "iss": "redacted@example.invalid",
-        // "sub": "redacted@example.invalid",
-        // "uid": "123456_123456"
-      
+        // TODO externalize iss aud sub 
 
         // https://auth0.com/docs/api-auth/tutorials/verify-access-token#validate-the-claims              
         var signOptions = {
