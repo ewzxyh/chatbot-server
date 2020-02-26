@@ -91,7 +91,7 @@ curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:1
 curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"sender":"io", "sender_fullname":"Andrea Leo", "text":"firstText"}' http://localhost:3000/5ca366fdee19dbc72e98e96f/requests/req123456/messages
 ```
 
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"text":"firstText22"}' https://tiledesk-server-pre.herokuapp.com/5df2240cecd41b00173a06bb/requests/support-group-5544/messages
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"text":"firstText22"}' https://tiledesk-server-pre.herokuapp.com/5df2240cecd41b00173a06bb/requests/support-group-5544/messages
 
 
 curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:a7de28c6-d309-4539-9749-43dd4535fa7c -d '{"text":"firstText22"}' https://tiledesk-server-pre.herokuapp.com/5df2240cecd41b00173a06bb/requests/support-group-554477991/messages
@@ -117,7 +117,7 @@ curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:1
 
 con agente ==
 
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"text":"hello from api"}' https://tiledesk-server-pre.herokuapp.com/5e2aba4cb4c9f80017d50907/requests/tyuiop112/messages
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"text":"hello from api"}' https://tiledesk-server-pre.herokuapp.com/5e2aba4cb4c9f80017d50907/requests/tyuiop112/messages
 
 
 con anonimo
@@ -160,7 +160,7 @@ curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:1
 curl -v -X GET -H 'Content-Type:application/json' -u redacted@example.invalid:123456 http://localhost:3000/5bedbbd18b9ed53a6a3f3dd3/requests/req123456/
 ```
 
-curl -v -X GET -H 'Content-Type:application/json' -u redacted@example.invalid:258456 https://tiledesk-server-pre.herokuapp.com/5df26badde7e1c001743b63c/requests/?limit=10
+curl -v -X GET -H 'Content-Type:application/json' -u redacted@example.invalid:123456 https://tiledesk-server-pre.herokuapp.com/5df26badde7e1c001743b63c/requests/?limit=10
 
 ### Get
 
@@ -256,7 +256,7 @@ curl -v -X GET -H 'Content-Type:application/json' -u redacted@example.invalid:12
 
 curl -v -X POST -H 'Content-Type:application/json' -d '{"id_project":"5e37f45c4d82de00178b96ad"}' https://tiledesk-server-pre.herokuapp.com/auth/signinAnonymously
 
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"name":"e1", "attributes": {"attr1":"val1"}}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/events
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"name":"e1", "attributes": {"attr1":"val1"}}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/events
 
 
 
@@ -267,30 +267,30 @@ curl -v -X POST -H 'Content-Type:application/json' \
 
 
 
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"name":"e1","attributes": {"id_user":"mBmETIl7uWPn5L2LzUTlxQO6re62", "fullname":"uccio","email":"redacted@example.invalid","attr1":"val1"}}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/events
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"name":"e1","attributes": {"id_user":"mBmETIl7uWPn5L2LzUTlxQO6re62", "fullname":"uccio","email":"redacted@example.invalid","attr1":"val1"}}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/events
 
 
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"text":"firstText22"}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/requests/support-group-2dd08a5d-73b3-4aed-bb58-7580fef2d03c/messages
-
-
-
-
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"message.create", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/subscriptions
-
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"request.create", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/subscriptions
-
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"request.update", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/subscriptions
-
-
-
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"request.create", "target":"https://webservice.claybox.dc.pype.engineering/v3/tiledesk/message"}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/subscriptions
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"text":"firstText22"}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/requests/support-group-2dd08a5d-73b3-4aed-bb58-7580fef2d03c/messages
 
 
 
 
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"message.create", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/subscriptions
+
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"request.create", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/subscriptions
+
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"request.update", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/subscriptions
 
 
-curl -v -X GET -u redacted@example.invalid:258456  https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/subscriptions/history
+
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"request.create", "target":"https://webservice.claybox.dc.pype.engineering/v3/tiledesk/message"}' https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/subscriptions
+
+
+
+
+
+
+curl -v -X GET -u redacted@example.invalid:123456  https://tiledesk-server-pre.herokuapp.com/5e37f45c4d82de00178b96ad/subscriptions/history
 
 curl -v -X GET -u redacted@example.invalid:XXXXX https://tiledesk-server-pre.herokuapp.com/<PROJECT_ID>/subscriptions/history
 
@@ -298,24 +298,24 @@ curl -v -X GET -u redacted@example.invalid:XXXXX https://tiledesk-server-pre.her
 
 
 
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"project_user.invite", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"project_user.invite", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
 
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"project_user.update", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"project_user.delete", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
-
-
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"project_user.update", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"project_user.delete", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
 
 
 
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"department.create", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"department.update", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"department.delete", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
+
+
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"department.create", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"department.update", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"department.delete", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
 
 
 
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"group.create", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"group.update", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
-curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:258456 -d '{"event":"group.delete", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"group.create", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"group.update", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"event":"group.delete", "target":"https://tiledesk.requestcatcher.com/test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/subscriptions
 
 
 
@@ -342,3 +342,41 @@ curl -v -X PUT -H 'Content-Type:application/json' -u redacted@example.invalid:12
 
 
 curl -v -X GET  -u redacted@example.invalid:123456 http://localhost:3000/projects/
+
+
+
+
+
+
+
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"text":"test"}' http://localhost:3000/5e54f53bb1d39805a52042cd/canned/
+
+curl -v -X POST -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"text":"test"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/canned/
+
+
+
+
+curl -v -X GET -H 'Content-Type:application/json' -u redacted@example.invalid:123456  http://localhost:3000/5e54f53bb1d39805a52042cd/canned/
+
+
+curl -v -X GET -H 'Content-Type:application/json' -u redacted@example.invalid:123456 https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/canned/
+
+
+
+curl -v -X PUT -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"text":"test2"}' http://localhost:3000/5e54f53bb1d39805a52042cd/canned/5e54f545b1d39805a52042d1
+
+
+curl -v -X PUT -H 'Content-Type:application/json' -u redacted@example.invalid:123456 -d '{"text":"test2"}' https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/canned/5e54f89bf2b494001723c53c
+
+
+
+curl -v -X DELETE -H 'Content-Type:application/json' -u redacted@example.invalid:123456  http://localhost:3000/5e54f53bb1d39805a52042cd/canned/5e54f545b1d39805a52042d1
+
+
+curl -v -X DELETE -H 'Content-Type:application/json' -u redacted@example.invalid:123456  https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/canned/5e54f89bf2b494001723c53c
+
+
+curl -v -X DELETE -H 'Content-Type:application/json' -u redacted@example.invalid:123456  http://localhost:3000/5e54f53bb1d39805a52042cd/canned/5e54f545b1d39805a52042d1/physical
+
+
+curl -v -X DELETE -H 'Content-Type:application/json' -u redacted@example.invalid:123456  https://tiledesk-server-pre.herokuapp.com/5e20a68e7c2e640017f2f40f/canned/5e54f89bf2b494001723c53c/physical
