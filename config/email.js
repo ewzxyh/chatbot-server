@@ -3,5 +3,5 @@ module.exports = {
   'username': 'redacted@example.invalid',
   'from': 'Tiledesk Notification <redacted@example.invalid>',
   'bcc': 'redacted@example.invalid',
-  'baseUrl':'https://console.tiledesk.com/dashboard',
+  'baseUrl':'https://console.tiledesk.com/v2/dashboard',
 };
