@@ -58,7 +58,7 @@ describe('LeadService()', function () {
 
         //  updateWitId(lead_id, fullname, email, id_project) {
 
-         leadService.updateWitId(savedLead.id, "fullname2", "redacted@example.invalid", savedProject._id).then(function(updatedLead) {
+         leadService.updateWitId(savedLead.lead_id, "fullname2", "redacted@example.invalid", savedProject._id).then(function(updatedLead) {
 
           expect(updatedLead.fullname).to.equal("fullname2");
           expect(updatedLead.email).to.equal("redacted@example.invalid");
