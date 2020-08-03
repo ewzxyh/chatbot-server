@@ -5,11 +5,40 @@
 
             <!-- <script type="text/javascript" src="./main.js"></script> -->
 
+            // var ws = new WebSocket('wss://rtm.tiledesk.com/?token=JWT%20[REDACTED_JWT]');
+
             <script>
+                    var ws = new WebSocket('wss://rtm.tiledesk.com/?token=JWT%20[REDACTED_JWT]');                                                                                    
+                                        ws.onopen = function () {
+                                            console.log('websocket is connected2 ...');
+                                            ws.send('{ "action": "subscribe", "payload": { "topic": "/5eb56e211f9e1f0012d6227b/requests"}}');
+                                        }
+            </script>
+
+
+
+
+
+            <script>
+                    var ws = new WebSocket('wss://tiledesk-server-pre.herokuapp.com/?token=JWT%20[REDACTED_JWT]');
+                                    
+                                        ws.onopen = function () {
+                                            console.log('websocket is connected2 ...');
+                                            ws.send('{ "action": "subscribe", "payload": { "topic": "/5ebae6f21aee9b0034511f65/requests"}}');
+                                        }
+            </script>
+
+
+
+
+
+            <script>
+                
                 
                 //var url = 'ws://'+window.location.host+'/?token=JWT [REDACTED_JWT]';
                 //var url = 'ws://'+window.location.host+'/?token=JWT [REDACTED_JWT]';
-                var url = 'ws://'+window.location.host+'/?token=JWT [REDACTED_JWT]';
+                //var url = 'ws://'+window.location.host+'/?token=JWT [REDACTED_JWT]';
+                var url = 'ws://104.198.139.15'+'/?token=JWT%20[REDACTED_JWT]';
                 
 
                 tilebase = new Tilebase(url
