@@ -160,6 +160,9 @@ curl -v -X PUT -u redacted@example.invalid:123456 \
   -F "file=@/Users/andrealeo/dev/chat21/tiledesk-server-dev-org/test.jpg" \
   http://localhost:3000/images/users/photo
 
+  curl -v -X PUT -u redacted@example.invalid:123456 \
+  -F "file=@/Users/andrealeo/Downloads/aa2.jpg" \
+  http://localhost:3000/images/users/photo
 
   curl -v -X PUT -u redacted@example.invalid:258456td \
   -F "file=@/Users/andrealeo/dev/chat21/tiledesk-server-dev-org/test.jpg" \
