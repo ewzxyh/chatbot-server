@@ -3,6 +3,6 @@ module.exports = {
   'username': 'redacted@example.invalid',
   'from': 'Tiledesk Notification <redacted@example.invalid>',
   'bcc': 'redacted@example.invalid',
-  'replyToDomain': 'test.smtp.frontiere21.it',
+  'replyToDomain': 'tickets.com',
   'baseUrl':'https://console.tiledesk.com/v2/dashboard',
 };
