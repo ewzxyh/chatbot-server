@@ -4,5 +4,6 @@ module.exports = {
   'from': 'Tiledesk Notification <redacted@example.invalid>',
   'bcc': 'redacted@example.invalid',
   'baseUrl':'https://console.tiledesk.com/v2/dashboard',
+  'replyEnabled' : false,
   'inboundDomain': 'tickets.tiledesk.com'
 };
