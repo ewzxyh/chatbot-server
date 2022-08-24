@@ -1,19 +1,8 @@
-curl --location --request POST 'https://console.native.tiledesk.com/api/62ea3c58cd9923001a6ccdf3/requests/support-group-62ea3c58cd9923001a6ccdf3-088a9b9d28d3427ea99ab928a7aeb9d4/messages' \
---header 'Authorization: JWT [REDACTED_JWT]' \
---header 'Content-Type: application/json' \
---data-raw '{"text":"Cheers! You said:"}'
 
-curl --location --request POST 'https://console.native.tiledesk.com/api/62ea3c58cd9923001a6ccdf3/requests/support-group-62ea3c58cd9923001a6ccdf3-088a9b9d28d3427ea99ab928a7aeb9d3/messages' \
---header 'Authorization: JWT [REDACTED_JWT]' \
---header 'Content-Type: application/json' \
---data-raw '{"text":"Cheers! You said:"}'
+# 2.3.11 -> PROD
+- Getting ip fix
 
-- ABILITA REOPEN CHAT IN PROD IN PRE C?é GIA ????? VALUTARE VEDI INTERCOM
-https://www.intercom.com/help/en/articles/3449698-prevent-replies-after-you-close-a-conversation
-
-visitor counter fa uscire errore mongo
-
-# # 2.3.10 -> PROD
+# 2.3.10
 - Added tilebot submodule
 - Askbot endpoint fix for tilebot and auto create faqs for tilebot
 - Added /widgets/ip endpoint   
