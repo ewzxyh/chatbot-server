@@ -146,7 +146,7 @@ class AiManager {
 
         return {
           provider,
-          model,
+          name: model,
           url: integration.value.url,
           api_key: REDACTED_SECRET || ""
         }
