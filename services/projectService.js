@@ -12,17 +12,22 @@ var RoleConstants = require("../models/roleConstants");
 
 class ProjectService {
 
-  createAndReturnProjectAndProjectUser(name, createdBy, settings) {
+  createAndReturnProjectAndProjectUser(name, createdBy, settings, profileOverride) {
     return new Promise(function (resolve, reject) {
 
-    
-      var newProject = new Project({
-          name: name,
-          activeOperatingHours: false,
-          settings: settings,
-          createdBy: createdBy,
-          updatedBy: createdBy
-        });
+      var projectData = {
+        name: name,
+        activeOperatingHours: false,
+        settings: settings,
+        createdBy: createdBy,
+        updatedBy: createdBy
+      };
+
+      if (profileOverride) {
+        projectData.profile = profileOverride;
+      }
+
+      var newProject = new Project(projectData);
       
         return newProject.save(function (err, savedProject) {
           if (err) {
@@ -64,10 +69,10 @@ class ProjectService {
 
   }
 
-  create(name, createdBy, settings) {
+  create(name, createdBy, settings, profileOverride) {
     var that = this;
     return new Promise(function (resolve, reject) {
-      return that.createAndReturnProjectAndProjectUser(name, createdBy, settings).then(function(projectAndProjectUser){
+      return that.createAndReturnProjectAndProjectUser(name, createdBy, settings, profileOverride).then(function(projectAndProjectUser){
         return resolve(projectAndProjectUser.project);
       }).catch(function(err){
         return reject(err);
