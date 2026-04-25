@@ -31,6 +31,7 @@ class ModulesManager {
 
     constructor() {       
         this.stripe = undefined;
+        this.casepay = undefined;
         this.graphql = undefined;
         this.elasticIndexer = undefined;      
         this.facebookRoute = undefined;
@@ -81,7 +82,12 @@ class ModulesManager {
 
         if (this.stripe) {
             app.use('/modules/payments/stripe', this.stripe);
-            winston.info("ModulesManager stripe controller loaded");       
+            winston.info("ModulesManager stripe controller loaded");
+        }
+
+        if (this.casepay) {
+            app.use('/modules/payments/casepay', this.casepay);
+            winston.info("ModulesManager casepay controller loaded");
         }
 
 
@@ -146,14 +152,16 @@ class ModulesManager {
 
         try {
             this.stripe = require('../pubmodules/s').stripeRoute;
-            // this.stripe = require('@tiledesk-ent/tiledesk-server-payments').stripeRoute;
             winston.info("ModulesManager stripe initialized");
         } catch(err) {
-        //    if (err.code == 'MODULE_NOT_FOUND') {
-        //        winston.info("ModulesManager init stripe module not found");
-        //    }else {
-                winston.error("ModulesManager error initializing init stripe module", err);
-        //    }   
+            winston.error("ModulesManager error initializing init stripe module", err);
+        }
+
+        try {
+            this.casepay = require('../pubmodules/billing');
+            winston.info("ModulesManager casepay initialized");
+        } catch(err) {
+            winston.error("ModulesManager error initializing casepay module", err);
         } 
 
 

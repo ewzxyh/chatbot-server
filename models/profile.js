@@ -99,6 +99,18 @@ var ProfileSchema = new Schema({
   last_stripe_event:  {
     type: String,
   },
+  mandateId: {
+    type: String,
+  },
+  pendingPlan: {
+    type: String,
+  },
+  paymentProvider: {
+    type: String,
+  },
+  last_payment_at: {
+    type: Date,
+  },
 
 }
 ,{ _id : false });
