@@ -6,6 +6,7 @@ var passport = require('passport');
 var validtoken = require('../../middleware/valid-token');
 var roleChecker = require('../../middleware/has-role');
 
+var User = require('../../models/user');
 var Project = require('../../models/project');
 var SubscriptionPayment = require('./models/subscription-payment');
 var casepay = require('./casepay');
@@ -39,6 +40,15 @@ router.post('/subscribe',
   [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken],
   async function (req, res) {
     try {
+      var userId = req.user._id || req.user.id;
+      var freshUser = await User.findById(userId).select('emailverified').lean();
+      if (!freshUser || !freshUser.emailverified) {
+        return res.status(403).json({
+          error: 'email_not_verified',
+          message: 'Verifique seu email antes de assinar um plano.'
+        });
+      }
+
       const { projectId, planKey } = req.body;
 
       if (!projectId || !planKey) {
