@@ -231,6 +231,8 @@ omit the new arg and default behavior is unchanged."
 **Files:**
 - Modify: `C:\Users\enzo\tiledesk-server\routes\project.js`
 
+**Note:** The original handler called `projectService.create(req.body.name, req.user.id, undefined, req.body.defaultLanguage)`. The 4th arg was already silently dropped by the old 3-arg `create()` signature, so replacing it with `profileOverride` is semantically a no-op for `defaultLanguage`. If `defaultLanguage` support is needed later, it should be added as a 5th arg or merged into `settings`.
+
 - [ ] **Step 1: Import getPlan helper**
 
 In `routes/project.js`, add near the top imports (around line 27):
@@ -339,7 +341,10 @@ var { getPlan } = require('../pubmodules/billing/plans');
 
 module.exports = function trialExpiration(req, res, next) {
   if (!req.project) return next();
-  if (!req.user) return next(); // skip webhooks/unauthenticated routes
+  // Skip webhooks/unauthenticated routes — only run when JWT was decoded.
+  // NOTE: req.user is NOT set here; passport.authenticate runs per-route AFTER
+  // this middleware chain. We use req.preDecodedJwt set by IPFilter.decodeJwt.
+  if (!req.preDecodedJwt) return next();
   if (req.project.profile.type === 'payment') return next();
   if (!req.project.trialExpired) return next();
 
@@ -375,7 +380,9 @@ module.exports = function trialExpiration(req, res, next) {
 };
 ```
 
-The `!req.user` check skips webhooks (Telegram, Facebook, etc.) and other unauthenticated `/:projectid/*` routes. Trial enforcement only triggers when a real user makes a request.
+The `!req.preDecodedJwt` check skips webhooks (Telegram, Facebook, etc.) and other unauthenticated `/:projectid/*` routes. Trial enforcement only triggers when a real user makes a request.
+
+**Why not `req.user`?** At the global `app.use('/:projectid/', ...)` mount point, `req.user` has not been set yet — `passport.authenticate(...)` runs PER ROUTE, after this middleware chain. `IPFilter.decodeJwt` (which we register before our middleware) decodes the JWT and stores it as `req.preDecodedJwt`, which is what we check.
 
 - [ ] **Step 2: Sanity check on TRIAL_MODE_ENABLED**
 
@@ -1428,12 +1435,16 @@ export class OnboardingChecklistComponent implements OnInit, OnDestroy {
     var saved = localStorage.getItem(storageKey);
     var completedIds: string[] = saved ? (JSON.parse(saved).completed || []) : [];
 
+    // NOTE: route paths verified against app.routing.ts:
+    // - widget-set-up uses hyphen (line 699)
+    // - cds requires :faqkbid param (line 305) — link to faqkb listing or home until we resolve
+    // - teammates does not exist; users is the actual route (line 832)
     this.items = [
       { id: 'whatsapp', label: 'Conectar WhatsApp', route: '/project/' + this.projectId + '/integrations?name=whatsapp', icon: 'chat', completed: completedIds.indexOf('whatsapp') > -1 },
-      { id: 'flow', label: 'Criar primeiro fluxo', route: '/project/' + this.projectId + '/cds/chatbot-design-studio', icon: 'account_tree', completed: completedIds.indexOf('flow') > -1 },
-      { id: 'welcome', label: 'Personalizar boas-vindas', route: '/project/' + this.projectId + '/widget/set-up', icon: 'waving_hand', completed: completedIds.indexOf('welcome') > -1 },
+      { id: 'flow', label: 'Criar primeiro fluxo', route: '/project/' + this.projectId + '/bots/my-chatbots/all', icon: 'account_tree', completed: completedIds.indexOf('flow') > -1 },
+      { id: 'welcome', label: 'Personalizar boas-vindas', route: '/project/' + this.projectId + '/widget-set-up', icon: 'waving_hand', completed: completedIds.indexOf('welcome') > -1 },
       { id: 'hours', label: 'Definir horário de atendimento', route: '/project/' + this.projectId + '/hours', icon: 'schedule', completed: completedIds.indexOf('hours') > -1 },
-      { id: 'agent', label: 'Convidar um agente', route: '/project/' + this.projectId + '/project-settings/teammates', icon: 'person_add', completed: completedIds.indexOf('agent') > -1 }
+      { id: 'agent', label: 'Convidar um agente', route: '/project/' + this.projectId + '/users', icon: 'person_add', completed: completedIds.indexOf('agent') > -1 }
     ];
 
     this.completedCount = this.items.filter(i => i.completed).length;
@@ -1642,13 +1653,14 @@ This now works because Task 11 added `public user: any` to app.component.
 
 - [ ] **Step 6: Verify checklist routes exist**
 
-Each `route` in items must point to a real route. Verify:
+The 5 routes used (already verified during plan write):
+- `/project/:projectid/integrations` — line 1028 of app.routing.ts
+- `/project/:projectid/bots/my-chatbots/all` — line 1318
+- `/project/:projectid/widget-set-up` — line 699
+- `/project/:projectid/hours` — line 971
+- `/project/:projectid/users` — line 832
 
-```bash
-grep -E "integrations|cds/chatbot-design-studio|widget/set-up|hours|project-settings/teammates" "C:/Users/enzo/tiledesk-dashboard/src/app/app.routing.ts"
-```
-
-Or test by clicking each item in the running dashboard. If any 404s, update the route in the items array.
+Test by clicking each item in the running dashboard. If any 404s, update the route in the items array.
 
 - [ ] **Step 7: Test in browser**
 
