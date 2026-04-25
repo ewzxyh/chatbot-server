@@ -24,6 +24,7 @@ var cacheUtil = require('../utils/cacheUtil');
 var orgUtil = require("../utils/orgUtil");
 var cacheEnabler = require("../services/cacheEnabler");
 var mongoose = require('mongoose');
+var { getPlan } = require('../pubmodules/billing/plans');
 
 var jwt = require('jsonwebtoken');
 // CHECK IT ASAP!!!!
@@ -44,12 +45,26 @@ if (pubKey) {
 
 
 router.post('/', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken], async (req, res) => {
-  
-  // create(name, createdBy, settings) 
-  return projectService.create(req.body.name, req.user.id, undefined, req.body.defaultLanguage).then(function(savedProject) {
-      res.json(savedProject);
+
+  var profileOverride;
+  if (req.body.source === 'signup') {
+    var proPlan = getPlan('pro');
+    profileOverride = {
+      name: proPlan.name,
+      type: 'free',
+      trialDays: 14,
+      agents: proPlan.agents,
+      quotes: proPlan.quotes,
+      customization: proPlan.customization
+    };
+  }
+
+  return projectService.create(req.body.name, req.user.id, undefined, profileOverride).then(function (savedProject) {
+    res.json(savedProject);
+  }).catch(function (err) {
+    winston.error('Error creating project: ', err);
+    res.status(500).json({ success: false, error: 'Failed to create project' });
   });
-  
 });
 
 // DOWNGRADE PLAN. UNUSED
