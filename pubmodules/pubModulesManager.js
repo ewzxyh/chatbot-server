@@ -372,7 +372,7 @@ class PubModulesManager {
             }
         }
 
-        if (process.env.VOICE_TWILIO_TOKEN === process.env.VOICE_TWILIO_SECRET) {
+        if (process.env.VOICE_TWILIO_TOKEN && process.env.VOICE_TWILIO_SECRET && process.env.VOICE_TWILIO_TOKEN === process.env.VOICE_TWILIO_SECRET) {
             try {
                 this.voiceTwilio = require('./voice-twilio');
                 winston.info("this.voiceTwilio: " + this.voiceTwilio);
