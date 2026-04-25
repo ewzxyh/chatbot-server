@@ -1,133 +1,198 @@
 # Onboarding Flow — ChatCase SaaS
 
-## Overview
+## Visão Geral
 
-Public signup and onboarding flow for ChatCase (chatcase.com.br), built on top of Tiledesk's existing Angular dashboard. Users sign up, verify email, name their workspace, and land in the dashboard with a guided checklist.
+Fluxo de signup público e onboarding para o ChatCase (chatcase.com.br), construído sobre o dashboard Angular existente do Tiledesk. O usuário se cadastra, verifica o email, nomeia seu workspace e entra no dashboard com um checklist guiado.
 
-## User Flow
+## Pré-requisitos
+
+- SMTP configurado no docker-compose (`EMAIL_ENABLED=true`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_FROM_ADDRESS`)
+- `TRIAL_MODE_ENABLED=true` no server
+- `COMMUNITY_VERSION=false` e `QUOTES_ENABLED=true`
+- Fix do índice `phone_1` aplicado (ver seção abaixo)
+
+## Fluxo do Usuário
 
 ```
 chatcase.com.br → "Criar conta grátis"
   → /dashboard/#/signup (branding ChatCase)
   → Preenche: nome, email, senha
+  → Auto-login (autenticado, email NÃO verificado)
   → Redirect para /verify-email
   → Tela "Verifique seu email" (campo código + botão reenviar)
-  → Clica no link ou digita código → email verificado
+  → Digita código ou clica link no email → email verificado
   → Redirect para /workspace-name
-  → Digita nome da empresa → projeto criado (Free + trial 14 dias)
-  → Redirect para /dashboard com checklist flutuante
+  → Digita nome da empresa → projeto criado (plano Pro trial 14 dias)
+  → Redirect para /project/:id/home com checklist flutuante
 ```
 
-## Decisions
+### Fluxos alternativos
 
-- **Signup location:** Dentro do dashboard Angular existente (opção A), com branding ChatCase via brand.json
-- **Email verification:** Obrigatória antes de criar workspace (previne abuso de trial com contas falsas)
+- **Email já cadastrado:** Signup retorna erro → dashboard mostra "Email já cadastrado" com link para `/signin`
+- **Email errado no signup:** Tela verify-email mostra link "Usou o email errado? Cadastre-se novamente" → volta para `/signup`
+- **Acesso direto a /workspace-name com projeto existente:** Guard redireciona para `/projects`
+- **Acesso direto a /verify-email sem login:** Guard redireciona para `/signup`
+
+## Decisões
+
+- **Signup:** Dentro do dashboard Angular existente, com branding ChatCase via brand.json
+- **Verificação de email:** Obrigatória antes de criar workspace (previne abuso de trial com contas falsas)
 - **Workspace name:** Solicitado ao usuário (não derivado do email)
-- **Post-signup experience:** Checklist flutuante no canto inferior direito (não wizard bloqueante)
-- **Trial expiration (dia 14):** Downgrade automático para plano Free (continua usando com limites reduzidos)
-- **Billing gate:** Verificação de email obrigatória antes de poder assinar plano pago via CasePay
+- **Plano do trial:** Pro por 14 dias (usuário experimenta todas as features premium)
+- **Trial expirado:** Downgrade automático para Free (continua usando com limites reduzidos: 1 agente, 2 chatbots, sem WhatsApp)
+- **Post-signup:** Checklist flutuante no canto inferior direito (não wizard bloqueante)
+- **Gate de billing:** Verificação de email obrigatória antes de assinar plano pago via CasePay
 
 ## Checklist Items
 
-1. Verificar email
-2. Conectar WhatsApp
-3. Criar primeiro fluxo de atendimento
-4. Personalizar mensagem de boas-vindas
-5. Definir horário de atendimento
-6. Convidar um agente
+1. Conectar WhatsApp
+2. Criar primeiro fluxo de atendimento
+3. Personalizar mensagem de boas-vindas
+4. Definir horário de atendimento
+5. Convidar um agente
 
-Each item links directly to the corresponding dashboard page. Progress persisted in localStorage. Dismissible/minimizable.
+Cada item linka direto para a página correspondente no dashboard. Progresso persistido em localStorage por project ID. Minimizável e dispensável. Condição de exibição: projeto com menos de 30 dias E nem todos os itens completos E não dispensado.
 
-## Server Changes (tiledesk-server)
+## Mudanças no Server (tiledesk-server)
 
-### Fix phone_1 index bug
+### Fix permanente do índice phone_1
 
-Location: `app.js` (boot sequence)
+Local: `app.js` (sequência de boot)
 
-On server startup, before accepting connections:
+No startup do server, antes de aceitar conexões:
+
 ```javascript
-db.users.dropIndex("phone_1")
-db.users.createIndex({ phone: 1 }, { unique: true, sparse: true })
+const db = mongoose.connection.db;
+try {
+  await db.collection('users').dropIndex('phone_1');
+} catch (e) {}
+await db.collection('users').createIndex(
+  { phone: 1 },
+  { unique: true, sparse: true }
+);
 ```
 
-This permanently fixes the bug where only one user can register without a phone number.
+Resolve permanentemente o bug onde apenas um usuário consegue se registrar sem telefone. O `sparse: true` faz o MongoDB ignorar documentos onde `phone` é null.
 
-### Trial expiration middleware
+### Middleware de trial expiration
 
-Location: middleware chain after `projectSetter`
+Local: middleware chain após `projectSetter`
 
-On every project-scoped request, check `req.project.trialExpired`. If `true` and `profile.type !== 'payment'`, lazily downgrade the project profile to Free plan limits. No cron job needed — happens on first request after expiration.
+Em toda request com escopo de projeto, checar `req.project.trialExpired`. Se expirado e não é assinante, fazer downgrade atômico para Free.
 
-```
+```javascript
 if (project.trialExpired && project.profile.type !== 'payment') {
-  → update project.profile with Free plan from plans.js
+  await Project.findOneAndUpdate(
+    {
+      _id: project._id,
+      'profile.type': { $ne: 'payment' },
+    },
+    {
+      $set: {
+        'profile.name': freePlan.name,
+        'profile.type': freePlan.type,
+        'profile.agents': freePlan.agents,
+        'profile.quotes': freePlan.quotes,
+        'profile.customization': freePlan.customization,
+      }
+    }
+  );
 }
 ```
 
-### Email verification gate on billing
+O `findOneAndUpdate` com condição garante atomicidade — requests concorrentes não causam race condition. Sem necessidade de cron job.
 
-Location: `pubmodules/billing/index.js` — POST `/subscribe`
+### Gate de verificação de email no billing
 
-Before creating a CasePay mandate, check `req.user.emailverified`. If `false`, return `403 { error: "email_not_verified" }`.
+Local: `pubmodules/billing/index.js` — `POST /subscribe`
 
-## Dashboard Changes (tiledesk-dashboard)
+Antes de criar mandato no CasePay, checar `req.user.emailverified`. Se `false`, retornar:
 
-### brand.json updates
+```json
+{ "status": 403, "error": "email_not_verified" }
+```
 
-- Logo: ChatCase logo
-- Colors: ChatCase brand colors
-- Privacy/terms links: chatcase.com.br URLs
-- Hide Google Auth button (if not needed)
+### Criação de projeto com plano Pro trial
 
-### Modify: signup.component
+Local: lógica de criação de projeto (quando vem do onboarding)
 
-- Apply ChatCase branding
-- After successful signup: redirect to `/verify-email` instead of auto-login
-- Do NOT auto-create project (remove the existing `createNewProject()` call)
+O projeto criado via onboarding deve receber o plano Pro com trial de 14 dias:
 
-### New: verify-email component
+```javascript
+profile: {
+  name: 'Pro',
+  type: 'free',
+  trialDays: 14,
+  agents: getPlan('pro').agents,
+  quotes: getPlan('pro').quotes,
+  customization: getPlan('pro').customization
+}
+```
 
-Route: `/verify-email`
+O `type: 'free'` combinado com features do Pro é o que ativa a lógica de trial. O `trialExpired` virtual field conta 14 dias a partir de `createdAt`. Quando expira, o middleware faz downgrade para Free.
 
-- Shows: "Enviamos um código para redacted@example.invalid"
-- Input field for verification code
-- "Reenviar email" button (calls existing resend endpoint)
-- On success: auto-login + redirect to `/workspace-name`
+## Mudanças no Dashboard (tiledesk-dashboard)
 
-### New: workspace-name component
+### brand.json
 
-Route: `/workspace-name`
+- Logo: ChatCase
+- Cores: paleta ChatCase
+- Links de privacidade/termos: chatcase.com.br
+- `display_google_auth_btn`: definir conforme necessidade
 
-Guard: requires authenticated user with verified email.
+### Modificar: signup.component
 
-- Shows: single input "Como se chama sua empresa?"
-- Button: "Criar workspace"
-- Calls `projectService.createProject(name, 'signup')`
-- On success: redirect to `/project/:id/home`
+- Aplicar branding ChatCase
+- Após signup bem-sucedido: auto-login (já existe) + redirect para `/verify-email`
+- Remover chamada `createNewProject()` do fluxo de signup
+- Tratar erro "Email already registered": mostrar mensagem com link para `/signin`
 
-### New: onboarding-checklist component
+### Novo: verify-email component
 
-Injected in the main dashboard layout for new projects.
+Rota: `/verify-email`
+Guard: autenticado + email NÃO verificado. Se não autenticado → `/signup`. Se já verificado → `/workspace-name`.
 
-- Fixed overlay, bottom-right corner
-- 6 checklist items with direct links
-- Visual progress bar (e.g., "2 de 6 completos")
-- Close/minimize button
-- State persisted in localStorage keyed by project ID
-- Show condition: project age < 30 days AND not all items completed AND not dismissed
+- Mostra: "Enviamos um código para {email do usuário logado}"
+- Campo input para código de verificação
+- Botão "Reenviar email" (chama endpoint existente de reenvio)
+- Link "Usou o email errado? Cadastre-se novamente" → `/signup`
+- Ao verificar com sucesso: atualiza estado do user → redirect para `/workspace-name`
 
-### Routing changes (app.routing.ts)
+O email é obtido via `auth.user_bs` (usuário já está logado via auto-login do signup).
 
-Add routes:
-- `/verify-email` → VerifyEmailComponent (no auth guard)
-- `/workspace-name` → WorkspaceNameComponent (auth guard + email verified guard)
+### Novo: workspace-name component
 
-Modify existing post-signup redirect logic in `signup.component.ts` to go to `/verify-email`.
+Rota: `/workspace-name`
+Guard: autenticado + email verificado + sem projetos. Se já tem projeto → `/projects`.
 
-## Out of Scope
+- Mostra: campo "Como se chama sua empresa?"
+- Botão: "Criar workspace"
+- Chama `projectService.createProject(name, 'signup')`
+- Ao criar com sucesso: redirect para `/project/:id/home`
 
-- Pricing page in dashboard (separate task)
-- Transactional emails beyond verification (welcome, trial expiring, etc.)
+### Novo: onboarding-checklist component
+
+Injetado no layout principal do dashboard para projetos novos.
+
+- Overlay fixo, canto inferior direito
+- 5 itens do checklist com links diretos para cada configuração
+- Barra de progresso visual (ex: "2 de 5 completos")
+- Botão fechar/minimizar
+- Estado persistido em localStorage com chave `checklist_{projectId}`
+- Condição de exibição: `project.createdAt` < 30 dias atrás E nem todos completos E não dispensado
+
+### Mudanças no routing (app.routing.ts)
+
+Adicionar rotas:
+- `/verify-email` → VerifyEmailComponent (guard: autenticado + não verificado)
+- `/workspace-name` → WorkspaceNameComponent (guard: autenticado + verificado + sem projetos)
+
+Modificar lógica pós-signup em `signup.component.ts` para redirecionar para `/verify-email`.
+
+## Fora de Escopo
+
+- Pricing page no dashboard (tarefa separada)
+- Emails transacionais além da verificação (boas-vindas, trial expirando)
 - Super-admin panel
-- Landing page changes on chatcase.com.br
-- Email template customization
+- Mudanças na landing page chatcase.com.br
+- Customização de templates de email
