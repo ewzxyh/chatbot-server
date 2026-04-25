@@ -81,7 +81,28 @@ if (process.env.MONGOOSE_DEBUG==="true") {
 }
 mongoose.set('useFindAndModify', false); // https://mongoosejs.com/docs/deprecations.html#-findandmodify-
 mongoose.set('useCreateIndex', true);
-//mongoose.set('useUnifiedTopology', false); 
+//mongoose.set('useUnifiedTopology', false);
+
+mongoose.connection.once('open', async function() {
+  try {
+    var usersCollection = mongoose.connection.db.collection('users');
+    var indexes = await usersCollection.indexes();
+    var phoneIndex = indexes.find(function(idx) { return idx.name === 'phone_1'; });
+
+    if (phoneIndex && !phoneIndex.sparse) {
+      await usersCollection.dropIndex('phone_1');
+      await usersCollection.createIndex({ phone: 1 }, { unique: true, sparse: true });
+      winston.info('phone_1 index recreated as sparse');
+    } else if (!phoneIndex) {
+      await usersCollection.createIndex({ phone: 1 }, { unique: true, sparse: true });
+      winston.info('phone_1 sparse index created');
+    } else {
+      winston.debug('phone_1 already sparse, skipping fix');
+    }
+  } catch (err) {
+    winston.warn('phone_1 index fix error: ' + err.message);
+  }
+});
 
 // CONNECT REDIS - CHECK IT
 const { TdCache } = require('./utils/TdCache');
