@@ -239,6 +239,7 @@ var channelManager = require('./channels/channelManager');
 channelManager.listen(); 
 
 var IPFilter = require('./middleware/ipFilter');
+var trialExpiration = require('./middleware/trial-expiration');
 
 // job_here
 var BanUserNotifier = require('./services/banUserNotifier');
@@ -581,7 +582,7 @@ if (modulesManager) {
   modulesManager.use(app);
 }
 
-app.use('/:projectid/', [projectIdSetter, projectSetter, IPFilter.projectIpFilter, IPFilter.projectIpFilterDeny, IPFilter.decodeJwt, IPFilter.projectBanUserFilter]);
+app.use('/:projectid/', [projectIdSetter, projectSetter, IPFilter.projectIpFilter, IPFilter.projectIpFilterDeny, IPFilter.decodeJwt, trialExpiration, IPFilter.projectBanUserFilter]);
 
 
 app.use('/:projectid/authtestWithRoleCheck', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken], authtestWithRoleCheck);
