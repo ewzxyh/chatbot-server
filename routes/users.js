@@ -175,7 +175,7 @@ router.get('/resendverifyemail', function (req, res) {
   let user = req.user;
   try {
     // TODO req.user.email is null for bot visitor
-    let verify_email_code = uniqid();
+    let verify_email_code = String(Math.floor(100000 + Math.random() * 900000));
     let redis_client = req.app.get('redis_client');
     let key = "emailverify:verify-" + verify_email_code;
     let obj = { _id: user._id, email: user.email}

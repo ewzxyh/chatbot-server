@@ -106,7 +106,7 @@ router.post('/signup',
         if (!req.body.disableEmail){
           if (!skipVerificationEmail) {
 
-            let verify_email_code = uniqid();
+            let verify_email_code = String(Math.floor(100000 + Math.random() * 900000));
             winston.verbose("(Auth) verify_email_code: ", verify_email_code);
 
             let redis_client = req.app.get('redis_client');
