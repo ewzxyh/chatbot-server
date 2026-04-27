@@ -6,6 +6,7 @@ const cacheEnabler = require('../services/cacheEnabler');
 var cacheUtil = require('../utils/cacheUtil');
 const integrationEvent = require('../event/integrationEvent');
 
+const PLATFORM_CHANNELS = ['whatsapp', 'telegram', 'messenger', 'sms', 'voice', 'voice_twilio'];
 
 // Get all integration for a project id 
 router.get('/', async (req, res) => {
@@ -82,6 +83,26 @@ router.post('/', async (req, res) => {
     let id_project = req.projectid;
     winston.debug("Add new integration ", req.body);
 
+    if (PLATFORM_CHANNELS.includes(req.body.name)) {
+        try {
+            let existing = await Integration.findOne({ id_project: id_project, name: req.body.name });
+            if (!existing) {
+                let platformsCount = await Integration.countDocuments({ id_project: id_project, name: { $in: PLATFORM_CHANNELS } });
+                let platformsLimit = (req.project && req.project.profile && req.project.profile.quotes && req.project.profile.quotes.platforms) || 1;
+                if (platformsCount >= platformsLimit) {
+                    return res.status(403).json({
+                        error: 'platforms_limit_reached',
+                        message: 'Platform limit reached for your plan',
+                        limit: platformsLimit,
+                        current: platformsCount
+                    });
+                }
+            }
+        } catch (quotaErr) {
+            winston.error("Error checking platforms quota", quotaErr);
+            return res.status(500).json({ error: 'Error checking platform quota' });
+        }
+    }
 
     let newIntegration = {
         id_project: id_project,

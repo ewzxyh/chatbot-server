@@ -7,6 +7,9 @@ var winston = require('../config/winston');
 var cacheUtil = require('../utils/cacheUtil');
 var cacheEnabler = require("../services/cacheEnabler");
 var phoneUtil = require('../utils/phoneUtil');
+var Project = require("../models/project");
+var LeadConstants = require("../models/leadConstants");
+var { getPlan } = require('../pubmodules/billing/plans');
 
 
 class LeadService {
@@ -113,6 +116,7 @@ class LeadService {
   }
 
   updateWitId(lead_id, fullname, email, id_project, status, phone) {
+    var that = this;
     winston.debug("updateWitId lead_id: "+ lead_id);
     winston.debug("fullname: "+ fullname);
     winston.debug("email: "+ email);
@@ -145,12 +149,18 @@ class LeadService {
         leadEvent.emit('lead.email.update', updatedLead);
         leadEvent.emit('lead.fullname.update', updatedLead);
         leadEvent.emit('lead.fullname.email.update', updatedLead);
+        that.checkContactsQuota(id_project).then(function(quota) {
+          if (!quota.allowed) {
+            leadEvent.emit('lead.quota.exceeded', { projectId: id_project, current: quota.current, limit: quota.limit });
+          }
+        }).catch(function() {});
         return resolve(updatedLead);
       });
     });
   }
 
   createWitId(lead_id, fullname, email, id_project, createdBy, attributes, status, phone) {
+    var that = this;
 
     if (!createdBy) {
       createdBy = "system";
@@ -182,11 +192,47 @@ class LeadService {
               winston.verbose('Lead created ', newLead.toJSON());
 
               leadEvent.emit('lead.create', newLead);
+              that.checkContactsQuota(id_project).then(function(quota) {
+                if (!quota.allowed) {
+                  leadEvent.emit('lead.quota.exceeded', { projectId: id_project, current: quota.current, limit: quota.limit });
+                }
+              }).catch(function() {});
               return resolve(savedLead);
             });
         });
 
 
+  }
+
+  async checkContactsQuota(id_project) {
+    try {
+      var project = await Project.findById(id_project).select('profile').lean();
+      if (!project || !project.profile) {
+        return { allowed: true, current: 0, limit: 0 };
+      }
+
+      var plan = getPlan(project.profile.name || 'free');
+      var limit = (project.profile.quotes && project.profile.quotes.contacts) || plan.quotes.contacts || 200;
+      var current = await Lead.countDocuments({ id_project: id_project, status: LeadConstants.NORMAL });
+
+      var percent = limit > 0 ? Math.round((current / limit) * 100) : 0;
+      var allowed = current < limit;
+
+      var thresholds = [100, 95, 75, 50];
+      for (var i = 0; i < thresholds.length; i++) {
+        if (percent >= thresholds[i]) {
+          if (leadEvent) {
+            leadEvent.emit('lead.quota.threshold', { projectId: id_project, percent: percent, threshold: thresholds[i], current: current, limit: limit });
+          }
+          break;
+        }
+      }
+
+      return { allowed: allowed, current: current, limit: limit, percent: percent };
+    } catch (err) {
+      winston.error('checkContactsQuota error', err);
+      return { allowed: true, current: 0, limit: 0 };
+    }
   }
 
 }

@@ -154,6 +154,7 @@ var unanswered = require('./routes/unanswered');
 var answered = require('./routes/answered');
 
 // var admin = require('./routes/admin');
+var sadmin = require('./routes/sadmin');
 var faqpub = require('./routes/faqpub');
 var labels = require('./routes/labels');
 var fetchLabels = require('./middleware/fetchLabels');
@@ -571,6 +572,8 @@ if (process.env.DISABLE_TRANSCRIPT_VIEW_PAGE ) {
 
 // project internal auth check. TODO check security issues?
 app.use('/projects',project);
+
+app.use('/sadmin', sadmin);
 
 channelManager.use(app);
 

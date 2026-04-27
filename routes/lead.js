@@ -11,14 +11,28 @@ var Segment = require("../models/segment");
 var Segment2MongoConverter = require("../utils/segment2mongoConverter");
 
 
-router.post('/', function (req, res) {
+router.post('/', async function (req, res) {
 
   winston.debug(req.body);
   winston.debug("req.user", req.user);
 
-  leadService.createWitId(req.body.lead_id, req.body.fullname, req.body.email, req.projectid, req.user.id, req.body.attributes).then(function(savedLead) {
+  try {
+    var quota = await leadService.checkContactsQuota(req.projectid);
+    if (!quota.allowed) {
+      return res.status(403).json({
+        error: 'contacts_limit_reached',
+        message: 'Contact limit reached for your plan',
+        limit: quota.limit,
+        current: quota.current
+      });
+    }
+
+    var savedLead = await leadService.createWitId(req.body.lead_id, req.body.fullname, req.body.email, req.projectid, req.user.id, req.body.attributes, undefined, req.body.phone);
     res.json(savedLead);
-  })
+  } catch (err) {
+    winston.error('Error creating lead', err);
+    res.status(500).json({ error: 'Error creating lead' });
+  }
 
 });
 

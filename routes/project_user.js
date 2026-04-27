@@ -19,7 +19,7 @@ var roleChecker = require('../middleware/has-role');
 const puEvent = require('../event/projectUserEvent');
 
 
-router.post('/invite', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, roleChecker.hasRole('admin')], function (req, res) {
+router.post('/invite', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, roleChecker.hasRole('admin')], async function (req, res) {
 
   winston.debug('Invite ProjectUser body ', req.body);
 
@@ -30,7 +30,23 @@ router.post('/invite', [passport.authenticate(['basic', 'jwt'], { session: false
   }
 
   winston.debug('Invite ProjectUser with email ' + email + ' on project ' + req.projectid);
-  
+
+  try {
+    var agentsLimit = (req.project && req.project.profile && req.project.profile.agents) || 1;
+    var activeCount = await Project_user.countDocuments({ id_project: req.projectid, status: 'active' });
+    if (activeCount >= agentsLimit) {
+      return res.status(403).json({
+        error: 'members_limit_reached',
+        message: 'Member limit reached for your plan',
+        limit: agentsLimit,
+        current: activeCount
+      });
+    }
+  } catch (quotaErr) {
+    winston.error("Error checking members quota", quotaErr);
+    return res.status(500).json({ error: 'Error checking member quota' });
+  }
+
   User.findOne({ email: email, status: 100 }, (err, user) => {
     
     if (err) {
@@ -422,6 +438,10 @@ router.get('/me', [passport.authenticate(['basic', 'jwt'], { session: false }), 
     return res.status(404).send({ success: false, msg: 'Project not found.' });
   }
   var project_user = req.projectuser;
+
+  if (!project_user) {
+    return res.status(403).send({ success: false, msg: 'Project user not found.' });
+  }
 
   var pu = project_user.toJSON();
    

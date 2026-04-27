@@ -195,8 +195,14 @@ class RoleChecker {
             winston.debug("checkRes: " + checkRes);
 
             if (checkRes) {
-             return next();
-            }            
+              if (!req.projectuser) {
+                try {
+                  var pu = await projectUserService.getWithPermissions(req.user._id, projectid, req.user.sub);
+                  if (pu) { req.projectuser = pu; }
+                } catch(e) { winston.debug("hasRoleOrTypes admin bypass: could not load projectuser", e); }
+              }
+              return next();
+            }
             // return that.isType(type)(req,res,next);
             // console.log("typers",typers);
           }

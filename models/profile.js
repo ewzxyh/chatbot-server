@@ -111,6 +111,10 @@ var ProfileSchema = new Schema({
   last_payment_at: {
     type: Date,
   },
+  billingPeriod: {
+    type: String,
+    enum: ['monthly', 'annual'],
+  },
 
 }
 ,{ _id : false });

@@ -10,6 +10,10 @@ var User = require('../../models/user');
 var Project = require('../../models/project');
 var SubscriptionPayment = require('./models/subscription-payment');
 var casepay = require('./casepay');
+var Lead = require('../../models/lead');
+var LeadConstants = require('../../models/leadConstants');
+var Integration = require('../../models/integrations');
+var Project_user = require('../../models/project_user');
 
 const WEBHOOK_SECRET = process.env.CASEPAY_WEBHOOK_SECRET;
 
@@ -29,6 +33,8 @@ function verifyWebhookSignature(req) {
   return signature === expected;
 }
 var { getPlan, getAllPlans } = require('./plans');
+
+const CHANNEL_NAMES = ['whatsapp', 'telegram', 'messenger', 'sms', 'voice', 'voice_twilio'];
 
 // GET /modules/payments/casepay/plans
 router.get('/plans', function (req, res) {
@@ -50,24 +56,14 @@ router.post('/subscribe',
       }
 
       const { projectId, planKey } = req.body;
+      const billingPeriod = req.body.billingPeriod === 'annual' ? 'annual' : 'monthly';
 
       if (!projectId || !planKey) {
         return res.status(400).json({ error: 'projectId and planKey are required' });
       }
 
       const plan = getPlan(planKey);
-      if (!plan) {
-        return res.status(400).json({ error: 'Invalid plan' });
-      }
-
-      const PLAN_PRICES = {
-        starter: 97.00,
-        pro: 197.00,
-        business: 497.00
-      };
-
-      const amount = PLAN_PRICES[planKey.toLowerCase()];
-      if (!amount) {
+      if (!plan || plan.type === 'free') {
         return res.status(400).json({ error: 'Free plan does not require payment' });
       }
 
@@ -76,10 +72,45 @@ router.post('/subscribe',
         return res.status(404).json({ error: 'Project not found' });
       }
 
+      var projectUser = await Project_user.findOne({ id_project: projectId, id_user: userId, status: 'active' });
+      if (!projectUser || (projectUser.role !== 'owner' && projectUser.role !== 'admin')) {
+        return res.status(403).json({ error: 'Not authorized to manage billing for this project' });
+      }
+
+      // Idempotency: if a pending mandate already exists for this project, return it
+      if (project.profile.pendingPlan && project.profile.mandateId) {
+        try {
+          const existing = await casepay.getMandate(project.profile.mandateId);
+          if (existing.authorize_url) {
+            return res.json({
+              mandateId: project.profile.mandateId,
+              authorizeUrl: existing.authorize_url,
+              status: existing.status
+            });
+          }
+        } catch (e) {
+          winston.warn(`CasePay: failed to fetch pending mandate ${project.profile.mandateId}, creating new one`);
+        }
+      }
+
+      // Upgrade flow: cancel old mandate before creating a new one
+      if (project.profile.mandateId && !project.profile.pendingPlan) {
+        try {
+          await casepay.cancelMandate(project.profile.mandateId);
+          winston.info(`CasePay: canceled old mandate ${project.profile.mandateId} for upgrade`);
+        } catch (e) {
+          winston.warn(`CasePay: failed to cancel old mandate ${project.profile.mandateId}`, e);
+        }
+      }
+
+      const amount = billingPeriod === 'annual' ? plan.annualPrice : plan.monthlyPrice;
+      const interval = billingPeriod === 'annual' ? 'YEARLY' : 'MONTHLY';
+
       const mandate = await casepay.createMandate({
-        planName: plan.name,
+        planName: plan.displayName || plan.name,
         amount,
-        description: `${plan.name} - ${project.name}`
+        interval,
+        description: `${plan.displayName || plan.name} - ${project.name}`
       });
 
       const mandateId = mandate.mandate_id;
@@ -88,7 +119,9 @@ router.post('/subscribe',
       await Project.findByIdAndUpdate(projectId, {
         'profile.mandateId': mandateId,
         'profile.pendingPlan': planKey.toLowerCase(),
-        'profile.paymentProvider': 'casepay'
+        'profile.paymentProvider': 'casepay',
+        'profile.billingPeriod': billingPeriod,
+        'profile.type': 'payment'
       });
 
       await SubscriptionPayment.create({
@@ -101,7 +134,7 @@ router.post('/subscribe',
         amount
       });
 
-      winston.info(`CasePay mandate created for project ${projectId}: ${mandateId}`);
+      winston.info(`CasePay mandate created for project ${projectId}: ${mandateId} (${billingPeriod})`);
 
       res.json({
         mandateId,
@@ -128,6 +161,12 @@ router.post('/cancel',
         return res.status(404).json({ error: 'No active subscription' });
       }
 
+      var cancelUserId = req.user._id || req.user.id;
+      var projectUser = await Project_user.findOne({ id_project: projectId, id_user: cancelUserId, status: 'active' });
+      if (!projectUser || (projectUser.role !== 'owner' && projectUser.role !== 'admin')) {
+        return res.status(403).json({ error: 'Not authorized to manage billing for this project' });
+      }
+
       await casepay.cancelMandate(project.profile.mandateId);
 
       const freePlan = getPlan('free');
@@ -138,7 +177,8 @@ router.post('/cancel',
         'profile.quotes': freePlan.quotes,
         'profile.customization': freePlan.customization,
         'profile.mandateId': null,
-        'profile.pendingPlan': null
+        'profile.pendingPlan': null,
+        'profile.billingPeriod': null
       });
 
       await SubscriptionPayment.create({
@@ -170,11 +210,35 @@ router.get('/status/:projectId',
         return res.status(404).json({ error: 'Project not found' });
       }
 
+      var statusUserId = req.user._id || req.user.id;
+      var projectUser = await Project_user.findOne({ id_project: req.params.projectId, id_user: statusUserId, status: 'active' });
+      if (!projectUser) {
+        return res.status(403).json({ error: 'Not authorized to view billing for this project' });
+      }
+
+      const plan = getPlan(project.profile.name || 'free');
+
+      const [contactsCount, platformsCount, agentsCount] = await Promise.all([
+        Lead.countDocuments({ id_project: req.params.projectId, status: LeadConstants.NORMAL }),
+        Integration.countDocuments({ id_project: req.params.projectId, name: { $in: CHANNEL_NAMES } }),
+        Project_user.countDocuments({ id_project: req.params.projectId, status: 'active' })
+      ]);
+
+      const contactsLimit = (project.profile.quotes && project.profile.quotes.contacts) || plan.quotes.contacts || 200;
+      const platformsLimit = (project.profile.quotes && project.profile.quotes.platforms) || plan.quotes.platforms || 1;
+      const agentsLimit = project.profile.agents || plan.agents || 1;
+
       const response = {
         plan: project.profile.name,
+        displayName: plan.displayName || project.profile.name,
         type: project.profile.type,
+        billingPeriod: project.profile.billingPeriod || null,
+        usage: {
+          contacts: { current: contactsCount, limit: contactsLimit },
+          platforms: { current: platformsCount, limit: platformsLimit },
+          agents: { current: agentsCount, limit: agentsLimit }
+        },
         mandateId: project.profile.mandateId || null,
-        isActive: project.isActiveSubscription,
         trialExpired: project.trialExpired,
         trialDaysLeft: project.trialDaysLeft
       };
@@ -183,7 +247,6 @@ router.get('/status/:projectId',
         try {
           const mandate = await casepay.getMandate(project.profile.mandateId);
           response.mandateStatus = mandate.status;
-          response.payments = mandate.pluggy_automatic_pix_payments || [];
         } catch (e) {
           response.mandateStatus = 'unknown';
         }
@@ -207,6 +270,11 @@ router.post('/webhook', async function (req, res) {
     }
 
     const { event, eventId, paymentRequestId, status, amount } = req.body;
+
+    if (!eventId) {
+      winston.warn('CasePay webhook: missing eventId, rejecting');
+      return res.status(400).json({ error: 'missing_event_id' });
+    }
 
     winston.info(`CasePay webhook received: ${event} for ${paymentRequestId}`);
 
@@ -239,7 +307,8 @@ router.post('/webhook', async function (req, res) {
         const plan = getPlan(planKey);
         const now = new Date();
         const subEnd = new Date(now);
-        subEnd.setMonth(subEnd.getMonth() + 1);
+        const isAnnual = project.profile.billingPeriod === 'annual';
+        subEnd.setMonth(subEnd.getMonth() + (isAnnual ? 12 : 1));
         subEnd.setDate(subEnd.getDate() + 3);
 
         await Project.findByIdAndUpdate(project._id, {
@@ -250,7 +319,8 @@ router.post('/webhook', async function (req, res) {
           'profile.customization': plan.customization,
           'profile.subStart': now,
           'profile.subEnd': subEnd,
-          'profile.pendingPlan': null
+          'profile.pendingPlan': null,
+          'profile.billingPeriod': project.profile.billingPeriod || 'monthly'
         });
 
         winston.info(`CasePay: project ${project._id} upgraded to ${plan.name}`);
@@ -274,7 +344,8 @@ router.post('/webhook', async function (req, res) {
 
     if (event === 'automatic_pix_payment/completed') {
       const subEnd = new Date();
-      subEnd.setMonth(subEnd.getMonth() + 1);
+      const isAnnual = project.profile.billingPeriod === 'annual';
+      subEnd.setMonth(subEnd.getMonth() + (isAnnual ? 12 : 1));
       subEnd.setDate(subEnd.getDate() + 3);
 
       await Project.findByIdAndUpdate(project._id, {

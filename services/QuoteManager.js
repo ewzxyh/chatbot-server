@@ -16,17 +16,16 @@ const emailEvent = require('../event/emailEvent');
 
 const PLANS_LIST = {
     //FREE_TRIAL: { requests: 200,    messages: 0,    tokens: 100000,     voice_duration: 0,       email: 200,     chatbots: 20,      namespace: 3,   kbs: 50     }, // same as PREMIUM
-    SANDBOX:    { requests: 200,    messages: 0,    tokens: 100000,     voice_duration: 0,          email: 200,     chatbots: 2,    namespace: 1,   kbs: 50 },
-    BASIC:      { requests: 800,    messages: 0,    tokens: 2000000,    voice_duration: 0,          email: 200,     chatbots: 5,    namespace: 1,   kbs: 150 },
-    PREMIUM:    { requests: 3000,   messages: 0,    tokens: 5000000,    voice_duration: 0,          email: 200,     chatbots: 20,   namespace: 3,   kbs: 300 },
-    TEAM:       { requests: 5000,   messages: 0,    tokens: 10000000,   voice_duration: 0,          email: 200,     chatbots: 50,   namespace: 10,  kbs: 1000 },
-    //CUSTOM:     { requests: 5000,   messages: 0,    tokens: 10000000,   voice_duration: 120000,  email: 200,     chatbots: 50,      namespace: 10,  kbs: 1000   },
+    SANDBOX:    { requests: 200,    messages: 0,    tokens: 100000,     voice_duration: 0,          email: 200,     chatbots: 2,    namespace: 1,   kbs: 50,   contacts: 200,   platforms: 1, members: 1 },
+    BASIC:      { requests: 800,    messages: 0,    tokens: 2000000,    voice_duration: 0,          email: 200,     chatbots: 5,    namespace: 1,   kbs: 150,  contacts: 1000,  platforms: 1, members: 5 },
+    PREMIUM:    { requests: 3000,   messages: 0,    tokens: 5000000,    voice_duration: 0,          email: 200,     chatbots: 20,   namespace: 3,   kbs: 300,  contacts: 11000, platforms: 5, members: 5 },
+    TEAM:       { requests: 5000,   messages: 0,    tokens: 10000000,   voice_duration: 0,          email: 200,     chatbots: 100,  namespace: 10,  kbs: 1000, contacts: 50000, platforms: 5, members: 10 },
     // FROM MARCH 2025
-    FREE_TRIAL: { requests: 3000,   messages: 0,    tokens: 5000000,    voice_duration: 120000,     email: 200,     chatbots: 5,    namespace: 1,   kbs: 50 },  // same as PRO
-    STARTER:    { requests: 800,    messages: 0,    tokens: 2000000,    voice_duration: 0,          email: 200,     chatbots: 5,    namespace: 1,   kbs: 150 },
-    PRO:        { requests: 3000,   messages: 0,    tokens: 5000000,    voice_duration: 0,          email: 200,     chatbots: 20,   namespace: 3,   kbs: 300 },
-    BUSINESS:   { requests: 5000,   messages: 0,    tokens: 10000000,   voice_duration: 0,          email: 200,     chatbots: 50,   namespace: 10,  kbs: 1000 },
-    CUSTOM:     { requests: 5000,   messages: 0,    tokens: 10000000,   voice_duration: 120000,     email: 200,     chatbots: 50,   namespace: 10,  kbs: 1000 }
+    FREE_TRIAL: { requests: 3000,   messages: 0,    tokens: 5000000,    voice_duration: 120000,     email: 200,     chatbots: 5,    namespace: 1,   kbs: 150,  contacts: 200,   platforms: 1, members: 1 },
+    STARTER:    { requests: 800,    messages: 0,    tokens: 2000000,    voice_duration: 0,          email: 200,     chatbots: 5,    namespace: 1,   kbs: 150,  contacts: 1000,  platforms: 1, members: 5 },
+    PRO:        { requests: 3000,   messages: 0,    tokens: 5000000,    voice_duration: 0,          email: 200,     chatbots: 20,   namespace: 3,   kbs: 300,  contacts: 11000, platforms: 5, members: 5 },
+    BUSINESS:   { requests: 5000,   messages: 0,    tokens: 10000000,   voice_duration: 0,          email: 200,     chatbots: 100,  namespace: 10,  kbs: 1000, contacts: 50000, platforms: 5, members: 10 },
+    CUSTOM:     { requests: 5000,   messages: 0,    tokens: 10000000,   voice_duration: 120000,     email: 200,     chatbots: 100,  namespace: 10,  kbs: 1000, contacts: 50000, platforms: 5, members: 10 }
 }
 
 
