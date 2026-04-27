@@ -84,42 +84,25 @@ router.get('/projects', auth, async function (req, res) {
     var sort = {};
     sort[sortField] = direction;
 
-    var pipeline = [
-      { $match: match },
-      { $sort: sort },
-      { $skip: page * limit },
-      { $limit: limit },
-      {
-        $lookup: {
-          from: 'project_users',
-          let: { pid: { $toString: '$_id' } },
-          pipeline: [
-            { $match: { $expr: { $eq: ['$id_project', '$$pid'] }, role: 'owner', status: 'active' } },
-            { $limit: 1 }
-          ],
-          as: 'ownerPU'
-        }
-      },
-      { $unwind: { path: '$ownerPU', preserveNullAndEmptyArrays: true } },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'ownerPU.id_user',
-          foreignField: '_id',
-          as: 'ownerUser'
-        }
-      },
-      { $unwind: { path: '$ownerUser', preserveNullAndEmptyArrays: true } },
-      {
-        $project: {
-          name: 1, createdAt: 1, profile: 1,
-          ownerEmail: { $ifNull: ['$ownerUser.email', 'N/A'] }
-        }
-      }
-    ];
+    var data = await Project.find(match)
+      .sort(sort)
+      .skip(page * limit)
+      .limit(limit)
+      .lean();
 
-    var data = await Project.aggregate(pipeline);
     var count = await Project.countDocuments(match);
+
+    var mongoose = require('mongoose');
+    for (var i = 0; i < data.length; i++) {
+      var projectOid = typeof data[i]._id === 'string' ? new mongoose.Types.ObjectId(data[i]._id) : data[i]._id;
+      var ownerPU = await Project_user.findOne({ id_project: projectOid, role: 'owner', status: 'active' }).lean();
+      if (ownerPU && ownerPU.id_user) {
+        var ownerUser = await User.findById(ownerPU.id_user).select('email').lean();
+        data[i].ownerEmail = ownerUser ? ownerUser.email : 'N/A';
+      } else {
+        data[i].ownerEmail = 'N/A';
+      }
+    }
 
     res.json({ data: data, count: count, page: page, limit: limit });
   } catch (err) {
