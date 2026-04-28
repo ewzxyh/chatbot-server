@@ -59,7 +59,8 @@ const PLANS = {
       messanger: true,
       telegram: true,
       whatsapp: true,
-      chatbot: true
+      chatbot: true,
+      hybrid: true
     }
   },
   business: {
@@ -80,7 +81,8 @@ const PLANS = {
       messanger: true,
       telegram: true,
       whatsapp: true,
-      chatbot: true
+      chatbot: true,
+      hybrid: true
     }
   }
 };
