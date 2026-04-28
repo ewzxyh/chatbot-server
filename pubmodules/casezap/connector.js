@@ -280,7 +280,10 @@ function setupIntegrationListener(baseUrl) {
 
 router.post('/register/:project_id', async function(req, res) {
   var projectId = req.params.project_id;
-  var baseUrl = req.body.baseUrl || process.env.API_URL || '';
+  var externalUrl = process.env.EXTERNAL_BASE_URL
+    || req.body.externalUrl
+    || (req.protocol + '://' + req.get('host'));
+  var baseUrl = externalUrl.replace(/\/+$/, '') + '/api';
 
   try {
     var integration = await Integration.findOne({ id_project: projectId, name: 'casezap' });
