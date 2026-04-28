@@ -14,6 +14,7 @@ var Lead = require('../../models/lead');
 var LeadConstants = require('../../models/leadConstants');
 var Integration = require('../../models/integrations');
 var Project_user = require('../../models/project_user');
+var emailService = require('../../services/emailService');
 
 const WEBHOOK_SECRET = process.env.CASEPAY_WEBHOOK_SECRET;
 
@@ -190,6 +191,14 @@ router.post('/cancel',
         status: 'canceled'
       });
 
+      var ownerPU = await Project_user.findOne({ id_project: projectId, role: 'owner', status: 'active' });
+      if (ownerPU) {
+        var owner = await User.findById(ownerPU.id_user);
+        if (owner && owner.email) {
+          emailService.sendPlanCanceledEmail(owner.email, owner, project.name);
+        }
+      }
+
       winston.info(`CasePay subscription canceled for project ${projectId}`);
       res.json({ status: 'canceled' });
 
@@ -324,6 +333,14 @@ router.post('/webhook', async function (req, res) {
         });
 
         winston.info(`CasePay: project ${project._id} upgraded to ${plan.name}`);
+
+        var ownerPU = await Project_user.findOne({ id_project: project._id, role: 'owner', status: 'active' });
+        if (ownerPU) {
+          var owner = await User.findById(ownerPU.id_user);
+          if (owner && owner.email) {
+            emailService.sendPaymentConfirmedEmail(owner.email, owner, project.name, plan.displayName || plan.name, amount, project.profile.billingPeriod || 'monthly');
+          }
+        }
       }
 
       if (status === 'canceled' || status === 'expired') {

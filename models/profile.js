@@ -115,6 +115,12 @@ var ProfileSchema = new Schema({
     type: String,
     enum: ['monthly', 'annual'],
   },
+  trialExpiringNotified: {
+    type: Boolean,
+  },
+  trialExpiredNotified: {
+    type: Boolean,
+  },
 
 }
 ,{ _id : false });

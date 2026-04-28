@@ -909,7 +909,9 @@ router.put('/verifyemail/:userid/:code', async function (req, res) {
     }
     winston.debug('VERIFY EMAIL - RETURNED USER ', findUser);
 
-
+    if (findUser.emailverified) {
+      emailService.sendWelcomeEmail(findUser.email, findUser);
+    }
 
     res.json(findUser);
   });

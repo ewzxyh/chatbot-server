@@ -1943,6 +1943,149 @@ class EmailService {
 
   }
 
+  async sendWelcomeEmail(to, user) {
+
+    var that = this;
+
+    if (user.toJSON) {
+      user = user.toJSON();
+    }
+
+    var html = await this.readTemplate('welcome.html', undefined, "EMAIL_WELCOME_HTML_TEMPLATE");
+
+    var template = handlebars.compile(html);
+
+    var baseScope = JSON.parse(JSON.stringify(that));
+    delete baseScope.pass;
+
+    var replacements = {
+      user: user,
+      baseScope: baseScope,
+      loginUrl: baseScope.baseUrl
+    };
+
+    var html = template(replacements);
+
+    that.send({ to: to, subject: `[${this.brand_name}] Bem-vindo!`, html: html });
+  }
+
+
+  async sendPaymentConfirmedEmail(to, user, projectName, planName, amount, billingPeriod) {
+
+    var that = this;
+
+    if (user.toJSON) {
+      user = user.toJSON();
+    }
+
+    var html = await this.readTemplate('paymentConfirmed.html', undefined, "EMAIL_PAYMENT_CONFIRMED_HTML_TEMPLATE");
+
+    var template = handlebars.compile(html);
+
+    var baseScope = JSON.parse(JSON.stringify(that));
+    delete baseScope.pass;
+
+    var replacements = {
+      user: user,
+      projectName: projectName,
+      planName: planName,
+      amount: amount,
+      billingPeriod: billingPeriod,
+      baseScope: baseScope,
+      projectUrl: baseScope.baseUrl
+    };
+
+    var html = template(replacements);
+
+    that.send({ to: to, subject: `[${this.brand_name}] Pagamento confirmado - ${planName}`, html: html });
+  }
+
+
+  async sendTrialExpiringEmail(to, user, projectName, daysLeft) {
+
+    var that = this;
+
+    if (user.toJSON) {
+      user = user.toJSON();
+    }
+
+    var html = await this.readTemplate('trialExpiring.html', undefined, "EMAIL_TRIAL_EXPIRING_HTML_TEMPLATE");
+
+    var template = handlebars.compile(html);
+
+    var baseScope = JSON.parse(JSON.stringify(that));
+    delete baseScope.pass;
+
+    var replacements = {
+      user: user,
+      projectName: projectName,
+      daysLeft: daysLeft,
+      baseScope: baseScope,
+      pricingUrl: baseScope.baseUrl + '/#/pricing'
+    };
+
+    var html = template(replacements);
+
+    that.send({ to: to, subject: `[${this.brand_name}] Seu periodo de teste expira em ${daysLeft} dias`, html: html });
+  }
+
+
+  async sendTrialExpiredEmail(to, user, projectName) {
+
+    var that = this;
+
+    if (user.toJSON) {
+      user = user.toJSON();
+    }
+
+    var html = await this.readTemplate('trialExpired.html', undefined, "EMAIL_TRIAL_EXPIRED_HTML_TEMPLATE");
+
+    var template = handlebars.compile(html);
+
+    var baseScope = JSON.parse(JSON.stringify(that));
+    delete baseScope.pass;
+
+    var replacements = {
+      user: user,
+      projectName: projectName,
+      baseScope: baseScope,
+      pricingUrl: baseScope.baseUrl + '/#/pricing'
+    };
+
+    var html = template(replacements);
+
+    that.send({ to: to, subject: `[${this.brand_name}] Seu periodo de teste expirou`, html: html });
+  }
+
+
+  async sendPlanCanceledEmail(to, user, projectName) {
+
+    var that = this;
+
+    if (user.toJSON) {
+      user = user.toJSON();
+    }
+
+    var html = await this.readTemplate('planCanceled.html', undefined, "EMAIL_PLAN_CANCELED_HTML_TEMPLATE");
+
+    var template = handlebars.compile(html);
+
+    var baseScope = JSON.parse(JSON.stringify(that));
+    delete baseScope.pass;
+
+    var replacements = {
+      user: user,
+      projectName: projectName,
+      baseScope: baseScope,
+      pricingUrl: baseScope.baseUrl + '/#/pricing'
+    };
+
+    var html = template(replacements);
+
+    that.send({ to: to, subject: `[${this.brand_name}] Assinatura cancelada`, html: html });
+  }
+
+
   getTemplate(templateName, settings) {
 
     var that = this;
