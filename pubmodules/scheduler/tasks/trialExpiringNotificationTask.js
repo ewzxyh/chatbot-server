@@ -47,7 +47,7 @@ class TrialExpiringNotificationTask {
         var expiresAt = new Date(createdAt.getTime() + trialDays * 24 * 60 * 60 * 1000);
         var daysLeft = Math.ceil((expiresAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
 
-        if (daysLeft === this.daysBeforeExpiry) {
+        if (daysLeft <= this.daysBeforeExpiry && daysLeft > 0) {
           try {
             var ownerPU = await Project_user.findOne({ id_project: project._id, role: 'owner', status: 'active' });
             if (ownerPU) {
