@@ -6,22 +6,21 @@ function extractPhone(jid) {
 }
 
 function mapInbound(webhookData) {
-  var msg = webhookData.data || webhookData;
-  var key = msg.key || {};
-  var remoteJid = key.remoteJid || '';
-  var phone = extractPhone(remoteJid);
-  var messageContent = msg.message || {};
-  var messageType = msg.messageType || '';
-  var pushName = msg.pushName || '';
+  var message = webhookData.message || {};
+  var chat = webhookData.chat || {};
+  var chatid = message.chatid || chat.wa_chatid || '';
+  var phone = extractPhone(chatid);
+  var messageType = (message.messageType || message.type || '').toLowerCase();
+  var senderName = message.senderName || chat.wa_name || chat.wa_contactName || '';
 
   var result = {
-    messageId: key.id,
+    messageId: message.messageid || message.id,
     phone: phone,
     leadId: 'casezap-' + phone,
-    fullname: pushName || phone,
-    fromMe: key.fromMe || false,
-    isGroup: remoteJid.includes('@g.us'),
-    timestamp: msg.messageTimestamp || Date.now(),
+    fullname: senderName || phone,
+    fromMe: message.fromMe || false,
+    isGroup: message.isGroup || chat.wa_isGroup || chatid.includes('@g.us'),
+    timestamp: message.messageTimestamp || Date.now(),
     text: null,
     type: 'text',
     metadata: null
@@ -29,88 +28,66 @@ function mapInbound(webhookData) {
 
   switch (messageType) {
     case 'conversation':
-      result.text = messageContent.conversation || msg.body || '';
+    case 'extendedtextmessage':
+    case 'text':
+      result.text = message.text || message.content || '';
       result.type = 'text';
       break;
 
-    case 'extendedTextMessage':
-      result.text = (messageContent.extendedTextMessage && messageContent.extendedTextMessage.text) || '';
-      result.type = 'text';
-      break;
-
-    case 'imageMessage':
+    case 'imagemessage':
+    case 'image':
       result.type = 'image';
-      result.text = (messageContent.imageMessage && messageContent.imageMessage.caption) || '';
-      result.metadata = {
-        src: messageContent.imageMessage && messageContent.imageMessage.url,
-        width: messageContent.imageMessage && messageContent.imageMessage.width,
-        height: messageContent.imageMessage && messageContent.imageMessage.height,
-        type: 'image'
-      };
+      result.text = message.text || message.content || '';
+      result.metadata = { src: message.mediaUrl || message.content, type: 'image' };
       break;
 
-    case 'videoMessage':
+    case 'videomessage':
+    case 'video':
       result.type = 'frame';
-      result.text = (messageContent.videoMessage && messageContent.videoMessage.caption) || '';
-      result.metadata = {
-        src: messageContent.videoMessage && messageContent.videoMessage.url,
-        type: 'video'
-      };
+      result.text = message.text || message.content || '';
+      result.metadata = { src: message.mediaUrl || message.content, type: 'video' };
       break;
 
-    case 'audioMessage':
-    case 'pttMessage':
+    case 'audiomessage':
+    case 'pttmessage':
+    case 'audio':
+    case 'ptt':
       result.type = 'file';
-      result.metadata = {
-        src: (messageContent.audioMessage && messageContent.audioMessage.url) ||
-             (messageContent.pttMessage && messageContent.pttMessage.url),
-        type: 'audio'
-      };
+      result.metadata = { src: message.mediaUrl || message.content, type: 'audio' };
       break;
 
-    case 'documentMessage':
+    case 'documentmessage':
+    case 'document':
       result.type = 'file';
-      result.text = (messageContent.documentMessage && messageContent.documentMessage.title) || '';
-      result.metadata = {
-        src: messageContent.documentMessage && messageContent.documentMessage.url,
-        name: (messageContent.documentMessage && messageContent.documentMessage.fileName) || 'document',
-        type: 'file'
-      };
+      result.text = message.text || '';
+      result.metadata = { src: message.mediaUrl || message.content, name: message.fileName || 'document', type: 'file' };
       break;
 
-    case 'stickerMessage':
+    case 'stickermessage':
+    case 'sticker':
       result.type = 'image';
-      result.metadata = {
-        src: messageContent.stickerMessage && messageContent.stickerMessage.url,
-        type: 'image'
-      };
+      result.metadata = { src: message.mediaUrl || message.content, type: 'image' };
       break;
 
-    case 'locationMessage':
-      var loc = messageContent.locationMessage || {};
+    case 'locationmessage':
+    case 'location':
       result.type = 'text';
-      result.text = (loc.name ? loc.name + '\n' : '') +
-        (loc.address ? loc.address + '\n' : '') +
-        'https://maps.google.com/?q=' + (loc.degreesLatitude || 0) + ',' + (loc.degreesLongitude || 0);
+      result.text = (message.text || '') + '\nhttps://maps.google.com/?q=' + (message.latitude || 0) + ',' + (message.longitude || 0);
       break;
 
-    case 'contactMessage':
-    case 'contactsArrayMessage':
+    case 'contactmessage':
+    case 'contact':
       result.type = 'text';
-      var contacts = messageContent.contactsArrayMessage
-        ? messageContent.contactsArrayMessage.contacts
-        : (messageContent.contactMessage ? [messageContent.contactMessage] : []);
-      result.text = contacts.map(function(c) {
-        return (c.displayName || 'Contact') + ': ' + (c.vcard || '');
-      }).join('\n');
+      result.text = message.text || message.content || '[contact]';
       break;
 
-    case 'reactionMessage':
+    case 'reactionmessage':
+    case 'reaction':
       return null;
 
     default:
       result.type = 'text';
-      result.text = '[' + messageType + ']';
+      result.text = message.text || message.content || '[' + messageType + ']';
       break;
   }
 

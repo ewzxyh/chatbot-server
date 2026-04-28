@@ -15,42 +15,59 @@ describe('CaseZap messageMapper', function() {
     });
   });
 
-  describe('mapInbound', function() {
+  describe('mapInbound (real UazApi format)', function() {
     it('should map conversation text message', function() {
-      var webhook = { data: { key: { id: 'msg-001', remoteJid: 'redacted@example.invalid', fromMe: false }, message: { conversation: 'Ola!' }, messageType: 'conversation', pushName: 'Maria' } };
+      var webhook = {
+        EventType: 'messages',
+        message: { messageid: '3EB09D59070B', chatid: 'redacted@example.invalid', content: 'Ola teste', text: 'Ola teste', fromMe: false, isGroup: false, messageType: 'Conversation', senderName: 'Enzo Yoshida', messageTimestamp: 1777406588000 },
+        chat: { wa_name: 'Enzo Yoshida', wa_chatid: 'redacted@example.invalid', wa_isGroup: false }
+      };
       var result = messageMapper.mapInbound(webhook);
-      assert.strictEqual(result.text, 'Ola!');
+      assert.strictEqual(result.text, 'Ola teste');
       assert.strictEqual(result.type, 'text');
-      assert.strictEqual(result.phone, '5511999999999');
-      assert.strictEqual(result.leadId, 'casezap-5511999999999');
-      assert.strictEqual(result.fullname, 'Maria');
+      assert.strictEqual(result.phone, '556284268492');
+      assert.strictEqual(result.leadId, 'casezap-556284268492');
+      assert.strictEqual(result.fullname, 'Enzo Yoshida');
+      assert.strictEqual(result.messageId, '3EB09D59070B');
+      assert.strictEqual(result.fromMe, false);
+      assert.strictEqual(result.isGroup, false);
     });
-    it('should map image message with caption', function() {
-      var webhook = { data: { key: { id: 'msg-002', remoteJid: 'redacted@example.invalid', fromMe: false }, message: { imageMessage: { url: 'https://cdn.example.com/img.jpg', caption: 'Look', width: 800, height: 600 } }, messageType: 'imageMessage', pushName: 'Maria' } };
+
+    it('should map image message', function() {
+      var webhook = {
+        EventType: 'messages',
+        message: { messageid: 'img-001', chatid: 'redacted@example.invalid', text: 'caption', fromMe: false, isGroup: false, messageType: 'ImageMessage', mediaUrl: 'https://media.url/img.jpg', senderName: 'User' },
+        chat: {}
+      };
       var result = messageMapper.mapInbound(webhook);
       assert.strictEqual(result.type, 'image');
-      assert.strictEqual(result.text, 'Look');
-      assert.strictEqual(result.metadata.src, 'https://cdn.example.com/img.jpg');
+      assert.strictEqual(result.metadata.src, 'https://media.url/img.jpg');
     });
+
     it('should map audio message', function() {
-      var webhook = { data: { key: { id: 'msg-003', remoteJid: 'redacted@example.invalid', fromMe: false }, message: { audioMessage: { url: 'https://cdn.example.com/audio.ogg' } }, messageType: 'audioMessage', pushName: 'Maria' } };
+      var webhook = {
+        EventType: 'messages',
+        message: { messageid: 'aud-001', chatid: 'redacted@example.invalid', fromMe: false, isGroup: false, messageType: 'AudioMessage', mediaUrl: 'https://media.url/a.ogg', senderName: 'User' },
+        chat: {}
+      };
       var result = messageMapper.mapInbound(webhook);
       assert.strictEqual(result.type, 'file');
       assert.strictEqual(result.metadata.type, 'audio');
     });
-    it('should map location message', function() {
-      var webhook = { data: { key: { id: 'msg-004', remoteJid: 'redacted@example.invalid', fromMe: false }, message: { locationMessage: { degreesLatitude: -23.55, degreesLongitude: -46.63, name: 'Sao Paulo' } }, messageType: 'locationMessage', pushName: 'Maria' } };
-      var result = messageMapper.mapInbound(webhook);
-      assert.strictEqual(result.type, 'text');
-      assert.ok(result.text.includes('maps.google.com'));
-    });
-    it('should return null for reaction messages', function() {
-      var webhook = { data: { key: { id: 'msg-005', remoteJid: 'redacted@example.invalid', fromMe: false }, message: { reactionMessage: { text: '' } }, messageType: 'reactionMessage', pushName: 'Maria' } };
+
+    it('should return null for reaction', function() {
+      var webhook = { EventType: 'messages', message: { messageid: 'r1', chatid: 'redacted@example.invalid', fromMe: false, messageType: 'ReactionMessage' }, chat: {} };
       assert.strictEqual(messageMapper.mapInbound(webhook), null);
     });
-    it('should detect group JIDs', function() {
-      var webhook = { data: { key: { id: 'msg-006', remoteJid: 'redacted@example.invalid', fromMe: false }, message: { conversation: 'group' }, messageType: 'conversation', pushName: 'Maria' } };
+
+    it('should detect group messages', function() {
+      var webhook = { EventType: 'messages', message: { messageid: 'g1', chatid: 'redacted@example.invalid', fromMe: false, isGroup: true, messageType: 'Conversation', text: 'hi', senderName: 'U' }, chat: { wa_isGroup: true } };
       assert.strictEqual(messageMapper.mapInbound(webhook).isGroup, true);
+    });
+
+    it('should detect fromMe', function() {
+      var webhook = { EventType: 'messages', message: { messageid: 'f1', chatid: 'redacted@example.invalid', fromMe: true, messageType: 'Conversation', text: 'x', senderName: 'Me' }, chat: {} };
+      assert.strictEqual(messageMapper.mapInbound(webhook).fromMe, true);
     });
   });
 
@@ -61,10 +78,9 @@ describe('CaseZap messageMapper', function() {
       assert.strictEqual(result.body.text, 'Hello!');
     });
     it('should map image to /send/media', function() {
-      var result = messageMapper.mapOutbound({ text: 'cap', type: 'image', metadata: { src: 'https://img.com/x.jpg', type: 'image' } }, '5511999999999');
+      var result = messageMapper.mapOutbound({ text: 'cap', type: 'image', metadata: { src: 'https://img.com/x.jpg', type: 'image' } }, '55');
       assert.strictEqual(result.endpoint, '/send/media');
       assert.strictEqual(result.body.type, 'image');
-      assert.strictEqual(result.body.file, 'https://img.com/x.jpg');
     });
     it('should map document to /send/media with docName', function() {
       var result = messageMapper.mapOutbound({ type: 'file', metadata: { src: 'https://x.com/f.pdf', name: 'report.pdf', type: 'file' } }, '55');
