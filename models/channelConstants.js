@@ -4,5 +4,6 @@ module.exports = {
         TELEGRAM : 'telegram',
         WHATSAPP : 'whatsapp',
         FORM : 'form',   
-        EMAIL : 'email',                                
+        EMAIL : 'email',
+        CASEZAP : 'casezap',
 }

@@ -6,7 +6,7 @@ const cacheEnabler = require('../services/cacheEnabler');
 var cacheUtil = require('../utils/cacheUtil');
 const integrationEvent = require('../event/integrationEvent');
 
-const PLATFORM_CHANNELS = ['whatsapp', 'telegram', 'messenger', 'sms', 'voice', 'voice_twilio'];
+const PLATFORM_CHANNELS = ['whatsapp', 'telegram', 'messenger', 'sms', 'voice', 'voice_twilio', 'casezap'];
 
 // Get all integration for a project id 
 router.get('/', async (req, res) => {
@@ -83,7 +83,7 @@ router.post('/', async (req, res) => {
     let id_project = req.projectid;
     winston.debug("Add new integration ", req.body);
 
-    var CHANNEL_FLAG_MAP = { 'whatsapp': 'whatsapp', 'telegram': 'telegram', 'messenger': 'messanger' };
+    var CHANNEL_FLAG_MAP = { 'whatsapp': 'whatsapp', 'telegram': 'telegram', 'messenger': 'messanger', 'casezap': 'casezap' };
 
     if (PLATFORM_CHANNELS.includes(req.body.name)) {
         var flagName = CHANNEL_FLAG_MAP[req.body.name];
@@ -115,6 +115,25 @@ router.post('/', async (req, res) => {
         } catch (quotaErr) {
             winston.error("Error checking platforms quota", quotaErr);
             return res.status(500).json({ error: 'Error checking platform quota' });
+        }
+    }
+
+    if (req.body.name === 'casezap' && req.body.value && req.body.value.domain && req.body.value.token) {
+        try {
+            let duplicate = await Integration.findOne({
+                name: 'casezap',
+                id_project: { $ne: id_project },
+                'value.domain': req.body.value.domain,
+                'value.token': req.body.value.token
+            });
+            if (duplicate) {
+                return res.status(409).json({
+                    error: 'casezap_duplicate_instance',
+                    message: 'This UazApi instance is already connected to another project'
+                });
+            }
+        } catch (dupErr) {
+            winston.error('Error checking CaseZap duplicate', dupErr);
         }
     }
 
