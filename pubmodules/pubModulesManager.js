@@ -33,6 +33,9 @@ class PubModulesManager {
         this.telegram = undefined;
         this.telegramRoute = undefined;
 
+        this.casezap = undefined;
+        this.casezapRoute = undefined;
+
         this.sms = undefined;
         this.smsRoute = undefined;
         
@@ -99,6 +102,10 @@ class PubModulesManager {
         if (this.telegramRoute) {
             app.use('/modules/telegram', this.telegramRoute);
             winston.info("PubModulesManager telegramRoute controller loaded");
+        }
+        if (this.casezapRoute) {
+            app.use('/modules/casezap', this.casezapRoute);
+            winston.info("PubModulesManager casezapRoute controller loaded");
         }
         if (this.smsRoute) {
             app.use('/modules/sms', this.smsRoute);
@@ -350,6 +357,22 @@ class PubModulesManager {
                 winston.info("PubModulesManager init apps module not found ");
             } else {
                 winston.info("PubModulesManager error initializing init apps module", err);
+            }
+        }
+
+        try {
+            this.casezap = require('./casezap');
+            winston.info("this.casezap: " + this.casezap);
+            this.casezap.listener.listen(config);
+
+            this.casezapRoute = this.casezap.casezapRoute;
+
+            winston.info("PubModulesManager initialized apps (casezap).");
+        } catch(err) {
+            if (err.code == 'MODULE_NOT_FOUND') {
+                winston.info("PubModulesManager init casezap module not found");
+            } else {
+                winston.info("PubModulesManager error initializing init casezap module", err);
             }
         }
 
