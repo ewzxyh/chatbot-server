@@ -110,7 +110,7 @@ router.post('/webhook/:project_id', async function(req, res) {
     }
 
     var senderFullname = mapped.fullname || mapped.phone;
-    messageService.send(
+    await messageService.send(
       mapped.leadId,
       senderFullname,
       requestId,
