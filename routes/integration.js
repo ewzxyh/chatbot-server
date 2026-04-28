@@ -83,7 +83,21 @@ router.post('/', async (req, res) => {
     let id_project = req.projectid;
     winston.debug("Add new integration ", req.body);
 
+    var CHANNEL_FLAG_MAP = { 'whatsapp': 'whatsapp', 'telegram': 'telegram', 'messenger': 'messanger' };
+
     if (PLATFORM_CHANNELS.includes(req.body.name)) {
+        var flagName = CHANNEL_FLAG_MAP[req.body.name];
+        if (flagName) {
+            var customization = req.project && req.project.profile && req.project.profile.customization;
+            if (customization && customization[flagName] === false) {
+                return res.status(403).json({
+                    error: 'channel_not_available',
+                    message: 'Channel ' + req.body.name + ' is not available on your plan',
+                    channel: req.body.name
+                });
+            }
+        }
+
         try {
             let existing = await Integration.findOne({ id_project: id_project, name: req.body.name });
             if (!existing) {
