@@ -9,6 +9,7 @@ var Integration = require('../../models/integrations');
 var ChannelConstants = require('../../models/channelConstants');
 var MessageConstants = require('../../models/messageConstants');
 var Request = require('../../models/request');
+var Department = require('../../models/department');
 var leadService = require('../../services/leadService');
 var requestService = require('../../services/requestService');
 var messageService = require('../../services/messageService');
@@ -96,12 +97,14 @@ router.post('/webhook/:project_id', async function(req, res) {
       requestId = existingRequest.request_id;
     } else {
       requestId = 'support-group-' + projectId + '-' + uuidv4();
+      var defaultDept = await Department.findOne({ id_project: projectId, default: true });
       var newRequest = {
         request_id: requestId,
         id_project: projectId,
         lead_id: lead._id,
         lead: lead,
         first_text: mapped.text || '',
+        departmentid: defaultDept ? defaultDept._id : undefined,
         channel: { name: ChannelConstants.CASEZAP },
         createdBy: mapped.leadId,
         attributes: { casezapPhone: mapped.phone }
