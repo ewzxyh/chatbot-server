@@ -199,6 +199,13 @@ router.put('/projects/:id/plan', auth, async function (req, res) {
       update['profile.mandateId'] = null;
       update['profile.pendingPlan'] = null;
       update['profile.billingPeriod'] = null;
+      update['profile.subEnd'] = null;
+      update['profile.subStart'] = null;
+    } else if (plan.type === 'payment') {
+      if (!project.profile.subEnd) {
+        update['profile.subEnd'] = new Date('2099-12-31T23:59:59.999Z');
+        update['profile.subStart'] = new Date();
+      }
     }
 
     await Project.findByIdAndUpdate(req.params.id, { $set: update });
