@@ -17,7 +17,8 @@ const PLANS = {
       messanger: false,
       telegram: false,
       whatsapp: false,
-      chatbot: true
+      chatbot: true,
+      casezap: false
     }
   },
   starter: {
@@ -38,7 +39,8 @@ const PLANS = {
       messanger: false,
       telegram: true,
       whatsapp: true,
-      chatbot: true
+      chatbot: true,
+      casezap: true
     }
   },
   pro: {
@@ -60,7 +62,8 @@ const PLANS = {
       telegram: true,
       whatsapp: true,
       chatbot: true,
-      hybrid: true
+      hybrid: true,
+      casezap: true
     }
   },
   business: {
@@ -82,7 +85,8 @@ const PLANS = {
       telegram: true,
       whatsapp: true,
       chatbot: true,
-      hybrid: true
+      hybrid: true,
+      casezap: true
     }
   }
 };

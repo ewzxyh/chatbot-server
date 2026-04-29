@@ -4,6 +4,8 @@ var winston = require('../../config/winston');
 var axios = require('axios');
 var LRU = require('lru-cache');
 var { v4: uuidv4 } = require('uuid');
+var passport = require('passport');
+var validtoken = require('../../middleware/validtoken');
 var messageMapper = require('./messageMapper');
 var Integration = require('../../models/integrations');
 var ChannelConstants = require('../../models/channelConstants');
@@ -153,7 +155,8 @@ async function sendToUazApi(domain, token, endpoint, body) {
 
 async function sendOutboundMessage(message) {
   try {
-    if (!message || !message.request || !message.request.channel) return;
+    if (!message || !message.request) return;
+    if (!message.request.channel || !message.request.channel.name) return;
     if (message.status !== MessageConstants.CHAT_MESSAGE_STATUS.SENDING) return;
     if (message.channel_type !== MessageConstants.CHANNEL_TYPE.GROUP) return;
     if (message.request.channel.name !== ChannelConstants.CASEZAP) return;
@@ -257,7 +260,22 @@ async function cleanupWebhook(projectId, domain, token, baseUrl) {
   }
 }
 
+async function loadExistingProjects() {
+  try {
+    var integrations = await Integration.find({ name: 'casezap' });
+    integrations.forEach(function(i) {
+      if (i.value && i.value.domain && i.value.token) {
+        casezapProjects.set(i.id_project.toString(), { domain: i.value.domain, token: i.value.token });
+      }
+    });
+    winston.info('CaseZap loaded ' + casezapProjects.size + ' existing projects');
+  } catch (err) {
+    winston.warn('CaseZap failed to load existing projects: ' + err.message);
+  }
+}
+
 function setupIntegrationListener(baseUrl) {
+  loadExistingProjects();
   integrationEvent.on('integration.update', function(integrations, projectId) {
     var hasCasezap = integrations.some(function(i) { return i.name === 'casezap'; });
     var hadCasezap = casezapProjects.has(projectId);
@@ -281,11 +299,9 @@ function setupIntegrationListener(baseUrl) {
   winston.info('CaseZap integration listener registered');
 }
 
-router.post('/register/:project_id', async function(req, res) {
+router.post('/register/:project_id', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken], async function(req, res) {
   var projectId = req.params.project_id;
-  var externalUrl = process.env.EXTERNAL_BASE_URL
-    || req.body.externalUrl
-    || (req.protocol + '://' + req.get('host'));
+  var externalUrl = process.env.EXTERNAL_BASE_URL || (req.protocol + '://' + req.get('host'));
   var baseUrl = externalUrl.replace(/\/+$/, '') + '/api';
 
   try {
