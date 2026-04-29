@@ -16,7 +16,7 @@ var { getPlan, getAllPlans } = require('../pubmodules/billing/plans');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
 
-var CHANNEL_NAMES = ['whatsapp', 'telegram', 'messenger', 'sms', 'voice', 'voice_twilio'];
+var CHANNEL_NAMES = ['whatsapp', 'telegram', 'messenger', 'sms', 'voice', 'voice_twilio', 'casezap'];
 
 var LEGACY_PLAN_MAP = {
   'Sandbox': 'free', 'Basic': 'starter', 'Premium': 'pro', 'Team': 'business',

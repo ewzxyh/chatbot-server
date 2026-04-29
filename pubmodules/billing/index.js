@@ -35,7 +35,7 @@ function verifyWebhookSignature(req) {
 }
 var { getPlan, getAllPlans } = require('./plans');
 
-const CHANNEL_NAMES = ['whatsapp', 'telegram', 'messenger', 'sms', 'voice', 'voice_twilio'];
+const CHANNEL_NAMES = ['whatsapp', 'telegram', 'messenger', 'sms', 'voice', 'voice_twilio', 'casezap'];
 
 // GET /modules/payments/casepay/plans
 router.get('/plans', function (req, res) {
