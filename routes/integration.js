@@ -8,7 +8,21 @@ const integrationEvent = require('../event/integrationEvent');
 
 const PLATFORM_CHANNELS = ['whatsapp', 'telegram', 'messenger', 'sms', 'voice', 'voice_twilio', 'casezap'];
 
-// Get all integration for a project id 
+function sanitizeIntegration(integration) {
+    if (!integration) return integration;
+    var obj = integration.toObject ? integration.toObject() : Object.assign({}, integration);
+    if (obj.value && obj.value.webhookSecret) {
+        delete obj.value.webhookSecret;
+    }
+    return obj;
+}
+
+function sanitizeIntegrations(integrations) {
+    if (!Array.isArray(integrations)) return integrations;
+    return integrations.map(sanitizeIntegration);
+}
+
+// Get all integration for a project id
 router.get('/', async (req, res) => {
 
     let id_project = req.projectid;
@@ -25,7 +39,7 @@ router.get('/', async (req, res) => {
             winston.error("Error getting integrations: ", err);
             return res.status(500).send({ success: false, message: "Error getting integrations "});
         }
-        res.status(200).send(integrations);
+        res.status(200).send(sanitizeIntegrations(integrations));
     })
     // without cache
     // Integration.find({ id_project: id_project }, (err, integrations) => {
@@ -49,7 +63,7 @@ router.get('/:integration_id', async (req, res) => {
             winston.error("Error find integration by id: ", err);
             return res.status(404).send({ success: false, err: err });
         }
-        res.status(200).send(integration);
+        res.status(200).send(sanitizeIntegration(integration));
     })
 
 })
@@ -73,7 +87,7 @@ router.get('/name/:integration_name', async (req, res) => {
             return res.status(200).send("Integration not found");
         }
         
-        res.status(200).send(integration);
+        res.status(200).send(sanitizeIntegration(integration));
     })
 })
 
@@ -161,7 +175,7 @@ router.post('/', async (req, res) => {
             }
         })
         
-        res.status(200).send(savedIntegration);
+        res.status(200).send(sanitizeIntegration(savedIntegration));
     })
 
     // let newIntegration = new Integration({
@@ -221,7 +235,7 @@ router.put('/:integration_id', async (req, res) => {
             }
         })
 
-        res.status(200).send(savedIntegration);
+        res.status(200).send(sanitizeIntegration(savedIntegration));
     })
 })
 
