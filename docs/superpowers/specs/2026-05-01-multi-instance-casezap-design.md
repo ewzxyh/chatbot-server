@@ -9,11 +9,11 @@ Escopo: apenas CaseZap (conector inline). WhatsApp oficial, Telegram, Messenger 
 ## Decisoes de Design
 
 - Apenas PLATFORM_CHANNELS suportam multi-instance (nao AI/CRM)
-- Cada instancia identificada por `instance_id` (UUID) + `_id` do MongoDB
+- Cada instancia identificada pelo `_id` do MongoDB (sem campo instance_id separado — _id ja e unico)
 - Lead ID incorpora integration ID: `casezap-<integrationId>-<phone>`
 - Request armazena `integrationId` + `attributes.instanceLabel`
 - Webhook URL usa `integration_id` (nao `project_id`)
-- Rota antiga `/webhook/:project_id` mantida como fallback para instancias existentes
+- Rota nova `/webhook/:integration_id`, rota legacy renomeada para `/webhook/project/:project_id` (fallback)
 - Quota: cada instancia = 1 slot (3 CaseZap = 3 da quota)
 - Conversas exibem icone WhatsApp + tooltip "CaseZap - Nome (numero)"
 
@@ -25,20 +25,31 @@ Escopo: apenas CaseZap (conector inline). WhatsApp oficial, Telegram, Messenger 
 {
   id_project: String,
   name: String,
-  instance_id: String,  // UUID v4, auto para PLATFORM_CHANNELS, null para outros
   value: Object
 }
 ```
 
-Index: `{ id_project: 1, name: 1, instance_id: 1 }` (unique com partialFilterExpression para instance_id nao-null).
+Sem mudanca no schema. O `_id` do MongoDB ja identifica cada instancia univocamente. Sem campo `instance_id` adicional — seria redundante.
+
+Index existente em `id_project` e suficiente. Multiplas instancias do mesmo canal sao documentos separados com `_id` diferentes.
 
 ### POST `/integration` — logica bifurcada
 
 **PLATFORM_CHANNELS:**
-- `create()` (nunca upsert) com `instance_id` gerado automaticamente
-- Quota: `countDocuments({ id_project, name: { $in: PLATFORM_CHANNELS } })`
-- Duplicate check intra-projeto: rejeita se mesmo `{value.domain, value.token}` ja existe no projeto
-- Duplicate check cross-projeto: rejeita se mesmo `{value.domain, value.token}` existe em outro projeto
+- `create()` (nunca upsert) — cada POST cria novo documento
+- REMOVER o guard `findOne({id_project, name})` que skipa quota se ja existe (linhas 116-117 atuais) — esse guard era para upsert, com multi-instance toda criacao conta
+- Quota: `countDocuments({ id_project, name: { $in: PLATFORM_CHANNELS } })` — conta TODAS instancias de todos canais
+- Duplicate check intra-projeto:
+  ```javascript
+  let intraDup = await Integration.findOne({
+    id_project: id_project,
+    name: 'casezap',
+    'value.domain': req.body.value.domain,
+    'value.token': req.body.value.token
+  });
+  if (intraDup) return res.status(409).json({ error: 'casezap_duplicate_instance_same_project' });
+  ```
+- Duplicate check cross-projeto: rejeita se mesmo `{value.domain, value.token}` existe em outro projeto (ja implementado)
 
 **Non-platform (OpenAI, etc.):**
 - Mantém `findOneAndUpdate` com upsert — sem mudanca
@@ -257,8 +268,8 @@ Locais a modificar:
 ## Migracao e Backward Compatibility
 
 ### Instancias existentes
-- Documentos sem `instance_id` continuam funcionando
-- Rota antiga `/webhook/:project_id` mantida como fallback
+- Schema nao muda — documentos existentes funcionam sem migracao
+- Rota legacy `/webhook/project/:project_id` mantida como fallback (prefixo `project/` evita colisao com nova rota)
 - Lead format antigo `casezap-<phone>` suportado via fallback no outbound
 
 ### Conversas existentes
@@ -274,11 +285,12 @@ Locais a modificar:
 ### Server
 | Arquivo | Mudanca |
 |---|---|
-| `models/integrations.js` | Adicionar `instance_id`, index composto |
-| `routes/integration.js` | POST bifurcado, novo GET instances, remover upsert do PUT |
-| `pubmodules/casezap/connector.js` | Webhook por integration_id, outbound por integrationId, Map rekey, fallbacks |
+| `models/integrations.js` | Sem mudanca de schema (usa _id existente) |
+| `routes/integration.js` | POST bifurcado (create para PLATFORM_CHANNELS), remover findOne skip, novo GET instances, remover upsert do PUT, intra-project duplicate check |
+| `pubmodules/casezap/connector.js` | Webhook `/webhook/:integration_id` + legacy `/webhook/project/:project_id`, outbound por integrationId com fallback, Map rekey por integration._id |
 | `pubmodules/casezap/listener.js` | Sem mudanca significativa |
-| `models/request.js` | Adicionar campo `integrationId` (ObjectId, opcional) |
+| `models/request.js` | Adicionar campo `integrationId: { type: Schema.Types.ObjectId, ref: 'integration', required: false }` |
+| `services/requestService.js` | Adicionar `integrationId` ao destructuring (linha ~468) e ao constructor `new Request({...})` (linha ~623) |
 
 ### Dashboard
 | Arquivo | Mudanca |
