@@ -234,10 +234,13 @@ router.put('/:integration_id', async (req, res) => {
         update.value = req.body.value
     }
 
-    Integration.findByIdAndUpdate(integration_id, update, { new: true }, (err, savedIntegration) => {
+    Integration.findOneAndUpdate({ _id: integration_id, id_project: id_project }, update, { new: true }, (err, savedIntegration) => {
         if (err) {
             winston.error("Error find by id and update integration: ", err);
             return res.status(500).send({ success: false, error: err })
+        }
+        if (!savedIntegration) {
+            return res.status(404).send({ success: false, error: 'Integration not found in this project' })
         }
 
         Integration.find({ id_project: id_project }, (err, integrations) => {
@@ -257,10 +260,13 @@ router.delete('/:integration_id', async (req, res) => {
     let id_project = req.projectid;
     let integration_id = req.params.integration_id;
 
-    Integration.findByIdAndDelete(integration_id, (err, result) => {
+    Integration.findOneAndDelete({ _id: integration_id, id_project: id_project }, (err, result) => {
         if (err) {
             winston.error("Error find by id and delete integration: ", err);
             return res.status(500).send({ success: false, error: err })
+        }
+        if (!result) {
+            return res.status(404).send({ success: false, error: 'Integration not found in this project' })
         }
 
         Integration.find({ id_project: id_project }, (err, integrations) => {

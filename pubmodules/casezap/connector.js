@@ -375,6 +375,12 @@ router.post('/register/:integration_id', [passport.authenticate(['basic', 'jwt']
       return res.status(404).json({ error: 'CaseZap integration not found' });
     }
 
+    var Project_user = require('../../models/project_user');
+    var pu = await Project_user.findOne({ id_project: integration.id_project, id_user: req.user._id, status: 'active' });
+    if (!pu) {
+      return res.status(403).json({ error: 'You do not have access to this project' });
+    }
+
     var result = await registerWebhook(integration, baseUrl);
     res.status(200).json(result);
   } catch (err) {
