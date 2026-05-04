@@ -91,6 +91,20 @@ router.get('/name/:integration_name', async (req, res) => {
     })
 })
 
+router.get('/name/:integration_name/instances', async (req, res) => {
+
+    let id_project = req.projectid;
+    let integration_name = req.params.integration_name;
+
+    Integration.find({ id_project: id_project, name: integration_name }, (err, integrations) => {
+        if (err) {
+            winston.error("Error finding integrations by name: ", err);
+            return res.status(500).send({ success: false, err: err });
+        }
+        res.status(200).send(sanitizeIntegrations(integrations));
+    })
+})
+
 // Add new integration
 router.post('/', async (req, res) => {
 
@@ -113,99 +127,98 @@ router.post('/', async (req, res) => {
         }
 
         try {
-            let existing = await Integration.findOne({ id_project: id_project, name: req.body.name });
-            if (!existing) {
-                let platformsCount = await Integration.countDocuments({ id_project: id_project, name: { $in: PLATFORM_CHANNELS } });
-                let platformsLimit = (req.project && req.project.profile && req.project.profile.quotes && req.project.profile.quotes.platforms) || 1;
-                if (platformsCount >= platformsLimit) {
-                    return res.status(403).json({
-                        error: 'platforms_limit_reached',
-                        message: 'Platform limit reached for your plan',
-                        limit: platformsLimit,
-                        current: platformsCount
-                    });
-                }
+            let platformsCount = await Integration.countDocuments({ id_project: id_project, name: { $in: PLATFORM_CHANNELS } });
+            let platformsLimit = (req.project && req.project.profile && req.project.profile.quotes && req.project.profile.quotes.platforms) || 1;
+            if (platformsCount >= platformsLimit) {
+                return res.status(403).json({
+                    error: 'platforms_limit_reached',
+                    message: 'Platform limit reached for your plan',
+                    limit: platformsLimit,
+                    current: platformsCount
+                });
             }
         } catch (quotaErr) {
             winston.error("Error checking platforms quota", quotaErr);
             return res.status(500).json({ error: 'Error checking platform quota' });
         }
-    }
 
-    if (req.body.name === 'casezap' && req.body.value && req.body.value.domain && req.body.value.token) {
-        try {
-            let duplicate = await Integration.findOne({
-                name: 'casezap',
-                id_project: { $ne: id_project },
-                'value.domain': req.body.value.domain,
-                'value.token': req.body.value.token
-            });
-            if (duplicate) {
-                return res.status(409).json({
-                    error: 'casezap_duplicate_instance',
-                    message: 'This UazApi instance is already connected to another project'
+        if (req.body.name === 'casezap' && req.body.value && req.body.value.domain && req.body.value.token) {
+            try {
+                let intraDup = await Integration.findOne({
+                    id_project: id_project,
+                    name: 'casezap',
+                    'value.domain': req.body.value.domain,
+                    'value.token': req.body.value.token
                 });
+                if (intraDup) {
+                    return res.status(409).json({
+                        error: 'casezap_duplicate_instance_same_project',
+                        message: 'This UazApi instance is already connected in this project'
+                    });
+                }
+
+                let crossDup = await Integration.findOne({
+                    name: 'casezap',
+                    id_project: { $ne: id_project },
+                    'value.domain': req.body.value.domain,
+                    'value.token': req.body.value.token
+                });
+                if (crossDup) {
+                    return res.status(409).json({
+                        error: 'casezap_duplicate_instance',
+                        message: 'This UazApi instance is already connected to another project'
+                    });
+                }
+            } catch (dupErr) {
+                winston.error('Error checking CaseZap duplicate', dupErr);
             }
-        } catch (dupErr) {
-            winston.error('Error checking CaseZap duplicate', dupErr);
-        }
-    }
-
-    let newIntegration = {
-        id_project: id_project,
-        name: req.body.name
-    }
-    if (req.body.value) {
-        newIntegration.value = req.body.value;
-    }
-
-    Integration.findOneAndUpdate({ id_project: id_project, name: req.body.name },  newIntegration, { new: true, upsert: true, setDefaultsOnInsert: false}, (err, savedIntegration) => {
-        if (err) {
-            winston.error("Error creating new integration ", err);
-            return res.status(404).send({ success: false, err: err })
         }
 
-        winston.debug("New integration created: ", savedIntegration);
-        
-        Integration.find({ id_project: id_project }, (err, integrations) => {
+        let newIntegration = new Integration({
+            id_project: id_project,
+            name: req.body.name,
+            value: req.body.value || {}
+        });
+
+        newIntegration.save(function(err, savedIntegration) {
             if (err) {
-                winston.error("Error getting all integrations");
-            } else {
-                integrationEvent.emit('integration.update', integrations, id_project);
+                winston.error("Error creating new integration ", err);
+                return res.status(500).send({ success: false, err: err });
             }
-        })
-        
-        res.status(200).send(sanitizeIntegration(savedIntegration));
-    })
 
-    // let newIntegration = new Integration({
-    //     id_project: id_project,
-    //     name: req.body.name,
-    //     value: req.body.value
-    // })
+            Integration.find({ id_project: id_project }, function(err, integrations) {
+                if (!err) {
+                    integrationEvent.emit('integration.update', integrations, id_project);
+                }
+            });
 
-    // newIntegration.save((err, savedIntegration) => {
-    //     if (err) {
-    //         console.error("Error creating new integration ", err);
-    //         return res.status(404).send({ success: false, err: err })
-    //     }
+            res.status(200).send(sanitizeIntegration(savedIntegration));
+        });
 
-    //     console.log("New integration created: ", savedIntegration);
+    } else {
+        let newIntegration = {
+            id_project: id_project,
+            name: req.body.name
+        };
+        if (req.body.value) {
+            newIntegration.value = req.body.value;
+        }
 
-    //     Integration.find({ id_project: id_project }, (err, integrations) => {
-    //         if (err) {
-    //             console.error("Error getting all integrations");
-    //         } else {
-    //             console.log("emit integration.create event")
-    //             integrationEvent.emit('integration.create', integrations, id_project);
-    //         }
+        Integration.findOneAndUpdate({ id_project: id_project, name: req.body.name }, newIntegration, { new: true, upsert: true, setDefaultsOnInsert: false }, function(err, savedIntegration) {
+            if (err) {
+                winston.error("Error creating new integration ", err);
+                return res.status(404).send({ success: false, err: err });
+            }
 
-    //     })
-        
-    //     res.status(200).send(savedIntegration);
+            Integration.find({ id_project: id_project }, function(err, integrations) {
+                if (!err) {
+                    integrationEvent.emit('integration.update', integrations, id_project);
+                }
+            });
 
-    // })
-    
+            res.status(200).send(sanitizeIntegration(savedIntegration));
+        });
+    }
 })
 
 router.put('/:integration_id', async (req, res) => {
@@ -221,7 +234,7 @@ router.put('/:integration_id', async (req, res) => {
         update.value = req.body.value
     }
 
-    Integration.findByIdAndUpdate(integration_id, update, { new: true, upsert: true }, (err, savedIntegration) => {
+    Integration.findByIdAndUpdate(integration_id, update, { new: true }, (err, savedIntegration) => {
         if (err) {
             winston.error("Error find by id and update integration: ", err);
             return res.status({ success: false, error: err })
