@@ -22,20 +22,10 @@ var processedMessages = new LRU({ max: 10000, maxAge: 1000 * 60 * 60 });
 var casezapProjects = new Map();
 var casezapEnabled = process.env.CASEZAP_ENABLED !== 'false';
 
-router.post('/webhook/:project_id', async function(req, res) {
-  if (!casezapEnabled) {
-    return res.status(503).json({ error: 'CaseZap module disabled' });
-  }
-  var projectId = req.params.project_id;
-  var secret = REDACTED_SECRET;
+async function handleWebhook(integration, req, res) {
+  var projectId = integration.id_project;
 
   try {
-    var integration = await Integration.findOne({ id_project: projectId, name: 'casezap' });
-    if (!integration || !integration.value || integration.value.webhookSecret !== secret) {
-      winston.warn('CaseZap webhook: invalid secret for project ' + projectId);
-      return res.status(401).json({ error: 'Invalid webhook secret' });
-    }
-
     var body = req.body;
     if (!body || !body.EventType) {
       return res.status(400).json({ error: 'Invalid payload' });
@@ -43,11 +33,8 @@ router.post('/webhook/:project_id', async function(req, res) {
 
     if (body.EventType === 'connection') {
       var newStatus = (body.data && body.data.state === 'open') ? 'active' : 'disconnected';
-      await Integration.findOneAndUpdate(
-        { id_project: projectId, name: 'casezap' },
-        { $set: { 'value.status': newStatus } }
-      );
-      winston.info('CaseZap connection event: project ' + projectId + ' status=' + newStatus);
+      await Integration.findByIdAndUpdate(integration._id, { $set: { 'value.status': newStatus } });
+      winston.info('CaseZap connection event: integration ' + integration._id + ' status=' + newStatus);
       return res.status(200).json({ success: true });
     }
 
@@ -76,12 +63,16 @@ router.post('/webhook/:project_id', async function(req, res) {
     }
     processedMessages.set(mapped.messageId, true);
 
+    var integrationId = integration._id.toString();
+    var leadId = 'casezap-' + integrationId + '-' + mapped.phone;
+    var instanceLabel = (integration.value.instanceName || '') + ' (' + (integration.value.number || mapped.phone) + ')';
+
     var lead = await leadService.createIfNotExistsWithLeadId(
-      mapped.leadId,
+      leadId,
       mapped.fullname,
       null,
       projectId,
-      mapped.leadId,
+      leadId,
       null,
       null,
       mapped.phone
@@ -90,6 +81,7 @@ router.post('/webhook/:project_id', async function(req, res) {
     var existingRequest = await Request.findOne({
       id_project: projectId,
       'channel.name': ChannelConstants.CASEZAP,
+      integrationId: integration._id,
       lead: lead._id,
       status: { $lt: 1000 }
     }).sort({ createdAt: -1 });
@@ -107,21 +99,25 @@ router.post('/webhook/:project_id', async function(req, res) {
         lead: lead,
         first_text: mapped.text || '',
         departmentid: defaultDept ? defaultDept._id : undefined,
+        integrationId: integration._id,
         channel: { name: ChannelConstants.CASEZAP },
-        createdBy: mapped.leadId,
-        attributes: { casezapPhone: mapped.phone }
+        createdBy: leadId,
+        attributes: {
+          casezapPhone: mapped.phone,
+          instanceLabel: instanceLabel
+        }
       };
       await requestService.create(newRequest);
     }
 
     var senderFullname = mapped.fullname || mapped.phone;
     await messageService.send(
-      mapped.leadId,
+      leadId,
       senderFullname,
       requestId,
       mapped.text,
       projectId,
-      mapped.leadId,
+      leadId,
       { casezapMessageId: mapped.messageId },
       mapped.type,
       mapped.metadata,
@@ -131,7 +127,49 @@ router.post('/webhook/:project_id', async function(req, res) {
     res.status(200).json({ success: true });
 
   } catch (err) {
-    winston.error('CaseZap webhook error for project ' + projectId, err);
+    winston.error('CaseZap webhook error for integration ' + integration._id, err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+}
+
+router.post('/webhook/:integration_id', async function(req, res) {
+  if (!casezapEnabled) {
+    return res.status(503).json({ error: 'CaseZap module disabled' });
+  }
+  var integrationId = req.params.integration_id;
+  var secret = REDACTED_SECRET;
+
+  try {
+    var integration = await Integration.findById(integrationId);
+    if (!integration || !integration.value || integration.value.webhookSecret !== secret) {
+      winston.warn('CaseZap webhook: invalid secret for integration ' + integrationId);
+      return res.status(401).json({ error: 'Invalid webhook secret' });
+    }
+    await handleWebhook(integration, req, res);
+  } catch (err) {
+    winston.error('CaseZap webhook error', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+router.post('/webhook/project/:project_id', async function(req, res) {
+  if (!casezapEnabled) {
+    return res.status(503).json({ error: 'CaseZap module disabled' });
+  }
+  var projectId = req.params.project_id;
+  var secret = REDACTED_SECRET;
+
+  winston.warn('CaseZap: legacy webhook route used for project ' + projectId);
+
+  try {
+    var integration = await Integration.findOne({ id_project: projectId, name: 'casezap' });
+    if (!integration || !integration.value || integration.value.webhookSecret !== secret) {
+      winston.warn('CaseZap webhook: invalid secret for project ' + projectId);
+      return res.status(401).json({ error: 'Invalid webhook secret' });
+    }
+    await handleWebhook(integration, req, res);
+  } catch (err) {
+    winston.error('CaseZap legacy webhook error', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });
@@ -165,29 +203,40 @@ async function sendOutboundMessage(message) {
     if (message.sender === leadId) return;
 
     var projectId = message.id_project;
-    var integration = await Integration.findOne({ id_project: projectId, name: 'casezap' });
+    var reqIntegrationId = message.request.integrationId;
+    var integration;
+    if (reqIntegrationId) {
+      integration = await Integration.findById(reqIntegrationId);
+    } else {
+      integration = await Integration.findOne({ id_project: projectId, name: 'casezap' });
+    }
     if (!integration || !integration.value) {
-      winston.warn('CaseZap integration not found for project ' + projectId);
+      winston.warn('CaseZap integration not found for outbound');
       return;
     }
 
     if (integration.value.status === 'disconnected') {
-      winston.warn('CaseZap instance disconnected for project ' + projectId);
+      winston.warn('CaseZap instance disconnected: ' + integration._id);
       return;
     }
 
-    var phone = leadId.replace('casezap-', '');
+    var phone;
+    if (reqIntegrationId) {
+      phone = leadId.split('-').pop();
+    } else {
+      phone = leadId.replace('casezap-', '');
+    }
+
     var outbound = messageMapper.mapOutbound(message, phone);
 
     try {
       await sendToUazApi(integration.value.domain, integration.value.token, outbound.endpoint, outbound.body);
-      winston.debug('CaseZap sent message to ' + phone + ' via ' + outbound.endpoint);
+      winston.debug('CaseZap sent to ' + phone + ' via ' + outbound.endpoint);
     } catch (firstErr) {
-      winston.warn('CaseZap send failed, retrying in 2s: ' + firstErr.message);
+      winston.warn('CaseZap send failed, retrying: ' + firstErr.message);
       await new Promise(function(resolve) { setTimeout(resolve, 2000); });
       try {
         await sendToUazApi(integration.value.domain, integration.value.token, outbound.endpoint, outbound.body);
-        winston.debug('CaseZap retry succeeded for ' + phone);
       } catch (retryErr) {
         winston.error('CaseZap send failed after retry to ' + phone, retryErr);
       }
@@ -205,11 +254,11 @@ function setupOutboundListener() {
   winston.info('CaseZap outbound listener registered');
 }
 
-async function registerWebhook(integration, projectId, baseUrl) {
+async function registerWebhook(integration, baseUrl) {
   var domain = integration.value.domain;
   var token = integration.value.token;
   var webhookSecret = REDACTED_SECRET || uuidv4();
-  var webhookUrl = baseUrl + '/modules/casezap/webhook/' + projectId + '?secret=' + webhookSecret;
+  var webhookUrl = baseUrl + '/modules/casezap/webhook/' + integration._id + '?secret=' + webhookSecret;
 
   var body = {
     url: webhookUrl,
@@ -224,13 +273,17 @@ async function registerWebhook(integration, projectId, baseUrl) {
       timeout: 10000
     });
 
-    await Integration.findOneAndUpdate(
-      { id_project: projectId, name: 'casezap' },
-      { $set: { 'value.webhookSecret': webhookSecret, 'value.status': 'active' } }
-    );
+    await Integration.findByIdAndUpdate(integration._id, {
+      $set: { 'value.webhookSecret': webhookSecret, 'value.status': 'active' }
+    });
 
-    casezapProjects.set(projectId, { domain: domain, token: token });
-    winston.info('CaseZap webhook registered for project ' + projectId);
+    casezapProjects.set(integration._id.toString(), {
+      projectId: integration.id_project,
+      domain: domain,
+      token: token
+    });
+
+    winston.info('CaseZap webhook registered for integration ' + integration._id);
     return { success: true, webhookSecret: webhookSecret };
   } catch (err) {
     var status = err.response && err.response.status;
@@ -244,8 +297,8 @@ async function registerWebhook(integration, projectId, baseUrl) {
   }
 }
 
-async function cleanupWebhook(projectId, domain, token, baseUrl) {
-  var webhookUrl = baseUrl + '/modules/casezap/webhook/' + projectId;
+async function cleanupWebhook(integrationId, domain, token, baseUrl) {
+  var webhookUrl = baseUrl + '/modules/casezap/webhook/' + integrationId;
   try {
     await axios.post(domain.replace(/\/$/, '') + '/webhook', {
       action: 'delete',
@@ -254,9 +307,9 @@ async function cleanupWebhook(projectId, domain, token, baseUrl) {
       headers: { 'token': token, 'Content-Type': 'application/json' },
       timeout: 10000
     });
-    winston.info('CaseZap webhook cleaned up for project ' + projectId);
+    winston.info('CaseZap webhook cleaned up for integration ' + integrationId);
   } catch (err) {
-    winston.warn('CaseZap webhook cleanup failed for project ' + projectId + ': ' + err.message);
+    winston.warn('CaseZap webhook cleanup failed: ' + err.message);
   }
 }
 
@@ -265,52 +318,57 @@ async function loadExistingProjects() {
     var integrations = await Integration.find({ name: 'casezap' });
     integrations.forEach(function(i) {
       if (i.value && i.value.domain && i.value.token) {
-        casezapProjects.set(i.id_project.toString(), { domain: i.value.domain, token: i.value.token });
+        casezapProjects.set(i._id.toString(), {
+          projectId: i.id_project,
+          domain: i.value.domain,
+          token: i.value.token
+        });
       }
     });
-    winston.info('CaseZap loaded ' + casezapProjects.size + ' existing projects');
+    winston.info('CaseZap loaded ' + casezapProjects.size + ' existing instances');
   } catch (err) {
-    winston.warn('CaseZap failed to load existing projects: ' + err.message);
+    winston.warn('CaseZap failed to load existing instances: ' + err.message);
   }
 }
 
 function setupIntegrationListener(baseUrl) {
   loadExistingProjects();
   integrationEvent.on('integration.update', function(integrations, projectId) {
-    var hasCasezap = integrations.some(function(i) { return i.name === 'casezap'; });
-    var hadCasezap = casezapProjects.has(projectId);
+    var czInstances = integrations.filter(function(i) { return i.name === 'casezap'; });
+    var currentIds = new Set(czInstances.map(function(i) { return i._id.toString(); }));
 
-    if (hasCasezap) {
-      var czIntegration = integrations.find(function(i) { return i.name === 'casezap'; });
-      if (czIntegration && czIntegration.value) {
-        casezapProjects.set(projectId, {
-          domain: czIntegration.value.domain,
-          token: czIntegration.value.token
-        });
-      }
-    } else if (hadCasezap) {
-      var prev = casezapProjects.get(projectId);
-      casezapProjects.delete(projectId);
-      if (prev && prev.domain && prev.token) {
-        cleanupWebhook(projectId, prev.domain, prev.token, baseUrl);
+    for (var [intId, data] of casezapProjects) {
+      if (data.projectId === projectId && !currentIds.has(intId)) {
+        cleanupWebhook(intId, data.domain, data.token, baseUrl);
+        casezapProjects.delete(intId);
       }
     }
+
+    czInstances.forEach(function(i) {
+      if (i.value) {
+        casezapProjects.set(i._id.toString(), {
+          projectId: projectId,
+          domain: i.value.domain,
+          token: i.value.token
+        });
+      }
+    });
   });
   winston.info('CaseZap integration listener registered');
 }
 
-router.post('/register/:project_id', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken], async function(req, res) {
-  var projectId = req.params.project_id;
+router.post('/register/:integration_id', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken], async function(req, res) {
+  var integrationId = req.params.integration_id;
   var externalUrl = process.env.EXTERNAL_BASE_URL || (req.protocol + '://' + req.get('host'));
   var baseUrl = externalUrl.replace(/\/+$/, '') + '/api';
 
   try {
-    var integration = await Integration.findOne({ id_project: projectId, name: 'casezap' });
+    var integration = await Integration.findById(integrationId);
     if (!integration || !integration.value) {
       return res.status(404).json({ error: 'CaseZap integration not found' });
     }
 
-    var result = await registerWebhook(integration, projectId, baseUrl);
+    var result = await registerWebhook(integration, baseUrl);
     res.status(200).json(result);
   } catch (err) {
     winston.error('CaseZap register webhook error', err);
