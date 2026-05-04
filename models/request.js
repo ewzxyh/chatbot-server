@@ -250,6 +250,10 @@ var RequestSchema = new Schema({
 
 
   
+  integrationId: {
+    type: Schema.Types.ObjectId,
+    ref: 'integration'
+  },
   channel: { //inbound. Channel used by the requester(visitor or user) to communicate with Tiledesk. If widget-> channel is chat21, if Whatsapp-> channel is Whatsapp, etc..
     type: Channel.schema,
     default: function() {

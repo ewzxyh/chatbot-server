@@ -486,7 +486,8 @@ class RequestService {
       priority,
       auto_close,
       followers,
-      contact
+      contact,
+      integrationId
     } = request;
 
     let departmentid = request.departmentid || 'default';
@@ -651,6 +652,7 @@ class RequestService {
       createdAt,
       snapshot,
       contact,
+      integrationId,
     })
 
     if (isTestConversation) {
