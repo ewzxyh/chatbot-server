@@ -81,7 +81,7 @@ async function handleWebhook(integration, req, res) {
     var existingRequest = await Request.findOne({
       id_project: projectId,
       'channel.name': ChannelConstants.CASEZAP,
-      integrationId: integration._id,
+      $or: [{ integrationId: integration._id }, { integrationId: { $exists: false } }],
       lead: lead._id,
       status: { $lt: 1000 }
     }).sort({ createdAt: -1 });
@@ -138,6 +138,10 @@ router.post('/webhook/:integration_id', async function(req, res) {
   }
   var integrationId = req.params.integration_id;
   var secret = REDACTED_SECRET;
+
+  if (!integrationId || !integrationId.match(/^[0-9a-fA-F]{24}$/)) {
+    return res.status(400).json({ error: 'Invalid integration ID' });
+  }
 
   try {
     var integration = await Integration.findById(integrationId);
@@ -359,6 +363,9 @@ function setupIntegrationListener(baseUrl) {
 
 router.post('/register/:integration_id', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken], async function(req, res) {
   var integrationId = req.params.integration_id;
+  if (!integrationId || !integrationId.match(/^[0-9a-fA-F]{24}$/)) {
+    return res.status(400).json({ error: 'Invalid integration ID' });
+  }
   var externalUrl = process.env.EXTERNAL_BASE_URL || (req.protocol + '://' + req.get('host'));
   var baseUrl = externalUrl.replace(/\/+$/, '') + '/api';
 
