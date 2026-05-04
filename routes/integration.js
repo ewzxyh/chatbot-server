@@ -237,7 +237,7 @@ router.put('/:integration_id', async (req, res) => {
     Integration.findByIdAndUpdate(integration_id, update, { new: true }, (err, savedIntegration) => {
         if (err) {
             winston.error("Error find by id and update integration: ", err);
-            return res.status({ success: false, error: err })
+            return res.status(500).send({ success: false, error: err })
         }
 
         Integration.find({ id_project: id_project }, (err, integrations) => {
@@ -260,7 +260,7 @@ router.delete('/:integration_id', async (req, res) => {
     Integration.findByIdAndDelete(integration_id, (err, result) => {
         if (err) {
             winston.error("Error find by id and delete integration: ", err);
-            return res.status({ success: false, error: err })
+            return res.status(500).send({ success: false, error: err })
         }
 
         Integration.find({ id_project: id_project }, (err, integrations) => {
