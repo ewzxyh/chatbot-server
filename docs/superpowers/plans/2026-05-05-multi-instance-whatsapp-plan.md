@@ -91,16 +91,29 @@ const whatsapp = require("./connector");
 
 - [ ] **Step 5: Remove npm dependency from package.json**
 
-In `package.json`, remove the line:
-```json
-"@tiledesk/tiledesk-whatsapp-connector": "^1.0.26",
-```
+In `package.json`, remove the line containing `@tiledesk/tiledesk-whatsapp-connector` (the version may be `"1.0.26"` without caret — search for the exact string).
 
 - [ ] **Step 6: Remove sed patch from Dockerfile**
 
 In `Dockerfile`, remove the line:
 ```dockerfile
 RUN sed -i "s/scope: 'whatsapp_business_management,business_management,pages_show_list'/scope: 'whatsapp_business_management,whatsapp_business_messaging'/" node_modules/@tiledesk/tiledesk-whatsapp-connector/template/configure.html || true
+```
+
+- [ ] **Step 6.1: Add connector npm install to Dockerfile**
+
+Since `.dockerignore` excludes `node_modules`, the connector's local dependencies won't be copied into the Docker image. Add this line in the Dockerfile AFTER `COPY . .`:
+
+```dockerfile
+RUN cd pubmodules/whatsapp/connector && npm install --production
+```
+
+- [ ] **Step 6.2: Verify connector dependencies are available**
+
+Compare the connector's `pubmodules/whatsapp/connector/package.json` dependencies against the server's `package.json`. Dependencies NOT in the server that must be installed by the connector's own npm install: `i18next`, `i18next-fs-backend`, `libphonenumber-js`, `fast-csv`, `csv-parse`, `form-data`. Verify:
+
+```bash
+cd pubmodules/whatsapp/connector && npm ls --depth=0
 ```
 
 - [ ] **Step 7: Verify module loads**
@@ -328,11 +341,23 @@ git commit -m "feat(multi-instance-wa): outbound routing by phone_number_id with
 **Files:**
 - Modify: `pubmodules/whatsapp/connector/tiledesk/TiledeskChannel.js`
 
-- [ ] **Step 1: Add waba_id and phone_number_id to send() method**
+- [ ] **Step 1: MANDATORY — Add waba_id to messageInfo.whatsapp in webhook handler**
 
-In `TiledeskChannel.js`, find the `send()` method (~line 54). After the `request_id` is determined and before the HTTP call, add attributes:
+In `pubmodules/whatsapp/connector/index.js`, find the webhook handler where `messageInfo.whatsapp` is constructed (~line 831-838). The current object has `phone_number_id` and `from` but NOT `waba_id`. ADD `waba_id`:
 
-Find where `tiledeskMessage` is prepared for sending. In the `send()` method, after the channel info is extracted (~line 66), add:
+```javascript
+messageInfo.whatsapp = {
+  phone_number_id: phone_number_id,
+  from: from,
+  waba_id: waba_id  // ADD THIS — required for multi-instance outbound routing
+};
+```
+
+This MUST be done before Steps 2-3, otherwise `messageInfo.whatsapp.waba_id` will be `undefined`.
+
+- [ ] **Step 2: Add waba_id and phone_number_id to send() method**
+
+In `TiledeskChannel.js`, find the `send()` method (~line 54). After the channel info is extracted (~line 66), add:
 
 ```javascript
 if (messageInfo.channel === "whatsapp" && messageInfo.whatsapp) {
@@ -342,7 +367,7 @@ if (messageInfo.channel === "whatsapp" && messageInfo.whatsapp) {
 }
 ```
 
-- [ ] **Step 2: Same for sendAndAddBot() method**
+- [ ] **Step 3: Same for sendAndAddBot() method**
 
 In the `sendAndAddBot()` method (~line 184), the attributes are hardcoded to `{ sourcePage: "whatsapp://..." }`. Change to:
 
@@ -351,19 +376,6 @@ tiledeskMessage.attributes = {
   sourcePage: "whatsapp://&td_draft=true",
   waba_id: messageInfo.whatsapp ? messageInfo.whatsapp.waba_id : null,
   whatsapp_phone_number_id: messageInfo.whatsapp ? messageInfo.whatsapp.phone_number_id : null
-};
-```
-
-- [ ] **Step 3: Verify waba_id is available in messageInfo**
-
-In `index.js`, find the webhook handler where `messageInfo` is constructed (~line 831-838). Verify that `messageInfo.whatsapp` contains `waba_id`. If not, add it:
-
-```javascript
-// In the webhook handler, where messageInfo.whatsapp is built:
-messageInfo.whatsapp = {
-  phone_number_id: phone_number_id,
-  from: from,
-  waba_id: waba_id  // ADD THIS if not present
 };
 ```
 
@@ -529,16 +541,23 @@ let settings = await utils.getSettingsByProjectId(project_id);
 let allInstances = await utils.getAllSettingsByProjectId(project_id);
 ```
 
-Add `api_url` and `allInstances` to the template replacements object:
+Add `api_url` and `allInstances` to the template replacements object. Use the raw array — the connector already registers a `json` Handlebars helper at line 75:
 
 ```javascript
 let replacements = {
   // ... existing replacements ...
   api_url: API_URL,
-  all_instances: JSON.stringify(allInstances || []),
+  all_instances: allInstances || [],
   // ... rest of replacements
 };
 ```
+
+In the template, use the `json` helper to avoid HTML escaping:
+```handlebars
+<script>var ALL_INSTANCES = {{{json all_instances}}};</script>
+```
+
+Do NOT use `{{all_instances}}` (double-stache) — Handlebars will HTML-escape quotes and break the JSON.
 
 - [ ] **Step 2: Add deprecation warning to legacy webhook**
 
