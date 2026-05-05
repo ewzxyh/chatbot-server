@@ -15,7 +15,8 @@ Permitir multiplas instancias WhatsApp Business API (Meta) por projeto no ChatCa
 ## Decisoes de Design
 
 - Fork interno (copiar pacote npm para dentro do repo) — controle total, sem dependencia externa
-- kvstore continua como source of truth para config do conector (nao migrar para integrations collection)
+- kvstore continua como source of truth para config do conector (tokens, phone_number_id, etc.)
+- Dual-write: OAuth callback TAMBEM cria documento na `integrations` collection (para duplicate check, GET /instances, quota counting)
 - Manter AMBOS os padroes de key no kvstore (`whatsapp-{waba_id}` para OAuth, `whatsapp-{project_id}` para legacy manual)
 - Mongoose do conector mantem-se isolado (v6, via dbconnection passado pelo server)
 - Duplicate detection por `phone_number_id` (mesmo numero no mesmo projeto = 409)
@@ -52,7 +53,14 @@ const whatsapp = require("./connector");
 
 ### Dependencias
 
-O conector traz suas proprias dependencias via seu `node_modules/`. Mongoose v6 do conector nao conflita porque usa `dbconnection` isolado passado pelo server. Nao precisa de mudanca no server's package.json.
+O conector traz suas proprias dependencias via seu `node_modules/`. A camada de dados (KVBaseMongo) usa raw MongoDB driver via `dbconnection` passado pelo server — nao usa Mongoose. Porem, o conector faz `mongoose.connect()` separado para logging (WhatsappLog model, Mongoose v6). Esse connection e isolado e nao conflita com o server (v5). Nao precisa de mudanca no server's package.json.
+
+### Index necessario no kvstore
+
+Para `getByField('phone_number_id', ...)` performar bem:
+```javascript
+db.kvstore.createIndex({ 'value.phone_number_id': 1 })
+```
 
 ### Remover do package.json do server
 
@@ -100,6 +108,32 @@ async getByField(field, value) {
 }
 ```
 
+## Dual-Write: OAuth Callback → kvstore + integrations
+
+O OAuth callback (`/onboarding/callback`) atualmente salva APENAS no kvstore. Para multi-instance funcionar com duplicate check e GET /instances, deve TAMBEM criar um documento na collection `integrations`:
+
+```javascript
+// No /onboarding/callback, apos salvar no kvstore:
+let integrationData = {
+  id_project: project_id,
+  name: 'whatsapp',
+  value: {
+    phone_number_id: phone_number_id,
+    waba_id: waba_id,
+    phone_number: phone_number,
+    verified_name: verified_name
+  }
+};
+// POST para Tiledesk API ou insert direto
+await axios.post(API_URL + '/' + project_id + '/integration', integrationData, { headers: { Authorization: token } });
+```
+
+Isso garante:
+- `GET /integration/name/whatsapp/instances` retorna a lista de numeros conectados
+- Duplicate check por `phone_number_id` na collection `integrations` funciona
+- Quota counting inclui WhatsApp
+- Consistencia com o padrao CaseZap
+
 ## Webhook Inbound
 
 ### POST /webhook (OAuth path) — sem mudanca
@@ -129,7 +163,15 @@ attributes.whatsapp_phone_number_id = phone_number_id;
 
 Isso permite o outbound resolver a instancia correta sem parsing do recipient string.
 
-O conector ja salva `whatsapp_phone_number_id` nos attributes da mensagem (linha 615-619 do index.js). Garantir que tambem vai para os attributes do REQUEST (nao so da mensagem).
+IMPORTANTE: O conector NAO cria requests diretamente — ele chama `POST /:project_id/requests/:request_id/messages` via HTTP (TiledeskChannel.send()). Os attributes sao passados no body da mensagem. Para que `waba_id` chegue ao request, modificar `TiledeskChannel.send()` para incluir esses campos nos attributes do body:
+
+```javascript
+// Em TiledeskChannel.send() ou sendAndAddBot():
+attributes.waba_id = waba_id;
+attributes.whatsapp_phone_number_id = phone_number_id;
+```
+
+O Tiledesk server propaga attributes da mensagem para o request na criacao.
 
 ## Outbound
 
@@ -152,11 +194,14 @@ if (!settings) {
 
 ### Extracao de phone_number_id
 
-O `phone_number_id` ja e extraido corretamente do recipient string na linha 618:
+O `phone_number_id` e extraido do recipient string usando substring entre "wab-" e o ultimo "-":
 ```javascript
+// Codigo real do conector (linha 618):
 let phone_number_id = message_info.attributes.whatsapp_phone_number_id 
-  || recipientArray[recipientArray.length - 2]; // penultimo segmento do recipient
+  || recipient.substring(recipient.lastIndexOf("wab-") + 4, recipient.lastIndexOf("-"));
 ```
+
+Preferencia: usar `message_info.attributes.whatsapp_phone_number_id` (setado pelo webhook handler). Fallback: parsing do recipient.
 
 ### POST /tiledesk/broadcast — precisa de phone_number_id
 
