@@ -244,6 +244,18 @@ if (req.body.name === 'whatsapp' && req.body.value && req.body.value.phone_numbe
 }
 ```
 
+## Manual Config — Dual-Write
+
+O `POST /update` (config manual sem OAuth) tambem deve criar/atualizar documento na `integrations` collection, identico ao OAuth callback. Sem isso, setups manuais ficam invisiveis para quota, duplicate check e GET /instances.
+
+```javascript
+// No POST /update, apos salvar no kvstore:
+await axios.post(API_URL + '/' + project_id + '/integration', {
+  name: 'whatsapp',
+  value: { phone_number_id, waba_id: business_account_id, phone_number, verified_name }
+}, { headers: { Authorization: 'JWT ' + token } });
+```
+
 ## Dashboard
 
 ### configure.html (agora interno)
@@ -254,13 +266,81 @@ O template do Embedded Signup esta em `pubmodules/whatsapp/connector/template/co
 - Adicionar lista de instancias conectadas
 - Mostrar status por instancia
 
-### Lista de instancias
+### Mudancas na rota /configure
 
-Apos o Embedded Signup, o template deve mostrar uma lista de numeros conectados ao projeto:
-- Nome verificado
-- Numero
-- Status (connected/disconnected)
-- Botao remover
+A rota GET `/configure` atualmente chama `getSettingsByProjectId()` que retorna UM resultado. Com multi-instance, deve buscar TODAS as settings do projeto:
+
+```javascript
+// ANTES:
+let settings = await utils.getSettingsByProjectId(project_id);
+// Passa 1 objeto ao template
+
+// DEPOIS:
+let allSettings = await utils.getAllSettingsByProjectId(project_id);
+// Passa array ao template — template renderiza lista
+```
+
+Adicionar `getAllSettingsByProjectId()` ao Utils.js:
+```javascript
+async getAllSettingsByProjectId(project_id) {
+  return await db.getAll(project_id, 'project_id');
+}
+```
+
+Adicionar `getAll()` ao KVBaseMongo:
+```javascript
+async getAll(value, field) {
+  let query = {};
+  query[field] = value;
+  let docs = await this.collection.find(query).toArray();
+  return docs.map(d => d.value);
+}
+```
+
+### Template replacements — adicionar api_url
+
+O iframe precisa da URL base da API para chamar `GET /instances`:
+
+```javascript
+// Na rota /configure, adicionar aos replacements:
+api_url: API_URL
+```
+
+O template pode entao fazer:
+```javascript
+fetch(api_url + '/' + project_id + '/integration/name/whatsapp/instances', {
+  headers: { 'Authorization': 'JWT ' + token }
+})
+```
+
+### Lista de instancias no template
+
+O template renderiza a lista de numeros conectados:
+- Nome verificado + numero
+- Status
+- Botao "Remover" por instancia
+
+### Rota /disconnect — adicionar waba_id param
+
+Atualmente desconecta sem saber qual instancia. Com multi-instance:
+
+```javascript
+// ANTES:
+router.post('/disconnect', ...)
+// Remove whatsapp-{project_id}
+
+// DEPOIS:
+router.post('/disconnect', ...)
+// Recebe waba_id no body
+// Remove whatsapp-{waba_id} do kvstore
+// Remove documento da integrations collection
+```
+
+## Comportamento Documentado
+
+### Mesmo contato em 2 numeros = 2 conversas
+
+O `request_id` contem `phone_number_id`. O mesmo telefone enviando para 2 numeros diferentes do mesmo projeto cria 2 conversas separadas. Isso e **intencional** — cada numero e um canal de atendimento independente (ex: vendas vs suporte).
 
 A lista e obtida via `GET /integration/name/whatsapp/instances` (endpoint ja existe).
 
