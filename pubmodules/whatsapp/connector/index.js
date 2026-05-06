@@ -227,6 +227,23 @@ router.get('/onboarding/callback', async (req, res) => {
     let CONTENT_KEY = "whatsapp-" + waba_id;
     await db.set(CONTENT_KEY, settings);
 
+    // Dual-write to integrations collection
+    try {
+      await axios.post(API_URL + '/' + settings.project_id + '/integration', {
+        name: 'whatsapp',
+        value: {
+          phone_number_id: settings.phone_number_id,
+          waba_id: settings.waba_id,
+          phone_number: settings.phone_number,
+          verified_name: settings.verified_name
+        }
+      }, {
+        headers: { 'Authorization': 'JWT ' + settings.token }
+      });
+    } catch(intErr) {
+      winston.error("(wab) Error creating integration document: " + intErr.message);
+    }
+
     try {
       let register_result = await whatsappService.registerNumber(data.access_token, data.phone_number_id)
       winston.verbose("(wab) /onboarding/callback register_result: ", register_result)
@@ -359,6 +376,23 @@ router.post("/update", async (req, res) => {
     })
 
     await db.set(CONTENT_KEY, settings);
+
+    // Dual-write to integrations collection
+    try {
+      await axios.post(API_URL + '/' + project_id + '/integration', {
+        name: 'whatsapp',
+        value: {
+          phone_number_id: settings.phone_number_id,
+          waba_id: settings.business_account_id,
+          phone_number: settings.phone_number,
+          verified_name: settings.verified_name
+        }
+      }, {
+        headers: { 'Authorization': 'JWT ' + token }
+      });
+    } catch(intErr) {
+      winston.error("(wab) Error creating integration document: " + intErr.message);
+    }
 
     readHTMLFile("/configure.html", (err, html) => {
       var template = handlebars.compile(html);
