@@ -510,14 +510,19 @@
         var status = data.status || 'N/A';
         var nameStatus = data.name_status || 'N/A';
 
+        var qualityLabels = { 'GREEN': 'Saudavel', 'YELLOW': 'Atencao', 'RED': 'Critico', 'N/A': 'Indisponivel' };
+        var statusLabels = { 'CONNECTED': 'Conectado', 'OFFLINE': 'Offline', 'FLAGGED': 'Sinalizado', 'RESTRICTED': 'Restrito', 'RATE_LIMITED': 'Limitado', 'N/A': 'N/A' };
+        var nameLabels = { 'APPROVED': 'Aprovado', 'PENDING_REVIEW': 'Em revisao', 'DECLINED': 'Recusado', 'N/A': 'N/A' };
+
+        var label = qualityLabels[quality] || quality;
         var color = '#2e7d32';
         if (quality === 'YELLOW' || quality === 'MEDIUM') color = '#f57f17';
         if (quality === 'RED' || quality === 'LOW') color = '#c62828';
 
-        btn.textContent = quality;
+        btn.textContent = label;
         btn.style.color = color;
         btn.style.borderColor = color;
-        btn.title = 'Status: ' + status + ' | Qualidade: ' + quality + ' | Nome: ' + nameStatus;
+        btn.title = 'Status: ' + (statusLabels[status] || status) + ' | Qualidade: ' + label + ' | Nome: ' + (nameLabels[nameStatus] || nameStatus);
       })
       .catch(function(err) {
         btn.disabled = false;
