@@ -649,6 +649,11 @@ router.post("/tiledesk", async (req, res) => {
     settings = await utils.getSettings(project_id, waba_id);
   }
 
+  if (!settings) {
+    winston.error("(wab) No WhatsApp settings found for project " + project_id);
+    return res.status(404).json({ error: "WhatsApp settings not found" });
+  }
+
   let wab_token = settings.wab_token;
 
   var text = req.body.payload.text;

@@ -46,7 +46,7 @@ class KVBaseMongo {
   }
 
   set(k, v) {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       //this.db.set(k, v).then(() => {resolve();});
       this.db.collection(this.KV_COLLECTION).updateOne({key: k}, { $set: { value: v, key: k, project_id: v.project_id, updatedAt: new Date() } }, { upsert: true, new: true }, function(err, doc) {
         if (err) {
@@ -60,7 +60,7 @@ class KVBaseMongo {
   }
 
   get(k, field) {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
 
       let query = { key: k}
       if (field) {
@@ -117,7 +117,7 @@ class KVBaseMongo {
   }
 
   remove(k, field) {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       
       let query = { key: k}
       if (field) {
