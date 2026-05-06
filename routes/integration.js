@@ -174,6 +174,24 @@ router.post('/', async (req, res) => {
             }
         }
 
+        if (req.body.name === 'whatsapp' && req.body.value && req.body.value.phone_number_id) {
+            try {
+                let waDup = await Integration.findOne({
+                    id_project: id_project,
+                    name: 'whatsapp',
+                    'value.phone_number_id': req.body.value.phone_number_id
+                });
+                if (waDup) {
+                    return res.status(409).json({
+                        error: 'whatsapp_duplicate_number',
+                        message: 'This WhatsApp number is already connected in this project'
+                    });
+                }
+            } catch (waDupErr) {
+                winston.error('Error checking WhatsApp duplicate', waDupErr);
+            }
+        }
+
         let newIntegration = new Integration({
             id_project: id_project,
             name: req.body.name,

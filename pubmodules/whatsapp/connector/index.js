@@ -554,10 +554,34 @@ router.post("/disconnect", async (req, res) => {
   let project_id = req.body.project_id;
   let token = req.body.token;
   let subscriptionId = req.body.subscription_id;
+  let waba_id = req.body.waba_id;
 
-  let deleted = await utils.deleteSettingsByProjectId(project_id);
-  if (!deleted) {
-    deleted = utils.deleteSettings(project_id, null)
+  let deleted;
+  if (waba_id) {
+    deleted = await db.remove('whatsapp-' + waba_id);
+  } else {
+    deleted = await utils.deleteSettingsByProjectId(project_id);
+    if (!deleted) {
+      deleted = utils.deleteSettings(project_id, null)
+    }
+  }
+
+  if (waba_id) {
+    try {
+      let response = await axios.get(API_URL + '/' + project_id + '/integration/name/whatsapp/instances', {
+        headers: { 'Authorization': 'JWT ' + token }
+      });
+      if (response.data && Array.isArray(response.data)) {
+        let toDelete = response.data.find(function(i) { return i.value && i.value.waba_id === waba_id; });
+        if (toDelete) {
+          await axios.delete(API_URL + '/' + project_id + '/integration/' + toDelete._id, {
+            headers: { 'Authorization': 'JWT ' + token }
+          });
+        }
+      }
+    } catch(delErr) {
+      winston.error("(wab) Error deleting integration: " + delErr.message);
+    }
   }
 
   if (!deleted) {
