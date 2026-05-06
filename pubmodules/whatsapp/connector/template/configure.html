@@ -1,75 +1,410 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 
 <head>
-    <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WhatsApp Business</title>
 
-    <!-- Bootstrap 5.3 CSS -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-      integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
-      crossorigin="anonymous">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #fff;
+      font-size: 14px;
+      color: #222;
+    }
 
-    <!-- Font Awesome 7 (latest version) -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" crossorigin="anonymous" />
-  
-    <!-- Font Poppins -->
-    <link href="[REDACTED_BASIC_AUTH_URL]" rel="stylesheet" />
+    .wa-container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
 
-    <!-- Custom CSS -->
-     <link rel="stylesheet" href="./css/configure.css">
+    .wa-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
 
-    <!-- Bootstrap 5.3 JavaScript Bundle (include Popper) -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
-      integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
-      crossorigin="anonymous">
-    </script>
+    .wa-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
 
-    <style>
-      body {
-        font-family: 'Poppins', serif;
-      }
-    </style>
-  
+    .wa-title h2 {
+      margin: 0;
+      font-size: 24px;
+    }
+
+    .wa-subtitle {
+      font-size: 13px;
+      color: #888;
+    }
+
+    .wa-status {
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .wa-status.active {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+
+    .wa-status.disconnected {
+      background: #fbe9e7;
+      color: #c62828;
+    }
+
+    .wa-info {
+      margin: 16px 0;
+    }
+
+    .wa-info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 14px;
+    }
+
+    .wa-info-label {
+      color: #666;
+    }
+
+    .wa-info-value {
+      font-weight: 500;
+      color: #222;
+    }
+
+    .btn-primary {
+      padding: 10px 24px;
+      background: #25d366;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-primary:hover {
+      background: #1da851;
+    }
+
+    .btn-danger {
+      padding: 8px 20px;
+      background: white;
+      color: #c62828;
+      border: 1px solid #c62828;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 24px;
+    }
+
+    .btn-danger:hover {
+      background: #fbe9e7;
+    }
+
+    .wa-field {
+      margin-bottom: 16px;
+    }
+
+    .wa-field label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 4px;
+    }
+
+    .wa-field select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      background: #fff;
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='gray' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14l-4.796-5.481C2.122 5.332 2.482 4.5 3.252 4.5h9.496c.77 0 1.13.832.801 1.159l-4.796 5.481a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.75rem center;
+      background-size: 12px;
+      padding-right: 2rem;
+    }
+
+    .wa-field select:focus {
+      outline: none;
+      border-color: #25d366;
+    }
+
+    .wa-field input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+
+    .wa-field input:focus {
+      outline: none;
+      border-color: #25d366;
+    }
+
+    .wa-field input[readonly] {
+      background: #f5f5f5;
+    }
+
+    .wa-section-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 24px 0 12px;
+      color: #222;
+    }
+
+    .wa-manual-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 16px;
+    }
+
+    .btn-submit {
+      padding: 10px 24px;
+      background: #25d366;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .btn-submit:hover {
+      background: #1da851;
+    }
+
+    .btn-refresh {
+      padding: 6px 16px;
+      background: white;
+      color: #333;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+
+    .btn-refresh:hover {
+      background: #f5f5f5;
+    }
+
+    .wa-manual-info {
+      margin-top: 16px;
+      font-size: 13px;
+      color: #999;
+    }
+
+    .wa-copy-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .wa-copy-row input {
+      flex: 1;
+    }
+
+    .btn-copy {
+      padding: 10px 12px;
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #666;
+      display: flex;
+      align-items: center;
+    }
+
+    .btn-copy:hover {
+      background: #e8e8e8;
+    }
+
+    .btn-copy.copied {
+      color: #2e7d32;
+    }
+
+    /* Loader overlay */
+    .spinner-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(255, 255, 255, 0.8);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    }
+
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #25d366;
+      border-radius: 50%;
+      width: 36px;
+      height: 36px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Modals */
+    .modal-overlay {
+      display: flex;
+      z-index: 99;
+      width: 100%;
+      height: 100%;
+      position: fixed;
+      left: 0;
+      top: 0;
+      background-color: rgba(0, 0, 0, 0.4);
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+    }
+
+    .modal-box {
+      width: 420px;
+      background: white;
+      border-radius: 12px;
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .modal-box p {
+      margin: 16px 0;
+      font-size: 14px;
+      color: #333;
+    }
+
+    .btn-modal {
+      padding: 8px 24px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #f5f5f5;
+      font-size: 14px;
+      cursor: pointer;
+      color: #333;
+    }
+
+    .btn-modal:hover {
+      background: #e8e8e8;
+    }
+
+    .btn-modal-confirm {
+      padding: 8px 24px;
+      border: none;
+      border-radius: 6px;
+      background: #25d366;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .btn-modal-confirm:hover {
+      background: #1da851;
+    }
+
+    /* MFA code inputs */
+    .code-inputs {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 12px;
+    }
+
+    .code-input {
+      width: 36px;
+      height: 45px;
+      font-size: 22px;
+      text-align: center;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+
+    .code-input:focus {
+      border-color: #25d366;
+      outline: none;
+    }
+
+    .wa-divider {
+      border: none;
+      border-top: 1px solid #f0f0f0;
+      margin: 24px 0;
+    }
+
+    .wa-disconnect-note {
+      font-size: 13px;
+      color: #999;
+      margin-bottom: 12px;
+    }
+  </style>
 </head>
 
-  
 <body>
 
+  <!-- Loader -->
   <div id="loader" style="display: none;" class="spinner-container">
     <div class="spinner"></div>
-    <p style="margin-top: 8px;">Completing the setup...</p>
+    <p id="loader-text" style="margin-top: 8px; font-size: 14px; color: #666;">Finalizando a configuracao...</p>
   </div>
 
   <!-- Success modal -->
   {{#if show_success_modal}}
-  <div id="success-update-modal" class="success-modal">
-    <div class="modal-content">
-        <img src="https://www.pngall.com/wp-content/uploads/9/Green-Tick-Vector-PNG-Images.png" width="80" height="auto" />
-        <p class="modal-text" style="margin-top: 20px; margin-bottom: 20px;">Configuration updated successfully</p>
-        <button class="btn cancel-btn" onclick="document.getElementById('success-update-modal').style.display='none'">Close</button>
+  <div id="success-update-modal" class="modal-overlay">
+    <div class="modal-box">
+      <img src="https://www.pngall.com/wp-content/uploads/9/Green-Tick-Vector-PNG-Images.png" width="64" height="auto" />
+      <p>Configuracao atualizada com sucesso</p>
+      <button class="btn-modal" onclick="document.getElementById('success-update-modal').style.display='none'">Fechar</button>
     </div>
   </div>
   {{/if}}
 
   <!-- Error modal -->
   {{#if show_error_modal}}
-  <div id="error-update-modal" class="error-modal">
-    <div class="modal-content">
-        <img src="https://cdn-icons-png.flaticon.com/512/148/148766.png" width="80" height="auto"  />
-        <p style="margin-top: 20px; margin-bottom: 20px;">An error occurred while updating the configuration</p>
-        <button class="btn cancel-btn" onclick="document.getElementById('error-update-modal').style.display='none'">Close</button>
+  <div id="error-update-modal" class="modal-overlay">
+    <div class="modal-box">
+      <img src="https://cdn-icons-png.flaticon.com/512/148/148766.png" width="64" height="auto" />
+      <p>Ocorreu um erro ao atualizar a configuracao</p>
+      <button class="btn-modal" onclick="document.getElementById('error-update-modal').style.display='none'">Fechar</button>
     </div>
   </div>
   {{/if}}
 
- <!-- MODALE PER 2FA -->
-  <div id="mfa-modal" class="mfa-modal" style="display: none;">
-    <div class="modal-content">
-      <img src="https://raw.githubusercontent.com/gab-95/images-host/refs/heads/main/2025-08-01%2016.12.17.png" width="80" height="auto" />
-      <p style="margin: 20px 0;">Enter the 6-digit two-step verification PIN.</p>
-
+  <!-- MFA modal -->
+  <div id="mfa-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-box">
+      <img src="https://raw.githubusercontent.com/gab-95/images-host/refs/heads/main/2025-08-01%2016.12.17.png" width="64" height="auto" />
+      <p>Digite o PIN de verificacao em duas etapas (6 digitos).</p>
       <div class="code-inputs">
         <input type="text" maxlength="1" class="code-input" />
         <input type="text" maxlength="1" class="code-input" />
@@ -78,530 +413,338 @@
         <input type="text" maxlength="1" class="code-input" />
         <input type="text" maxlength="1" class="code-input" />
       </div>
-
       <div style="margin-top: 20px;">
-        <button class="btn confirm-btn" onclick="submitMfaCode()">Verify</button>
-        <!--<button class="btn cancel-btn" onclick="document.getElementById('mfa-modal').style.display='none'">Annulla</button>-->
+        <button class="btn-modal-confirm" onclick="submitMfaCode()">Verificar</button>
       </div>
     </div>
   </div>
 
-  
-  <!-- HEADER -->
-  <div class="header">
-    <div class="header-content">
-      <div class="logo-title">
-        <div class="logo-container">
-          <img src="https://user-images.githubusercontent.com/45603238/200829081-e6a9c7a0-9d8c-431c-a477-4880a8fd752f.png" width="60px" height="60px">
-        </div>
-        <div class="title-version">
-          <p class="title">WhatsApp Business Connector</p>
-          <div class="status-box" style="padding: 0px 8px; letter-spacing: 1px; height: 18px;"> 
-            <p style="margin-bottom: 0px;">{{ app_version }}</p>
-          </div>
-        </div>
-      </div>
-      <div class="status-box"> 
-        <p style="margin-bottom: 0px; margin-right: 8px;">Status: </p> 
-        {{#if wab_token}}
-        <i class="fa fa-circle green-circle"></i>
-        <p style="margin-bottom: 0px;">Connected</p>
-        {{else}}
-        <i class="fa fa-circle red-circle"></i>
-        <p style="margin-bottom: 0px;">Disconnected</p>  
-        {{/if}}
-      </div>
-    </div>
-  
-  </div>
-  
+  <div class="wa-container">
 
-  <!-- INFO BOX -->
-  {{#unless popup_view}}
-  <div class="info-box">
-    {{#unless brand_name}}
-    <div class="info-list">
-      <!--
-      <div style="margin-bottom:20px;">
-        {{#if wab_token}}
-        <form action="./templates/{{project_id}}" method="get">
-          <input type="hidden" name="project_id" value="{{ project_id }}" />
-          <input type="hidden" name="app_id" value="{{ app_id }}" />
-          <input type="hidden" name="token" value="{{ token }}" />
-          <input type="submit" class="btn install-button" value="Manage Templates">
-        </form>
-        {{/if}}
-      </div>
-      -->
-      
-       <ul>
-        <div class="list-element">
-          <img src="https://cdn-icons-png.flaticon.com/512/1443/1443000.png" width="20" height="20" style="margin-right: 10px;"/>
-          <h7>Integrate your Whatsapp number with Tiledesk</h7>
-        </div>
-        <div class="list-element">
-          <img src="https://cdn-icons-png.flaticon.com/512/1443/1443000.png" width="20" height="20" style="margin-right: 10px;"/>
-          <h7>Once a chat is initiated on your Whatsapp number, receive an alert on your Tiledesk account</h7>
-        </div>
-        <div class="list-element">
-          <img src="https://cdn-icons-png.flaticon.com/512/1443/1443000.png" width="20" height="20" style="margin-right: 10px;"/>
-          <h7>Enable instant messaging and answer multiple conversations, everything from Tiledesk account</h7>
-        </div>
-      </ul>
-    </div>
-    {{/unless}}
-  </div>
-  {{/unless}}
-
-  <!-- Docs Section -->
-  {{#unless popup_view}}
-  <div class="docs-box">
-    {{#unless brand_name}}
-    <div class="docs-section">
-      <p  class="title" style="margin-top: 20px; margin-bottom: 10px">Before you start</p>
-      <div style="padding: 20px; background-color: #2fa2dc24; border-radius: 8px; width: 600px; margin-bottom: 5px;">
-        <div style="display: flex; flex-direction: row; align-items: baseline;">
-          <div>
-            <img src="https://cdn-icons-png.freepik.com/256/13077/13077927.png?semt=ais_hybrid" width="20px" height="auto" style="margin-right: 10px;"> 
-          </div>
-          <div>
-            <a href="https://gethelp.tiledesk.com/articles/connect-tiledesk-with-whatsapp-business/" target="_blank">Connect Tiledesk with WhatsApp Business</a>
-            <p style="color: grey; margin-bottom: 0px;">A small but very useful guide on how to connect your WhatsApp Business number with Tiledesk</p>
-          </div>
-        </div>
-      </div>
-
-      <div style="padding: 20px; background-color: #2fa2dc24; border-radius: 8px; width: 600px; margin-bottom: 5px;">
-        <div style="display: flex; flex-direction: row; align-items: baseline;">
-          <div>
-            <img src="https://cdn-icons-png.freepik.com/256/13077/13077927.png?semt=ais_hybrid" width="20px" height="auto" style="margin-right: 10px;"> 
-          </div>
-          <div>
-            <a href="https://gethelp.tiledesk.com/articles/configure-a-whatsapp-business-account/" target="_blank">Configure a WhatsApp Business account</a>
-          <p style="color: grey; margin-bottom: 0px;">Not sure how to set up a business account? Take a look here.</p>
-          </div>
-        </div>
-      </div>
-
-    </div>
-    {{/unless}}
-  </div>
-  {{/unless}}
-  
-
-  <!-- CONFIGURE BOX -->
-  <div class="configure-box">
-    <div class="configure">
-
-      <!-- Choose configuration type -->
-      {{#unless wab_token}}
-      <div style="width: 600px; margin-bottom: 36px">
-        <div style="width: 522px; display: flex; flex-direction: row; align-items: center">
-          <select id="connection-type" class="custom-select form-control" name="type">
-            <option value="oauth" {{#if isOAuth}}selected{{/if}}>Configure using OAuth</option>
-            <option value="manual"{{#unless isOAuth}}selected{{/unless}}>Manual configuration</option>
-          </select>
-          <span style="margin-left: 10px;">
-            <i class="fa fa-question-circle custom-tooltip">
-              <span class="custom-tooltiptext">ToDo</span>
-            </i>
-          </span>
-        </div>
-      </div>
-      {{/unless}}
-
-
-      {{#if isOAuth}}
-        <button onclick="launchWhatsAppSignup()" class="btn" 
-          style="background-color: #075E54; 
-          color: white; 
-          font-weight: 500; 
-          display: flex; align-items: center; justify-content: center">
-          <img src="https://cdn-icons-png.flaticon.com/512/733/733585.png" alt="WhatsApp" 
-            style="width: 18px; height: 18px; margin-right: 8px">
-            {{#if wab_token}}
-            Reauthorize WhatsApp
-            {{else}}
-            Authorize Whatsapp
-            {{/if}}
-        </button>
-
-        {{#if wab_token}}
-        <div class="form-group" style="width: 522px; margin-top: 20px;">
-          <label class="input-label" for="department">Department <span style="font-weight: normal;">(Optional)</span></label>
-          <div style="display: flex; flex-direction: row; align-items: center;">
-            <select id="department-select" class="custom-select form-control" name="department">
-            {{#each departments}}
-              {{#if (isEqual _id ../department_id)}}
-              <option value="{{ _id }}" selected>{{ name }}</option>
-              {{else}}
-              <option value="{{ _id }}">{{ name }}</option>
-              {{/if}}
-            {{/each}}
-            </select>
-            <span style="margin-left: 10px;">
-            <i class="fa fa-question-circle custom-tooltip">
-              <span class="custom-tooltiptext">Select the department where you want to open conversations coming from WhatsApp. Conversations are sent on the Default Department by default.</span>
-            </i>
-          </span>
-          </div>
-        </div>
-        {{/if}}
-
-
-        {{#if wab_token}}
-        <div style="margin-top: 20px;">
-          <div style="display: flex; justify-content: space-between; width: 500px;">
-            <p style="margin-right: 10px">Whatsapp Business ID:</p>
-            <b>{{ waba_id }}</b>
-          </div>
-
-          <div style="display: flex; justify-content: space-between; width: 500px;">
-            <p style="margin-right: 10px">Verified Name:</p>
-            <b>{{ verified_name }}</b>
-          </div>
-
-          <div style="display: flex; justify-content: space-between; width: 500px;">
-            <p style="margin-right: 10px">Phone Number:</p>
-            <b>{{ formatPhone phone_number }}</b>
-          </div>
-
-          <div style="display: flex; justify-content: space-between; width: 500px;">
-            <p style="margin-right: 10px">Phone Number ID:</p>
-            <b>{{ phone_number_id }}</b>
-          </div>
-        </div>
-        {{/if}}
-      {{/if}}
-    
-
-      {{#unless isOAuth}}
-      <p class="title" style="margin-bottom: 20px;">Configuration</p>
-      
-  
-      <div style="min-width: 600px">
-          <form action="./update" method="post">
-            
-            <div class="form-group" style="width: 590px;">
-              <label class="input-label" for="proxy_url">Webhook Endpoint</label>
-              <div style="display: flex; flex-direction: row;">
-                <div style="width: 522px;">
-                    <div style="display: flex; flex-direction: row; align-items: center;">
-                      <input type="text" readonly class="form-control copy-form custom-input" name="proxy_url" id="proxy_url" value="{{ proxy_url}}">
-                      <span style="margin-left: 10px;">
-                        <i class="fa fa-question-circle custom-tooltip">
-                          <span class="custom-tooltiptext">This is the endpoint to be reached by WhatsApp. Copy it to the Facebook Developer console in "Callback URL" in Whatsapp Configuration.</span>
-                        </i>
-                      </span>
-                      
-                    </div>
-                  
-                </div>
-                <div id="copy-div" class="icon-btn-div" onclick="copyTextToClipboard()">
-                  <i class="fa fa-copy icon-btn"></i>
-                </div>
-                <div id="copied-div" class="icon-btn-div" style="visibility: hidden;">
-                  <i class="fa fa-check icon-btn" style="margin-left: -74px; color: green;"></i>
-                </div>
-              </div>
-            </div>
-
-            <!-- Whatsapp Token -->
-            <div class="form-group" style="width: 522px;">
-              <label class="input-label" for="wab_token">Whatsapp Token
-              </label>
-              <div style="display: flex; flex-direction: row; align-items: center;">
-              <input id="tkn" type="text" required class="form-control custom-input" name="wab_token" value="{{ wab_token }}" placeholder="Enter the Whatsapp Token">
-                <span style="margin-left: 10px;">
-                  <i class="fa fa-question-circle custom-tooltip">
-                    <span class="custom-tooltiptext">This is the permanent WhatsApp Business token.</span>
-                  </i>
-                </span>
-              </div>
-            </div>
-
-            <!-- Verify Token -->
-            <div class="form-group" style="width: 522px;">
-              <label class="input-label" for="verify_token">Verify Token</label>
-              <div style="display: flex; flex-direction: row; align-items: center;">
-              <input type="password" required class="form-control custom-input" name="verify_token" value="{{ verify_token }}" placeholder="Enter your Verify Token">
-                <span style="margin-left: 10px;">
-                  <i class="fa fa-question-circle custom-tooltip">
-                    <span class="custom-tooltiptext">Choose the verification token end copy it to the Facebook Developer console in "Verify Token" in Whatsapp Configuration</span>
-                  </i>
-                </span>
-              </div>
-            </div>
-
-            <!-- WhatsApp Business Account ID -->
-            <div class="form-group" style="width: 522px;">
-              <label class="input-label" for="verify_token">WhatsApp Business Account ID</label>
-              <div style="display: flex; flex-direction: row; align-items: center;">
-              <input type="text" required class="form-control custom-input" name="business_account_id" value="{{ business_account_id }}" placeholder="Enter your Business Account ID">
-                <span style="margin-left: 10px;">
-                  <i class="fa fa-question-circle custom-tooltip">
-                    <span class="custom-tooltiptext">This is the WhatsApp Business Account ID that can be found in Whatsapp Getting Started on the Facebook Developer console.</span>
-                  </i>
-                </span>
-              </div>
-            </div>
-
-            <!-- Departments -->
-            <div class="form-group" style="width: 522px;">
-              <label class="input-label" for="department">Department <span style="font-weight: normal;">(Optional)</span></label>
-              <div style="display: flex; flex-direction: row; align-items: center;">
-                <select class="custom-select form-control" name="department">
-                {{#each departments}}
-                  {{#if (isEqual _id ../department_id)}}
-                  <option value="{{ _id }}" selected>{{ name }}</option>
-                  {{else}}
-                  <option value="{{ _id }}">{{ name }}</option>
-                  {{/if}}
-                {{/each}}
-                </select>
-                <span style="margin-left: 10px;">
-                <i class="fa fa-question-circle custom-tooltip">
-                  <span class="custom-tooltiptext">Select the department where you want to open conversations coming from WhatsApp. Conversations are sent on the Default Department by default.</span>
-                </i>
-              </span>
-              </div>
-            </div>
-
-            <input type="hidden" name="project_id" value="{{ project_id }}" />
-            <input type="hidden" name="token" value="{{ token }}" />
-            
-            {{#if wab_token}}
-              <div style="width: 500px; text-align: right;">
-                <input type="submit" class="btn" style="width: 200px; background-color: #0ba2dc; color: white; font-weight: 500;" value="Update">
-              </div>
-            {{else}}
-              <div style="width: 500px; text-align: right;">
-                <input type="submit" class="btn" style="width: 200px; background-color: #0ba2dc; color: white; font-weight: 500;" value="Connect"
-                    onclick="postMessage('connectWhatsapp')">
-              </div>
-            {{/if}}    
-          </form>
-        
-          <form action="./getinfo" method="post">
-          {{#if wab_token}}
-              {{#if phone_number_id}}
-                <div style="margin-top: 20px;">
-                  <div style="display: flex;">
-                    <p style="margin-right: 10px">Verified Name:</p>
-                    <b>{{ verified_name }}</b>
-                  </div>
-
-                  <div style="display: flex;">
-                    <p style="margin-right: 10px">Phone Number:</p>
-                    <b>{{ phone_number }}</b>
-                  </div>
-
-                  <div style="display: flex;">
-                    <p style="margin-right: 10px">Phone Number ID:</p>
-                    <b>{{ phone_number_id }}</b>
-                  </div>
-                </div>
-        
-                <input type="hidden" name="project_id" value="{{ project_id }}" />
-                <input type="hidden" name="token" value="{{ token }}" />
-                <input type="submit" class="btn" style="width: 80px; background-color: #ffffff; color: #000000; font-weight: 400; border: solid 1px; border-radius: 14px;" value="Refresh">
-              {{else}}
-                  <div style="margin-top: 20px">
-                    <div style="display: flex;">
-                      <p style="margin-right: 10px">Verified Name:</p>
-                      <b>Unknown</b>
-                    </div>
-
-                    <div style="display: flex;">
-                      <p style="margin-right: 10px">Phone Number:</p>
-                      <b>Unknown</b>
-                    </div>
-
-                    <div style="display: flex;">
-                      <p style="margin-right: 10px">Phone Number ID:</p>
-                      <b>Unknown</b>
-                    </div>
-                  </div>  
-                  
-                  <input type="hidden" name="project_id" value="{{ project_id }}" />
-                  <input type="hidden" name="token" value="{{ token }}" />
-                  <input type="submit" class="btn" style="width: 80px; background-color: #ffffff; color: #000000; font-weight: 400; border: solid 1px; border-radius: 14px;" value="Refresh">
-                  <p style="margin-top: 6px; margin-bottom: 0px; color: #a3a3a3; max-width: 430px; font-weight: 300;">Click on Refresh to retrieve your Whatsapp Business Account informations and automatically set your <b>Phone Number ID</b>.</p>
-              {{/if}}
-            {{/if}}
-          </form>
-      </div> 
-      {{/unless}}
-    </div>
-  </div>
-
-  
-  <div class="disconnect-box">
-    <div class="disconnect">
-      <p class="title" style="margin-bottom: 20px;"> Disconnect</p>  
-
-        <!-- Disconnect Button -->
-        {{#if wab_token}}
+    <!-- Header -->
+    <div class="wa-header">
+      <div class="wa-title">
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="#25d366">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+        </svg>
         <div>
-          {{#if brand_name}}
-          <p style="color: rgb(140, 140, 140);">The WhatsApp Business App is configured on your {{ brand_name }} project.</p>
-          {{else}}
-          <p style="color: rgb(140, 140, 140);">The WhatsApp Business App is configured on your Tiledesk project.</p>
-          {{/if}}
-          
-          
-          <p>By clicking on disconnect you will no longer be able to receive messages from the WhatsApp channel</p>
-          <form action="./disconnect" method="post">
-            <input type="hidden" name="project_id" value="{{ project_id }}">
-                <input type="hidden" name="token" value="{{ token }}">
-                <input type="hidden" name="subscription_id" value="{{ subscription_id }}">
-            <input type="submit" class="btn disconnect-button" style="margin-top: 10px; width: 160px;" value="Disconnect" onclick="postMessage('disconnectWhatsapp')">
-          </form>
+          <h2>WhatsApp Business</h2>
+          <span class="wa-subtitle">API Oficial da Meta</span>
         </div>
-        {{else}}
-          <!-- App not configured -->
-          {{#if brand_name}}
-          <p style="color: rgb(140, 140, 140);">The WhatsApp Business App is not yet configured on your {{ brand_name }} project.</p>
-          {{else}}
-          <p style="color: rgb(140, 140, 140);">The WhatsApp Business App is not yet configured on your Tiledesk project.</p>
-          {{/if}}
-        
-        {{/if}}
+      </div>
+      {{#if wab_token}}
+        <span class="wa-status active">Conectado</span>
+      {{else}}
+        <span class="wa-status disconnected">Desconectado</span>
+      {{/if}}
     </div>
-  </div>
 
+    {{#if isOAuth}}
+    <!-- OAuth flow -->
 
-  <!--
-  <div class="version-box">
-    <div class="version">
-      <p class="version-title">App version: </p>
-      <div class="status-box" style="padding: 0px 20px; letter-spacing: 1px; height: 30px;"> 
-        <p style="margin-bottom: 0px;">{{ app_version }}</p>
+    <!-- Connect / Reconnect button -->
+    <div style="margin-bottom: 24px;">
+      <button class="btn-primary" onclick="launchWhatsAppSignup()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="white">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+        </svg>
+        {{#if wab_token}}Reconectar{{else}}Conectar WhatsApp{{/if}}
+      </button>
+    </div>
+
+    {{#if wab_token}}
+    <!-- Account info -->
+    <div class="wa-info">
+      <div class="wa-info-row">
+        <span class="wa-info-label">ID da Conta Business</span>
+        <span class="wa-info-value">{{ waba_id }}</span>
+      </div>
+      <div class="wa-info-row">
+        <span class="wa-info-label">Nome Verificado</span>
+        <span class="wa-info-value">{{ verified_name }}</span>
+      </div>
+      <div class="wa-info-row">
+        <span class="wa-info-label">Numero</span>
+        <span class="wa-info-value">{{ formatPhone phone_number }}</span>
+      </div>
+      <div class="wa-info-row">
+        <span class="wa-info-label">ID do Numero</span>
+        <span class="wa-info-value">{{ phone_number_id }}</span>
       </div>
     </div>
-  </div>
-  -->
 
-  <script> 
-    
+    <!-- Department -->
+    <div class="wa-field">
+      <label>Departamento (Opcional)</label>
+      <select id="department-select">
+        {{#each departments}}
+          {{#if (isEqual _id ../department_id)}}
+          <option value="{{ _id }}" selected>{{ name }}</option>
+          {{else}}
+          <option value="{{ _id }}">{{ name }}</option>
+          {{/if}}
+        {{/each}}
+      </select>
+    </div>
+
+    <hr class="wa-divider">
+
+    <!-- Disconnect -->
+    <p class="wa-disconnect-note">Ao desconectar, voce nao recebera mais mensagens pelo canal do WhatsApp.</p>
+    <form action="./disconnect" method="post">
+      <input type="hidden" name="project_id" value="{{ project_id }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="subscription_id" value="{{ subscription_id }}">
+      <button type="submit" class="btn-danger" onclick="postMessage('disconnectWhatsapp')">Desconectar</button>
+    </form>
+    {{/if}}
+
+    {{else}}
+    <!-- Manual configuration flow -->
+
+    {{#unless wab_token}}
+    <div class="wa-field" style="margin-bottom: 24px;">
+      <label>Tipo de Conexao</label>
+      <select id="connection-type">
+        <option value="oauth" {{#if isOAuth}}selected{{/if}}>Configurar via OAuth</option>
+        <option value="manual" {{#unless isOAuth}}selected{{/unless}}>Configuracao manual</option>
+      </select>
+    </div>
+    {{/unless}}
+
+    <form action="./update" method="post">
+
+      <!-- Webhook Endpoint -->
+      <div class="wa-field">
+        <label>Webhook Endpoint</label>
+        <div class="wa-copy-row">
+          <input type="text" readonly name="proxy_url" id="proxy_url" value="{{ proxy_url }}">
+          <button type="button" id="copy-btn" class="btn-copy" onclick="copyTextToClipboard()">
+            <span id="copy-icon">&#128203;</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- WhatsApp Token -->
+      <div class="wa-field">
+        <label>Token do WhatsApp</label>
+        <input id="tkn" type="text" required name="wab_token" value="{{ wab_token }}" placeholder="Insira o token do WhatsApp">
+      </div>
+
+      <!-- Verify Token -->
+      <div class="wa-field">
+        <label>Token de Verificacao</label>
+        <input type="password" required name="verify_token" value="{{ verify_token }}" placeholder="Insira o token de verificacao">
+      </div>
+
+      <!-- WhatsApp Business Account ID -->
+      <div class="wa-field">
+        <label>ID da Conta Business do WhatsApp</label>
+        <input type="text" required name="business_account_id" value="{{ business_account_id }}" placeholder="Insira o ID da conta Business">
+      </div>
+
+      <!-- Department -->
+      <div class="wa-field">
+        <label>Departamento (Opcional)</label>
+        <select name="department">
+          {{#each departments}}
+            {{#if (isEqual _id ../department_id)}}
+            <option value="{{ _id }}" selected>{{ name }}</option>
+            {{else}}
+            <option value="{{ _id }}">{{ name }}</option>
+            {{/if}}
+          {{/each}}
+        </select>
+      </div>
+
+      <input type="hidden" name="project_id" value="{{ project_id }}" />
+      <input type="hidden" name="token" value="{{ token }}" />
+
+      <div class="wa-manual-actions">
+        {{#if wab_token}}
+        <button type="submit" class="btn-submit">Atualizar</button>
+        {{else}}
+        <button type="submit" class="btn-submit" onclick="postMessage('connectWhatsapp')">Conectar</button>
+        {{/if}}
+      </div>
+    </form>
+
+    {{#if wab_token}}
+    <form action="./getinfo" method="post">
+      <hr class="wa-divider">
+
+      <div class="wa-info">
+        {{#if phone_number_id}}
+        <div class="wa-info-row">
+          <span class="wa-info-label">Nome Verificado</span>
+          <span class="wa-info-value">{{ verified_name }}</span>
+        </div>
+        <div class="wa-info-row">
+          <span class="wa-info-label">Numero</span>
+          <span class="wa-info-value">{{ phone_number }}</span>
+        </div>
+        <div class="wa-info-row">
+          <span class="wa-info-label">ID do Numero</span>
+          <span class="wa-info-value">{{ phone_number_id }}</span>
+        </div>
+        {{else}}
+        <div class="wa-info-row">
+          <span class="wa-info-label">Nome Verificado</span>
+          <span class="wa-info-value">Desconhecido</span>
+        </div>
+        <div class="wa-info-row">
+          <span class="wa-info-label">Numero</span>
+          <span class="wa-info-value">Desconhecido</span>
+        </div>
+        <div class="wa-info-row">
+          <span class="wa-info-label">ID do Numero</span>
+          <span class="wa-info-value">Desconhecido</span>
+        </div>
+        {{/if}}
+      </div>
+
+      <input type="hidden" name="project_id" value="{{ project_id }}" />
+      <input type="hidden" name="token" value="{{ token }}" />
+      <button type="submit" class="btn-refresh">Atualizar dados</button>
+
+      {{#unless phone_number_id}}
+      <p class="wa-manual-info">Clique em "Atualizar dados" para obter as informacoes da sua conta WhatsApp Business e configurar automaticamente o <b>ID do Numero</b>.</p>
+      {{/unless}}
+    </form>
+
+    <hr class="wa-divider">
+
+    <!-- Disconnect -->
+    <p class="wa-disconnect-note">Ao desconectar, voce nao recebera mais mensagens pelo canal do WhatsApp.</p>
+    <form action="./disconnect" method="post">
+      <input type="hidden" name="project_id" value="{{ project_id }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="subscription_id" value="{{ subscription_id }}">
+      <button type="submit" class="btn-danger" onclick="postMessage('disconnectWhatsapp')">Desconectar</button>
+    </form>
+    {{/if}}
+
+    {{/if}}
+
+  </div>
+
+  <!-- Scripts -->
+  <script>
     function copyTextToClipboard() {
-      const proxyUrl = document.getElementById('proxy_url').select()
-      
+      var input = document.getElementById('proxy_url');
+      input.select();
       try {
         document.execCommand('copy');
-        let el1 = document.getElementById('copy-div');
-        el1.style.visibility = 'hidden';
-        let el2 = document.getElementById('copied-div');
-        el2.style.visibility = 'visible';
+        var btn = document.getElementById('copy-btn');
+        btn.classList.add('copied');
+        document.getElementById('copy-icon').textContent = '✓';
+        setTimeout(function() {
+          btn.classList.remove('copied');
+          document.getElementById('copy-icon').textContent = '📋';
+        }, 2000);
       } catch (err) {
-        console.error('Async: Could not copy text: ', err);
+        console.error('Could not copy text: ', err);
       }
     }
-    
+
     function postMessage(action) {
-      const tkn = document.getElementById('tkn').value;
-      let connected = false;
-      if (tkn) {
+      var tknEl = document.getElementById('tkn');
+      var connected = false;
+      if (tknEl && tknEl.value) {
         connected = true;
       }
-      const msg = { action: action, calledBy: 'whatsapp_proxy', connected: connected}
+      var msg = { action: action, calledBy: 'whatsapp_proxy', connected: connected };
       window.parent.postMessage(msg, '*');
     }
-    
   </script>
 
   <script>
-    let connection_select = document.getElementById('connection-type');
+    var connection_select = document.getElementById('connection-type');
     if (connection_select) {
       connection_select.addEventListener('change', function () {
-        const type = this.value; // "oauth" o "manual"
-        const params = new URLSearchParams(window.location.search);
+        var type = this.value;
+        var params = new URLSearchParams(window.location.search);
         params.set('type', type);
         window.location.href = window.location.pathname + '?' + params.toString();
-      })
+      });
     }
   </script>
 
   <script>
-    let department_select = document.getElementById('department-select');
+    var department_select = document.getElementById('department-select');
     if (department_select) {
       department_select.addEventListener('change', function() {
         document.getElementById('loader').style.display = 'flex';
-        const dep_id = this.value;
-        const params = new URLSearchParams(window.location.search);
-    
-        fetch('update/department?' + params, { 
-          method: 'PUT', 
+        var dep_id = this.value;
+        var params = new URLSearchParams(window.location.search);
+
+        fetch('update/department?' + params, {
+          method: 'PUT',
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ 
-            department_id: dep_id 
+          body: JSON.stringify({
+            department_id: dep_id
           })
         })
-        .then(res => {
+        .then(function(res) {
           document.getElementById('loader').style.display = 'none';
-        }).catch(err => {
-          document.getElementById('loader').innerHTML = '<p>Errore durante il caricamento</p>';
-          console.error("Error: ", err)
+        }).catch(function(err) {
+          document.getElementById('loader-text').textContent = 'Erro durante o carregamento';
+          console.error("Error: ", err);
         });
-      })
+      });
     }
   </script>
 
-<script>
-  const inputs = document.querySelectorAll('.code-input');
+  <script>
+    var inputs = document.querySelectorAll('.code-input');
 
-  inputs.forEach((input, index) => {
-    input.addEventListener('input', () => {
-      const value = input.value;
-      if (value.length === 1 && index < inputs.length - 1) {
-        inputs[index + 1].focus();
-      }
+    inputs.forEach(function(input, index) {
+      input.addEventListener('input', function() {
+        if (input.value.length === 1 && index < inputs.length - 1) {
+          inputs[index + 1].focus();
+        }
+      });
+
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Backspace' && input.value === '' && index > 0) {
+          inputs[index - 1].focus();
+        }
+      });
+
+      input.addEventListener('paste', function(e) {
+        var paste = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+        for (var i = 0; i < paste.length; i++) {
+          inputs[i].value = paste[i];
+        }
+        if (paste.length === 6) {
+          inputs[5].focus();
+        } else {
+          inputs[paste.length].focus();
+        }
+        e.preventDefault();
+      });
     });
+  </script>
 
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Backspace' && input.value === '' && index > 0) {
-        inputs[index - 1].focus();
-      }
-    });
-
-    input.addEventListener('paste', (e) => {
-      const paste = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-      for (let i = 0; i < paste.length; i++) {
-        inputs[i].value = paste[i];
-      }
-      if (paste.length === 6) {
-        inputs[5].focus();
-      } else {
-        inputs[paste.length].focus();
-      }
-      e.preventDefault();
-    });
-  });
-
-</script>
-
-  <!-- SDK loading -->
+  <!-- Facebook SDK -->
   <script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js"></script>
 
   <script>
+    var FB_APP_ID = '{{fb_app_id}}';
+    var CONFIGURATION_ID = '{{configuration_id}}';
+    var cachedWaData = null;
+    var cachedStateParam = null;
+    var cachedSettings = null;
 
-    const FB_APP_ID = '{{fb_app_id}}';
-    const CONFIGURATION_ID = '{{configuration_id}}';
-    let cachedWaData = null;
-    let cachedStateParam = null;
-    let cachedSettings = null;
-
-    // 1. STATE TRACKING
-    let isSDKReady = false;
-    const authState = {
+    var isSDKReady = false;
+    var authState = {
       pendingEvent: null,
       hasCode: false,
       code: null
-    }
-    
-    // 2. FACEBOOK SDK INITIALIZATION
+    };
+
     window.fbAsyncInit = function () {
       console.log("Initializing FB SDK");
       FB.init({
@@ -614,7 +757,6 @@
       console.log("FB SDK ready");
     };
 
-    // 3. LAUNCH FUNCTION
     window.launchWhatsAppSignup = function () {
       console.log("Starting flow...");
       if (!isSDKReady) {
@@ -625,43 +767,38 @@
       FB.login(function (response) {
         console.log("FB Login response: ", response);
 
-        if (response.authResponse?.code) {
+        if (response.authResponse && response.authResponse.code) {
           console.log("Auth code received");
-          // TODO save code in session storage
           authState.hasCode = true;
           authState.code = response.authResponse.code;
           checkPendingEvents();
-          console.log("Authentication successful!")
+          console.log("Authentication successful!");
         } else {
-          const errorMsg = response.error ? response.error.message : 'No authorization code received';
+          var errorMsg = response.error ? response.error.message : 'No authorization code received';
           console.error("Login failed: ", errorMsg);
         }
       }, {
-        config_id: CONFIGURATION_ID, // configuration ID goes here
-        response_type: 'code', // must be set to 'code' for System User access token
-        override_default_response_type: true, // when true, any response types passed in the "response_type" will take precedence over the default types
+        config_id: CONFIGURATION_ID,
+        response_type: 'code',
+        override_default_response_type: true,
         scope: 'whatsapp_business_management,whatsapp_business_messaging',
         extras: {
           setup: {},
           featureType: "whatsapp_business_app_onboarding",
           sessionInfoVersion: '2'
         },
-      })
-    }
+      });
+    };
 
-    // 4. MESSAGE HANDLER
-    window.addEventListener('message', (event) => {
+    window.addEventListener('message', function(event) {
       if (event.origin !== "https://www.facebook.com" && event.origin !== "https://web.facebook.com") {
         return;
       }
       try {
-        const data = JSON.parse(event.data);
+        var data = JSON.parse(event.data);
         if (data.type === 'WA_EMBEDDED_SIGNUP') {
-          // if user finishes the Embedded Signup flow
           if (data.event === 'FINISH') {
-            //const {phone_number_id, waba_id, business_id} = data.data;
-            //console.log("Phone number ID ", phone_number_id, " WhatsApp business account ID ", waba_id);
-            const waData = {
+            var waData = {
               waba_id: data.data.waba_id,
               phone_number_id: data.data.phone_number_id,
               business_id: data.data.business_id
@@ -673,23 +810,23 @@
               authState.pendingEvent = waData;
               console.log("Completing authorization...");
             }
-            // if user cancels the Embedded Signup flow
           } else if (data.event === 'CANCEL') {
-            const { current_step } = data.data;
+            var current_step = data.data.current_step;
             console.warn("Cancel at ", current_step);
-            // if user reports an error during the Embedded Signup flow
           } else if (data.event === 'ERROR') {
-            const { error_message } = data.data;
+            var error_message = data.data.error_message;
             console.error("error ", error_message);
           }
         }
-        document.getElementById("session-info-response").textContent = JSON.stringify(data, null, 2);
+        var sessionInfo = document.getElementById("session-info-response");
+        if (sessionInfo) {
+          sessionInfo.textContent = JSON.stringify(data, null, 2);
+        }
       } catch (error) {
         console.log('Non JSON Responses', event.data);
       }
     });
 
-    // 5. PENDING EVENTS
     function checkPendingEvents() {
       if (authState.pendingEvent && authState.hasCode) {
         console.log("Processing pending event");
@@ -698,90 +835,95 @@
       }
     }
 
-    // 6. COMPLETE FLOW
     function completeFlow(waData, code) {
-
       document.getElementById('loader').style.display = 'flex';
 
       if (!code) {
-        console.warn("Code is undefined.")
-        document.getElementById('loader').innerHTML = '<p>Errore durante il caricamento</p>';
+        console.warn("Code is undefined.");
+        document.getElementById('loader-text').textContent = 'Erro durante o carregamento';
         return;
       }
 
-      const currentParams = Object.fromEntries(new URLSearchParams(window.location.search).entries());
-      const stateParam = JSON.stringify(currentParams);
+      var currentParams = Object.fromEntries(new URLSearchParams(window.location.search).entries());
+      var stateParam = JSON.stringify(currentParams);
 
       cachedWaData = waData;
       cachedStateParam = stateParam;
 
-      const params = new URLSearchParams({
+      var params = new URLSearchParams({
         code: code,
-        ...waData,
+        waba_id: waData.waba_id,
+        phone_number_id: waData.phone_number_id,
+        business_id: waData.business_id,
         state: stateParam
       });
 
       fetch('onboarding/callback?' + params)
-        .then(res => res.json())
-        .then(data => {
-          console.log("Access token ricevuto dal backend:", data);
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          console.log("Access token received:", data);
 
           if (data.success === false && (data.code === 133005 || data.code === "133005")) {
-            cachedSettings = data.settings; //
+            cachedSettings = data.settings;
             document.getElementById('loader').style.display = 'none';
             document.getElementById('mfa-modal').style.display = 'flex';
             return;
           }
 
           window.location.reload();
-          //window.location.href = `/configure?` + currentParams;
         })
-        .catch(err => {
-          document.getElementById('loader').innerHTML = '<p>Errore durante il caricamento</p>';
-          console.error("Errore:", err)
+        .catch(function(err) {
+          document.getElementById('loader-text').textContent = 'Erro durante o carregamento';
+          console.error("Erro:", err);
         });
     }
 
     function submitMfaCode() {
-      const code = Array.from(inputs).map(input => input.value).join('');
-      console.log("code: ", code);
+      var code = Array.from(inputs).map(function(input) { return input.value; }).join('');
       if (code.length !== 6) {
-        alert('Inserisci tutte le 6 cifre del codice');
+        alert('Insira todos os 6 digitos do codigo');
         return;
       }
 
       document.getElementById('loader').style.display = 'flex';
       document.getElementById('mfa-modal').style.display = 'none';
 
-      const params = new URLSearchParams({
+      var params = new URLSearchParams({
         pin: code,
-        ...cachedWaData,
-        ...cachedSettings,
-        state: cachedStateParam
+        waba_id: cachedWaData.waba_id,
+        phone_number_id: cachedWaData.phone_number_id,
+        business_id: cachedWaData.business_id
       });
 
+      if (cachedSettings) {
+        Object.keys(cachedSettings).forEach(function(key) {
+          params.set(key, cachedSettings[key]);
+        });
+      }
+
+      params.set('state', cachedStateParam);
+
       fetch('onboarding/register?' + params)
-        .then(res => res.json())
-        .then(data => {
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
           if (data.success) {
             window.location.reload();
           } else {
             document.getElementById('loader').style.display = 'none';
             document.getElementById('mfa-modal').style.display = 'flex';
-            const inputs = document.querySelectorAll('.code-input');
-            inputs.forEach(input => input.value = '');
+            var codeInputs = document.querySelectorAll('.code-input');
+            codeInputs.forEach(function(input) { input.value = ''; });
           }
         })
-        .catch(err => {
+        .catch(function(err) {
           document.getElementById('loader').style.display = 'none';
           document.getElementById('mfa-modal').style.display = 'flex';
-          const inputs = document.querySelectorAll('.code-input');
-          inputs.forEach(input => input.value = '');
-          console.error("Errore:", err);
+          var codeInputs = document.querySelectorAll('.code-input');
+          codeInputs.forEach(function(input) { input.value = ''; });
+          console.error("Erro:", err);
         });
     }
-
   </script>
-  
+
 </body>
 </html>
