@@ -168,7 +168,12 @@ router.post('/', function (req, res) {
             // winston.debug("userEmail is defined");
             // createIfNotExistsWithLeadId(lead_id, fullname, email, id_project, createdBy)
             return leadService.createIfNotExistsWithLeadId(message.sender, userFullname, userEmail, projectid, null, leadAttributes)
+              .catch(function (err) {
+                winston.error('Error creating lead', err);
+                return res.status(500).send({ success: false, msg: 'Error creating lead.', err: err });
+              })
               .then(function (createdLead) {
+                if (!createdLead) return;
 
                 var rAttributes = message.attributes;
                 rAttributes["senderAuthInfo"] = message.senderAuthInfo;

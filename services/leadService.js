@@ -61,20 +61,24 @@ class LeadService {
 
   createIfNotExistsWithLeadId(lead_id, fullname, email, id_project, createdBy, attributes, status, phone) {
     return new Promise(function (resolve, reject) {
-      Lead.findOneAndUpdate(
-        { lead_id: lead_id, id_project: id_project },
-        {
+      var updateOp = {
           $setOnInsert: {
             lead_id: lead_id,
-            fullname: fullname,
-            email: email,
             id_project: id_project,
-            createdBy: createdBy,
-            attributes: attributes,
-            status: status,
-            phone: phone
-          }
-        },
+            createdBy: createdBy
+          },
+          $set: {}
+        };
+        if (fullname) updateOp.$set.fullname = fullname;
+        if (email) updateOp.$set.email = email;
+        if (phone) updateOp.$set.phone = phone;
+        if (attributes) updateOp.$set.attributes = attributes;
+        if (status) updateOp.$set.status = status;
+        if (Object.keys(updateOp.$set).length === 0) delete updateOp.$set;
+
+      Lead.findOneAndUpdate(
+        { lead_id: lead_id, id_project: id_project },
+        updateOp,
         { upsert: true, new: true, setDefaultsOnInsert: true }
       ).exec(function(err, lead) {
         if (err) {

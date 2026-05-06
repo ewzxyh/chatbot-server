@@ -150,7 +150,12 @@ async (req, res)  => {
 
           // createIfNotExistsWithLeadId(lead_id, fullname, email, id_project, createdBy, attributes) {
           return leadService.createIfNotExistsWithLeadId(sender || req.user._id, fullname, email, req.projectid, null, req.body.attributes || req.user.attributes, undefined, req.user.phone)
+          .catch(function(err) {
+            winston.error('Error creating lead', err);
+            return res.status(500).send({ success: false, msg: 'Error creating lead.', err: err });
+          })
           .then(function(createdLead) {
+            if (!createdLead) return;
 
             const contact = {
               ...(createdLead.phone && { phone: createdLead.phone }),
