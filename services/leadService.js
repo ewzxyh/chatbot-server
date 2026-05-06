@@ -60,31 +60,28 @@ class LeadService {
 
 
   createIfNotExistsWithLeadId(lead_id, fullname, email, id_project, createdBy, attributes, status, phone) {
-    var that = this;
     return new Promise(function (resolve, reject) {
-      return Lead.findOne({lead_id: lead_id, id_project: id_project})
-        //@DISABLED_CACHE .cache(cacheUtil.defaultTTL, id_project+":leads:lead_id:"+lead_id) //lead_cache
-        .exec(function(err, lead)  {
-          if (err) {
-            winston.error("Error createIfNotExistsWithLeadId", err);
-            return resolve(that.createWitId(lead_id, fullname, email, id_project, createdBy, attributes, status, phone));
+      Lead.findOneAndUpdate(
+        { lead_id: lead_id, id_project: id_project },
+        {
+          $setOnInsert: {
+            lead_id: lead_id,
+            fullname: fullname,
+            email: email,
+            id_project: id_project,
+            createdBy: createdBy,
+            attributes: attributes,
+            status: status,
+            phone: phone
           }
-          if (!lead) {
-            return resolve(that.createWitId(lead_id, fullname, email, id_project, createdBy, attributes, status, phone));
-          }
-
-          winston.debug("lead.email: " + lead.email); 
-          winston.debug("email: " + email); 
-          
-          if (lead.email == email) {
-            winston.debug("lead already exists createIfNotExistsWithLeadId with the same email");
-            return resolve(lead);
-          } else {
-            winston.debug("lead already exists createIfNotExistsWithLeadId but with different email");
-            return resolve(that.updateWitId(lead_id, fullname, email, id_project, status, phone));
-          }
-          
-      
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      ).exec(function(err, lead) {
+        if (err) {
+          winston.error("Error createIfNotExistsWithLeadId", err);
+          return reject(err);
+        }
+        resolve(lead);
       });
     });
   }
@@ -138,13 +135,13 @@ class LeadService {
     
 
     
-      Lead.findOneAndUpdate({lead_id:lead_id}, update, { new: true, upsert: true }, function (err, updatedLead) {
+      Lead.findOneAndUpdate({lead_id: lead_id, id_project: id_project}, update, { new: true, upsert: true }, function (err, updatedLead) {
         if (err) {
           winston.error('Error updating lead ', err);
           return reject(err);
         }
 
-      
+
         leadEvent.emit('lead.update', updatedLead);
         leadEvent.emit('lead.email.update', updatedLead);
         leadEvent.emit('lead.fullname.update', updatedLead);

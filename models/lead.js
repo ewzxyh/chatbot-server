@@ -105,6 +105,8 @@ LeadSchema.index({fullname: 'text', email: 'text'},
   // suggested by atlas
 LeadSchema.index({status: 1, id_project: 1, createdAt: -1});
 
+LeadSchema.index({ lead_id: 1, id_project: 1 }, { unique: true, background: true });
+
 
 
  var lead = mongoose.model('lead', LeadSchema);
