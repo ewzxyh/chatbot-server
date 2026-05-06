@@ -124,6 +124,8 @@ router.get("/configure", async (req, res) => {
     settings = await utils.getSettings(project_id, null);
   }
 
+  let allInstances = await utils.getAllSettingsByProjectId(project_id);
+
   let departments = await getDepartments(project_id, token);
 
   let proxy_url = BASE_URL + "/webhook/" + project_id;
@@ -154,7 +156,9 @@ router.get("/configure", async (req, res) => {
         brand_name: BRAND_NAME,
         isOAuth: isOAuth,
         fb_app_id: FB_APP_ID,
-        configuration_id: CONFIGURATION_ID
+        configuration_id: CONFIGURATION_ID,
+        api_url: API_URL,
+        all_instances: allInstances || [],
       }
       let renderedHtml = template(replacements);
       res.send(renderedHtml);
@@ -174,7 +178,9 @@ router.get("/configure", async (req, res) => {
       brand_name: BRAND_NAME,
       isOAuth: isOAuth,
       fb_app_id: FB_APP_ID,
-      configuration_id: CONFIGURATION_ID
+      configuration_id: CONFIGURATION_ID,
+      api_url: API_URL,
+      all_instances: allInstances || [],
     };
     let renderedHtml = template(replacements);
     res.send(renderedHtml);
@@ -993,6 +999,7 @@ router.post('/webhook', async (req, res) => {
 
 // Endpoint for Whatsapp Business
 router.post("/webhook/:project_id", async (req, res) => {
+  winston.warn('(wab) Legacy webhook route used for project ' + req.params.project_id + '. Migrate to OAuth.');
   // Parse the request body from the POST
   let project_id = req.params.project_id;
   winston.verbose("(wab) Message received from WhatsApp");
