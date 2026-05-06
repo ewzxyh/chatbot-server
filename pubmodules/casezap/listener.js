@@ -15,6 +15,10 @@ class Listener {
 
     winston.info('CaseZap Listener initializing');
 
+    if (config && config.tdCache) {
+      connector.setRedisClient(config.tdCache);
+    }
+
     var baseUrl = apiUrl;
 
     connector.setupOutboundListener();

@@ -18,7 +18,39 @@ var messageService = require('../../services/messageService');
 var messageEvent = require('../../event/messageEvent');
 var integrationEvent = require('../../event/integrationEvent');
 
-var processedMessages = new LRU({ max: 10000, maxAge: 1000 * 60 * 60 });
+var DEDUP_TTL = 3600;
+var DEDUP_PREFIX = 'czdedup:';
+var localCache = new LRU({ max: 10000, maxAge: 1000 * 60 * 60 });
+var tdCache = null;
+
+function setRedisClient(redisClient) {
+  tdCache = redisClient;
+  winston.info('CaseZap dedup using Redis');
+}
+
+async function isDuplicate(messageId) {
+  if (tdCache) {
+    try {
+      var val = await tdCache.get(DEDUP_PREFIX + messageId);
+      return val !== null;
+    } catch (err) {
+      winston.warn('CaseZap Redis dedup read failed, falling back to LRU: ' + err.message);
+    }
+  }
+  return localCache.has(messageId);
+}
+
+async function markProcessed(messageId) {
+  if (tdCache) {
+    try {
+      await tdCache.set(DEDUP_PREFIX + messageId, '1', { EX: DEDUP_TTL });
+      return;
+    } catch (err) {
+      winston.warn('CaseZap Redis dedup write failed, falling back to LRU: ' + err.message);
+    }
+  }
+  localCache.set(messageId, true);
+}
 var casezapProjects = new Map();
 var casezapEnabled = process.env.CASEZAP_ENABLED !== 'false';
 
@@ -58,10 +90,10 @@ async function handleWebhook(integration, req, res) {
       return res.status(200).json({ success: true, skipped: 'group message' });
     }
 
-    if (processedMessages.has(mapped.messageId)) {
+    if (await isDuplicate(mapped.messageId)) {
       return res.status(200).json({ success: true, deduplicated: true });
     }
-    processedMessages.set(mapped.messageId, true);
+    await markProcessed(mapped.messageId);
 
     var integrationId = integration._id.toString();
     var leadId = 'casezap-' + integrationId + '-' + mapped.phone;
@@ -394,6 +426,6 @@ module.exports = {
   setupOutboundListener: setupOutboundListener,
   setupIntegrationListener: setupIntegrationListener,
   registerWebhook: registerWebhook,
-  processedMessages: processedMessages,
+  setRedisClient: setRedisClient,
   casezapProjects: casezapProjects
 };
