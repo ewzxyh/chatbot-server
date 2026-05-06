@@ -23,12 +23,12 @@ COPY package*.json ./
 
 RUN npm install --production
 
-RUN sed -i "s/scope: 'whatsapp_business_management,business_management,pages_show_list'/scope: 'whatsapp_business_management,whatsapp_business_messaging'/" node_modules/@tiledesk/tiledesk-whatsapp-connector/template/configure.html || true
-
 RUN rm -f .npmrc
 
 # Bundle app source
 COPY . .
+
+RUN cd pubmodules/whatsapp/connector && npm install --production
 
 EXPOSE 3000
 

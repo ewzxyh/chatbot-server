@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap 5.3 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+      crossorigin="anonymous">
+
+    <!-- Font Awesome 7 (latest version) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" crossorigin="anonymous" />
+  
+    <!-- Font Poppins -->
+    <link href="[REDACTED_BASIC_AUTH_URL]" rel="stylesheet" />
+
+    <!-- Custom CSS -->
+     <link rel="stylesheet" href="./css/configure.css">
+
+    <!-- Bootstrap 5.3 JavaScript Bundle (include Popper) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+      integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+      crossorigin="anonymous">
+    </script>
+
+    <style>
+      body {
+        font-family: 'Poppins', serif;
+      }
+    </style>
+  
+</head>
+
+  
+<body>
+
+  <div id="loader" style="display: none;" class="spinner-container">
+    <div class="spinner"></div>
+    <p style="margin-top: 8px;">Completing the setup...</p>
+  </div>
+
+  <!-- Success modal -->
+  {{#if show_success_modal}}
+  <div id="success-update-modal" class="success-modal">
+    <div class="modal-content">
+        <img src="https://www.pngall.com/wp-content/uploads/9/Green-Tick-Vector-PNG-Images.png" width="80" height="auto" />
+        <p class="modal-text" style="margin-top: 20px; margin-bottom: 20px;">Configuration updated successfully</p>
+        <button class="btn cancel-btn" onclick="document.getElementById('success-update-modal').style.display='none'">Close</button>
+    </div>
+  </div>
+  {{/if}}
+
+  <!-- Error modal -->
+  {{#if show_error_modal}}
+  <div id="error-update-modal" class="error-modal">
+    <div class="modal-content">
+        <img src="https://cdn-icons-png.flaticon.com/512/148/148766.png" width="80" height="auto"  />
+        <p style="margin-top: 20px; margin-bottom: 20px;">An error occurred while updating the configuration</p>
+        <button class="btn cancel-btn" onclick="document.getElementById('error-update-modal').style.display='none'">Close</button>
+    </div>
+  </div>
+  {{/if}}
+
+ <!-- MODALE PER 2FA -->
+  <div id="mfa-modal" class="mfa-modal" style="display: none;">
+    <div class="modal-content">
+      <img src="https://raw.githubusercontent.com/gab-95/images-host/refs/heads/main/2025-08-01%2016.12.17.png" width="80" height="auto" />
+      <p style="margin: 20px 0;">Enter the 6-digit two-step verification PIN.</p>
+
+      <div class="code-inputs">
+        <input type="text" maxlength="1" class="code-input" />
+        <input type="text" maxlength="1" class="code-input" />
+        <input type="text" maxlength="1" class="code-input" />
+        <input type="text" maxlength="1" class="code-input" />
+        <input type="text" maxlength="1" class="code-input" />
+        <input type="text" maxlength="1" class="code-input" />
+      </div>
+
+      <div style="margin-top: 20px;">
+        <button class="btn confirm-btn" onclick="submitMfaCode()">Verify</button>
+        <!--<button class="btn cancel-btn" onclick="document.getElementById('mfa-modal').style.display='none'">Annulla</button>-->
+      </div>
+    </div>
+  </div>
+
+  
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-content">
+      <div class="logo-title">
+        <div class="logo-container">
+          <img src="https://user-images.githubusercontent.com/45603238/200829081-e6a9c7a0-9d8c-431c-a477-4880a8fd752f.png" width="60px" height="60px">
+        </div>
+        <div class="title-version">
+          <p class="title">WhatsApp Business Connector</p>
+          <div class="status-box" style="padding: 0px 8px; letter-spacing: 1px; height: 18px;"> 
+            <p style="margin-bottom: 0px;">{{ app_version }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="status-box"> 
+        <p style="margin-bottom: 0px; margin-right: 8px;">Status: </p> 
+        {{#if wab_token}}
+        <i class="fa fa-circle green-circle"></i>
+        <p style="margin-bottom: 0px;">Connected</p>
+        {{else}}
+        <i class="fa fa-circle red-circle"></i>
+        <p style="margin-bottom: 0px;">Disconnected</p>  
+        {{/if}}
+      </div>
+    </div>
+  
+  </div>
+  
+
+  <!-- INFO BOX -->
+  {{#unless popup_view}}
+  <div class="info-box">
+    {{#unless brand_name}}
+    <div class="info-list">
+      <!--
+      <div style="margin-bottom:20px;">
+        {{#if wab_token}}
+        <form action="./templates/{{project_id}}" method="get">
+          <input type="hidden" name="project_id" value="{{ project_id }}" />
+          <input type="hidden" name="app_id" value="{{ app_id }}" />
+          <input type="hidden" name="token" value="{{ token }}" />
+          <input type="submit" class="btn install-button" value="Manage Templates">
+        </form>
+        {{/if}}
+      </div>
+      -->
+      
+       <ul>
+        <div class="list-element">
+          <img src="https://cdn-icons-png.flaticon.com/512/1443/1443000.png" width="20" height="20" style="margin-right: 10px;"/>
+          <h7>Integrate your Whatsapp number with Tiledesk</h7>
+        </div>
+        <div class="list-element">
+          <img src="https://cdn-icons-png.flaticon.com/512/1443/1443000.png" width="20" height="20" style="margin-right: 10px;"/>
+          <h7>Once a chat is initiated on your Whatsapp number, receive an alert on your Tiledesk account</h7>
+        </div>
+        <div class="list-element">
+          <img src="https://cdn-icons-png.flaticon.com/512/1443/1443000.png" width="20" height="20" style="margin-right: 10px;"/>
+          <h7>Enable instant messaging and answer multiple conversations, everything from Tiledesk account</h7>
+        </div>
+      </ul>
+    </div>
+    {{/unless}}
+  </div>
+  {{/unless}}
+
+  <!-- Docs Section -->
+  {{#unless popup_view}}
+  <div class="docs-box">
+    {{#unless brand_name}}
+    <div class="docs-section">
+      <p  class="title" style="margin-top: 20px; margin-bottom: 10px">Before you start</p>
+      <div style="padding: 20px; background-color: #2fa2dc24; border-radius: 8px; width: 600px; margin-bottom: 5px;">
+        <div style="display: flex; flex-direction: row; align-items: baseline;">
+          <div>
+            <img src="https://cdn-icons-png.freepik.com/256/13077/13077927.png?semt=ais_hybrid" width="20px" height="auto" style="margin-right: 10px;"> 
+          </div>
+          <div>
+            <a href="https://gethelp.tiledesk.com/articles/connect-tiledesk-with-whatsapp-business/" target="_blank">Connect Tiledesk with WhatsApp Business</a>
+            <p style="color: grey; margin-bottom: 0px;">A small but very useful guide on how to connect your WhatsApp Business number with Tiledesk</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="padding: 20px; background-color: #2fa2dc24; border-radius: 8px; width: 600px; margin-bottom: 5px;">
+        <div style="display: flex; flex-direction: row; align-items: baseline;">
+          <div>
+            <img src="https://cdn-icons-png.freepik.com/256/13077/13077927.png?semt=ais_hybrid" width="20px" height="auto" style="margin-right: 10px;"> 
+          </div>
+          <div>
+            <a href="https://gethelp.tiledesk.com/articles/configure-a-whatsapp-business-account/" target="_blank">Configure a WhatsApp Business account</a>
+          <p style="color: grey; margin-bottom: 0px;">Not sure how to set up a business account? Take a look here.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    {{/unless}}
+  </div>
+  {{/unless}}
+  
+
+  <!-- CONFIGURE BOX -->
+  <div class="configure-box">
+    <div class="configure">
+
+      <!-- Choose configuration type -->
+      {{#unless wab_token}}
+      <div style="width: 600px; margin-bottom: 36px">
+        <div style="width: 522px; display: flex; flex-direction: row; align-items: center">
+          <select id="connection-type" class="custom-select form-control" name="type">
+            <option value="oauth" {{#if isOAuth}}selected{{/if}}>Configure using OAuth</option>
+            <option value="manual"{{#unless isOAuth}}selected{{/unless}}>Manual configuration</option>
+          </select>
+          <span style="margin-left: 10px;">
+            <i class="fa fa-question-circle custom-tooltip">
+              <span class="custom-tooltiptext">ToDo</span>
+            </i>
+          </span>
+        </div>
+      </div>
+      {{/unless}}
+
+
+      {{#if isOAuth}}
+        <button onclick="launchWhatsAppSignup()" class="btn" 
+          style="background-color: #075E54; 
+          color: white; 
+          font-weight: 500; 
+          display: flex; align-items: center; justify-content: center">
+          <img src="https://cdn-icons-png.flaticon.com/512/733/733585.png" alt="WhatsApp" 
+            style="width: 18px; height: 18px; margin-right: 8px">
+            {{#if wab_token}}
+            Reauthorize WhatsApp
+            {{else}}
+            Authorize Whatsapp
+            {{/if}}
+        </button>
+
+        {{#if wab_token}}
+        <div class="form-group" style="width: 522px; margin-top: 20px;">
+          <label class="input-label" for="department">Department <span style="font-weight: normal;">(Optional)</span></label>
+          <div style="display: flex; flex-direction: row; align-items: center;">
+            <select id="department-select" class="custom-select form-control" name="department">
+            {{#each departments}}
+              {{#if (isEqual _id ../department_id)}}
+              <option value="{{ _id }}" selected>{{ name }}</option>
+              {{else}}
+              <option value="{{ _id }}">{{ name }}</option>
+              {{/if}}
+            {{/each}}
+            </select>
+            <span style="margin-left: 10px;">
+            <i class="fa fa-question-circle custom-tooltip">
+              <span class="custom-tooltiptext">Select the department where you want to open conversations coming from WhatsApp. Conversations are sent on the Default Department by default.</span>
+            </i>
+          </span>
+          </div>
+        </div>
+        {{/if}}
+
+
+        {{#if wab_token}}
+        <div style="margin-top: 20px;">
+          <div style="display: flex; justify-content: space-between; width: 500px;">
+            <p style="margin-right: 10px">Whatsapp Business ID:</p>
+            <b>{{ waba_id }}</b>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; width: 500px;">
+            <p style="margin-right: 10px">Verified Name:</p>
+            <b>{{ verified_name }}</b>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; width: 500px;">
+            <p style="margin-right: 10px">Phone Number:</p>
+            <b>{{ formatPhone phone_number }}</b>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; width: 500px;">
+            <p style="margin-right: 10px">Phone Number ID:</p>
+            <b>{{ phone_number_id }}</b>
+          </div>
+        </div>
+        {{/if}}
+      {{/if}}
+    
+
+      {{#unless isOAuth}}
+      <p class="title" style="margin-bottom: 20px;">Configuration</p>
+      
+  
+      <div style="min-width: 600px">
+          <form action="./update" method="post">
+            
+            <div class="form-group" style="width: 590px;">
+              <label class="input-label" for="proxy_url">Webhook Endpoint</label>
+              <div style="display: flex; flex-direction: row;">
+                <div style="width: 522px;">
+                    <div style="display: flex; flex-direction: row; align-items: center;">
+                      <input type="text" readonly class="form-control copy-form custom-input" name="proxy_url" id="proxy_url" value="{{ proxy_url}}">
+                      <span style="margin-left: 10px;">
+                        <i class="fa fa-question-circle custom-tooltip">
+                          <span class="custom-tooltiptext">This is the endpoint to be reached by WhatsApp. Copy it to the Facebook Developer console in "Callback URL" in Whatsapp Configuration.</span>
+                        </i>
+                      </span>
+                      
+                    </div>
+                  
+                </div>
+                <div id="copy-div" class="icon-btn-div" onclick="copyTextToClipboard()">
+                  <i class="fa fa-copy icon-btn"></i>
+                </div>
+                <div id="copied-div" class="icon-btn-div" style="visibility: hidden;">
+                  <i class="fa fa-check icon-btn" style="margin-left: -74px; color: green;"></i>
+                </div>
+              </div>
+            </div>
+
+            <!-- Whatsapp Token -->
+            <div class="form-group" style="width: 522px;">
+              <label class="input-label" for="wab_token">Whatsapp Token
+              </label>
+              <div style="display: flex; flex-direction: row; align-items: center;">
+              <input id="tkn" type="text" required class="form-control custom-input" name="wab_token" value="{{ wab_token }}" placeholder="Enter the Whatsapp Token">
+                <span style="margin-left: 10px;">
+                  <i class="fa fa-question-circle custom-tooltip">
+                    <span class="custom-tooltiptext">This is the permanent WhatsApp Business token.</span>
+                  </i>
+                </span>
+              </div>
+            </div>
+
+            <!-- Verify Token -->
+            <div class="form-group" style="width: 522px;">
+              <label class="input-label" for="verify_token">Verify Token</label>
+              <div style="display: flex; flex-direction: row; align-items: center;">
+              <input type="password" required class="form-control custom-input" name="verify_token" value="{{ verify_token }}" placeholder="Enter your Verify Token">
+                <span style="margin-left: 10px;">
+                  <i class="fa fa-question-circle custom-tooltip">
+                    <span class="custom-tooltiptext">Choose the verification token end copy it to the Facebook Developer console in "Verify Token" in Whatsapp Configuration</span>
+                  </i>
+                </span>
+              </div>
+            </div>
+
+            <!-- WhatsApp Business Account ID -->
+            <div class="form-group" style="width: 522px;">
+              <label class="input-label" for="verify_token">WhatsApp Business Account ID</label>
+              <div style="display: flex; flex-direction: row; align-items: center;">
+              <input type="text" required class="form-control custom-input" name="business_account_id" value="{{ business_account_id }}" placeholder="Enter your Business Account ID">
+                <span style="margin-left: 10px;">
+                  <i class="fa fa-question-circle custom-tooltip">
+                    <span class="custom-tooltiptext">This is the WhatsApp Business Account ID that can be found in Whatsapp Getting Started on the Facebook Developer console.</span>
+                  </i>
+                </span>
+              </div>
+            </div>
+
+            <!-- Departments -->
+            <div class="form-group" style="width: 522px;">
+              <label class="input-label" for="department">Department <span style="font-weight: normal;">(Optional)</span></label>
+              <div style="display: flex; flex-direction: row; align-items: center;">
+                <select class="custom-select form-control" name="department">
+                {{#each departments}}
+                  {{#if (isEqual _id ../department_id)}}
+                  <option value="{{ _id }}" selected>{{ name }}</option>
+                  {{else}}
+                  <option value="{{ _id }}">{{ name }}</option>
+                  {{/if}}
+                {{/each}}
+                </select>
+                <span style="margin-left: 10px;">
+                <i class="fa fa-question-circle custom-tooltip">
+                  <span class="custom-tooltiptext">Select the department where you want to open conversations coming from WhatsApp. Conversations are sent on the Default Department by default.</span>
+                </i>
+              </span>
+              </div>
+            </div>
+
+            <input type="hidden" name="project_id" value="{{ project_id }}" />
+            <input type="hidden" name="token" value="{{ token }}" />
+            
+            {{#if wab_token}}
+              <div style="width: 500px; text-align: right;">
+                <input type="submit" class="btn" style="width: 200px; background-color: #0ba2dc; color: white; font-weight: 500;" value="Update">
+              </div>
+            {{else}}
+              <div style="width: 500px; text-align: right;">
+                <input type="submit" class="btn" style="width: 200px; background-color: #0ba2dc; color: white; font-weight: 500;" value="Connect"
+                    onclick="postMessage('connectWhatsapp')">
+              </div>
+            {{/if}}    
+          </form>
+        
+          <form action="./getinfo" method="post">
+          {{#if wab_token}}
+              {{#if phone_number_id}}
+                <div style="margin-top: 20px;">
+                  <div style="display: flex;">
+                    <p style="margin-right: 10px">Verified Name:</p>
+                    <b>{{ verified_name }}</b>
+                  </div>
+
+                  <div style="display: flex;">
+                    <p style="margin-right: 10px">Phone Number:</p>
+                    <b>{{ phone_number }}</b>
+                  </div>
+
+                  <div style="display: flex;">
+                    <p style="margin-right: 10px">Phone Number ID:</p>
+                    <b>{{ phone_number_id }}</b>
+                  </div>
+                </div>
+        
+                <input type="hidden" name="project_id" value="{{ project_id }}" />
+                <input type="hidden" name="token" value="{{ token }}" />
+                <input type="submit" class="btn" style="width: 80px; background-color: #ffffff; color: #000000; font-weight: 400; border: solid 1px; border-radius: 14px;" value="Refresh">
+              {{else}}
+                  <div style="margin-top: 20px">
+                    <div style="display: flex;">
+                      <p style="margin-right: 10px">Verified Name:</p>
+                      <b>Unknown</b>
+                    </div>
+
+                    <div style="display: flex;">
+                      <p style="margin-right: 10px">Phone Number:</p>
+                      <b>Unknown</b>
+                    </div>
+
+                    <div style="display: flex;">
+                      <p style="margin-right: 10px">Phone Number ID:</p>
+                      <b>Unknown</b>
+                    </div>
+                  </div>  
+                  
+                  <input type="hidden" name="project_id" value="{{ project_id }}" />
+                  <input type="hidden" name="token" value="{{ token }}" />
+                  <input type="submit" class="btn" style="width: 80px; background-color: #ffffff; color: #000000; font-weight: 400; border: solid 1px; border-radius: 14px;" value="Refresh">
+                  <p style="margin-top: 6px; margin-bottom: 0px; color: #a3a3a3; max-width: 430px; font-weight: 300;">Click on Refresh to retrieve your Whatsapp Business Account informations and automatically set your <b>Phone Number ID</b>.</p>
+              {{/if}}
+            {{/if}}
+          </form>
+      </div> 
+      {{/unless}}
+    </div>
+  </div>
+
+  
+  <div class="disconnect-box">
+    <div class="disconnect">
+      <p class="title" style="margin-bottom: 20px;"> Disconnect</p>  
+
+        <!-- Disconnect Button -->
+        {{#if wab_token}}
+        <div>
+          {{#if brand_name}}
+          <p style="color: rgb(140, 140, 140);">The WhatsApp Business App is configured on your {{ brand_name }} project.</p>
+          {{else}}
+          <p style="color: rgb(140, 140, 140);">The WhatsApp Business App is configured on your Tiledesk project.</p>
+          {{/if}}
+          
+          
+          <p>By clicking on disconnect you will no longer be able to receive messages from the WhatsApp channel</p>
+          <form action="./disconnect" method="post">
+            <input type="hidden" name="project_id" value="{{ project_id }}">
+                <input type="hidden" name="token" value="{{ token }}">
+                <input type="hidden" name="subscription_id" value="{{ subscription_id }}">
+            <input type="submit" class="btn disconnect-button" style="margin-top: 10px; width: 160px;" value="Disconnect" onclick="postMessage('disconnectWhatsapp')">
+          </form>
+        </div>
+        {{else}}
+          <!-- App not configured -->
+          {{#if brand_name}}
+          <p style="color: rgb(140, 140, 140);">The WhatsApp Business App is not yet configured on your {{ brand_name }} project.</p>
+          {{else}}
+          <p style="color: rgb(140, 140, 140);">The WhatsApp Business App is not yet configured on your Tiledesk project.</p>
+          {{/if}}
+        
+        {{/if}}
+    </div>
+  </div>
+
+
+  <!--
+  <div class="version-box">
+    <div class="version">
+      <p class="version-title">App version: </p>
+      <div class="status-box" style="padding: 0px 20px; letter-spacing: 1px; height: 30px;"> 
+        <p style="margin-bottom: 0px;">{{ app_version }}</p>
+      </div>
+    </div>
+  </div>
+  -->
+
+  <script> 
+    
+    function copyTextToClipboard() {
+      const proxyUrl = document.getElementById('proxy_url').select()
+      
+      try {
+        document.execCommand('copy');
+        let el1 = document.getElementById('copy-div');
+        el1.style.visibility = 'hidden';
+        let el2 = document.getElementById('copied-div');
+        el2.style.visibility = 'visible';
+      } catch (err) {
+        console.error('Async: Could not copy text: ', err);
+      }
+    }
+    
+    function postMessage(action) {
+      const tkn = document.getElementById('tkn').value;
+      let connected = false;
+      if (tkn) {
+        connected = true;
+      }
+      const msg = { action: action, calledBy: 'whatsapp_proxy', connected: connected}
+      window.parent.postMessage(msg, '*');
+    }
+    
+  </script>
+
+  <script>
+    let connection_select = document.getElementById('connection-type');
+    if (connection_select) {
+      connection_select.addEventListener('change', function () {
+        const type = this.value; // "oauth" o "manual"
+        const params = new URLSearchParams(window.location.search);
+        params.set('type', type);
+        window.location.href = window.location.pathname + '?' + params.toString();
+      })
+    }
+  </script>
+
+  <script>
+    let department_select = document.getElementById('department-select');
+    if (department_select) {
+      department_select.addEventListener('change', function() {
+        document.getElementById('loader').style.display = 'flex';
+        const dep_id = this.value;
+        const params = new URLSearchParams(window.location.search);
+    
+        fetch('update/department?' + params, { 
+          method: 'PUT', 
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ 
+            department_id: dep_id 
+          })
+        })
+        .then(res => {
+          document.getElementById('loader').style.display = 'none';
+        }).catch(err => {
+          document.getElementById('loader').innerHTML = '<p>Errore durante il caricamento</p>';
+          console.error("Error: ", err)
+        });
+      })
+    }
+  </script>
+
+<script>
+  const inputs = document.querySelectorAll('.code-input');
+
+  inputs.forEach((input, index) => {
+    input.addEventListener('input', () => {
+      const value = input.value;
+      if (value.length === 1 && index < inputs.length - 1) {
+        inputs[index + 1].focus();
+      }
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' && input.value === '' && index > 0) {
+        inputs[index - 1].focus();
+      }
+    });
+
+    input.addEventListener('paste', (e) => {
+      const paste = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+      for (let i = 0; i < paste.length; i++) {
+        inputs[i].value = paste[i];
+      }
+      if (paste.length === 6) {
+        inputs[5].focus();
+      } else {
+        inputs[paste.length].focus();
+      }
+      e.preventDefault();
+    });
+  });
+
+</script>
+
+  <!-- SDK loading -->
+  <script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js"></script>
+
+  <script>
+
+    const FB_APP_ID = '{{fb_app_id}}';
+    const CONFIGURATION_ID = '{{configuration_id}}';
+    let cachedWaData = null;
+    let cachedStateParam = null;
+    let cachedSettings = null;
+
+    // 1. STATE TRACKING
+    let isSDKReady = false;
+    const authState = {
+      pendingEvent: null,
+      hasCode: false,
+      code: null
+    }
+    
+    // 2. FACEBOOK SDK INITIALIZATION
+    window.fbAsyncInit = function () {
+      console.log("Initializing FB SDK");
+      FB.init({
+        appId: FB_APP_ID,
+        autoLogAppEvents: true,
+        xfbml: true,
+        version: 'v23.0'
+      });
+      isSDKReady = true;
+      console.log("FB SDK ready");
+    };
+
+    // 3. LAUNCH FUNCTION
+    window.launchWhatsAppSignup = function () {
+      console.log("Starting flow...");
+      if (!isSDKReady) {
+        console.warn("Facebook SDK not ready yet. Please wait...");
+        return;
+      }
+
+      FB.login(function (response) {
+        console.log("FB Login response: ", response);
+
+        if (response.authResponse?.code) {
+          console.log("Auth code received");
+          // TODO save code in session storage
+          authState.hasCode = true;
+          authState.code = response.authResponse.code;
+          checkPendingEvents();
+          console.log("Authentication successful!")
+        } else {
+          const errorMsg = response.error ? response.error.message : 'No authorization code received';
+          console.error("Login failed: ", errorMsg);
+        }
+      }, {
+        config_id: CONFIGURATION_ID, // configuration ID goes here
+        response_type: 'code', // must be set to 'code' for System User access token
+        override_default_response_type: true, // when true, any response types passed in the "response_type" will take precedence over the default types
+        scope: 'whatsapp_business_management,whatsapp_business_messaging',
+        extras: {
+          setup: {},
+          featureType: "whatsapp_business_app_onboarding",
+          sessionInfoVersion: '2'
+        },
+      })
+    }
+
+    // 4. MESSAGE HANDLER
+    window.addEventListener('message', (event) => {
+      if (event.origin !== "https://www.facebook.com" && event.origin !== "https://web.facebook.com") {
+        return;
+      }
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'WA_EMBEDDED_SIGNUP') {
+          // if user finishes the Embedded Signup flow
+          if (data.event === 'FINISH') {
+            //const {phone_number_id, waba_id, business_id} = data.data;
+            //console.log("Phone number ID ", phone_number_id, " WhatsApp business account ID ", waba_id);
+            const waData = {
+              waba_id: data.data.waba_id,
+              phone_number_id: data.data.phone_number_id,
+              business_id: data.data.business_id
+            };
+
+            if (authState.hasCode) {
+              completeFlow(waData, authState.code);
+            } else {
+              authState.pendingEvent = waData;
+              console.log("Completing authorization...");
+            }
+            // if user cancels the Embedded Signup flow
+          } else if (data.event === 'CANCEL') {
+            const { current_step } = data.data;
+            console.warn("Cancel at ", current_step);
+            // if user reports an error during the Embedded Signup flow
+          } else if (data.event === 'ERROR') {
+            const { error_message } = data.data;
+            console.error("error ", error_message);
+          }
+        }
+        document.getElementById("session-info-response").textContent = JSON.stringify(data, null, 2);
+      } catch (error) {
+        console.log('Non JSON Responses', event.data);
+      }
+    });
+
+    // 5. PENDING EVENTS
+    function checkPendingEvents() {
+      if (authState.pendingEvent && authState.hasCode) {
+        console.log("Processing pending event");
+        completeFlow(authState.pendingEvent, authState.code);
+        authState.pendingEvent = null;
+      }
+    }
+
+    // 6. COMPLETE FLOW
+    function completeFlow(waData, code) {
+
+      document.getElementById('loader').style.display = 'flex';
+
+      if (!code) {
+        console.warn("Code is undefined.")
+        document.getElementById('loader').innerHTML = '<p>Errore durante il caricamento</p>';
+        return;
+      }
+
+      const currentParams = Object.fromEntries(new URLSearchParams(window.location.search).entries());
+      const stateParam = JSON.stringify(currentParams);
+
+      cachedWaData = waData;
+      cachedStateParam = stateParam;
+
+      const params = new URLSearchParams({
+        code: code,
+        ...waData,
+        state: stateParam
+      });
+
+      fetch('onboarding/callback?' + params)
+        .then(res => res.json())
+        .then(data => {
+          console.log("Access token ricevuto dal backend:", data);
+
+          if (data.success === false && (data.code === 133005 || data.code === "133005")) {
+            cachedSettings = data.settings; //
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('mfa-modal').style.display = 'flex';
+            return;
+          }
+
+          window.location.reload();
+          //window.location.href = `/configure?` + currentParams;
+        })
+        .catch(err => {
+          document.getElementById('loader').innerHTML = '<p>Errore durante il caricamento</p>';
+          console.error("Errore:", err)
+        });
+    }
+
+    function submitMfaCode() {
+      const code = Array.from(inputs).map(input => input.value).join('');
+      console.log("code: ", code);
+      if (code.length !== 6) {
+        alert('Inserisci tutte le 6 cifre del codice');
+        return;
+      }
+
+      document.getElementById('loader').style.display = 'flex';
+      document.getElementById('mfa-modal').style.display = 'none';
+
+      const params = new URLSearchParams({
+        pin: code,
+        ...cachedWaData,
+        ...cachedSettings,
+        state: cachedStateParam
+      });
+
+      fetch('onboarding/register?' + params)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            window.location.reload();
+          } else {
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('mfa-modal').style.display = 'flex';
+            const inputs = document.querySelectorAll('.code-input');
+            inputs.forEach(input => input.value = '');
+          }
+        })
+        .catch(err => {
+          document.getElementById('loader').style.display = 'none';
+          document.getElementById('mfa-modal').style.display = 'flex';
+          const inputs = document.querySelectorAll('.code-input');
+          inputs.forEach(input => input.value = '');
+          console.error("Errore:", err);
+        });
+    }
+
+  </script>
+  
+</body>
+</html>
