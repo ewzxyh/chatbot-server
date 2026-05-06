@@ -570,8 +570,17 @@ router.post("/tiledesk", async (req, res) => {
   let recipient = req.body.payload.recipient;
   let waba_id = recipient.split('-')[5];
 
-  let settings = await utils.getSettingsByProjectId(project_id);
-
+  let phone_number_id_from_attrs = null;
+  if (req.body.payload.attributes && req.body.payload.attributes.whatsapp_phone_number_id) {
+    phone_number_id_from_attrs = req.body.payload.attributes.whatsapp_phone_number_id;
+  }
+  let settings;
+  if (phone_number_id_from_attrs) {
+    settings = await utils.getSettingsByPhoneNumberId(phone_number_id_from_attrs);
+  }
+  if (!settings) {
+    settings = await utils.getSettingsByProjectId(project_id);
+  }
   if (!settings) {
     settings = await utils.getSettings(project_id, waba_id);
   }
@@ -639,6 +648,7 @@ router.post("/tiledesk", async (req, res) => {
       whatsapp: {
         from: whatsapp_receiver,
         phone_number_id: phone_number_id,
+        waba_id: waba_id
       },
     };
 
@@ -834,7 +844,8 @@ router.post('/webhook', async (req, res) => {
           phone_number_id: req.body.entry[0].changes[0].value.metadata.phone_number_id,
           from: req.body.entry[0].changes[0].value.messages[0].from,
           firstname: req.body.entry[0].changes[0].value.contacts[0].profile.name,
-          lastname: " "
+          lastname: " ",
+          waba_id: waba_id
         },
       };
 
@@ -1016,7 +1027,8 @@ router.post("/webhook/:project_id", async (req, res) => {
             phone_number_id: value?.metadata?.phone_number_id || null,
             from: value?.messages?.[0]?.from || null,
             firstname: value?.contacts?.[0]?.profile?.name || "Unknown",
-            lastname: " "
+            lastname: " ",
+            waba_id: req.body.entry?.[0]?.id || null
           },
         };
 
@@ -1477,8 +1489,14 @@ router.get("/direct/tiledesk", async (req, res) => {
   let whatsapp_receiver = req.query.whatsapp_receiver;
   let phone_number_id = req.query.phone_number_id;
 
-  let CONTENT_KEY = "whatsapp-" + project_id;
-  let settings = await db.get(CONTENT_KEY);
+  let direct_phone_number_id = req.query.phone_number_id;
+  let settings;
+  if (direct_phone_number_id) {
+    settings = await utils.getSettingsByPhoneNumberId(direct_phone_number_id);
+  }
+  if (!settings) {
+    settings = await db.get("whatsapp-" + project_id);
+  }
 
   let tiledeskChannelMessage = {
     text: "Sample text",
@@ -1528,8 +1546,14 @@ router.post("/tiledesk/broadcast", async (req, res) => {
   winston.verbose("(wab) tiledeskChannelMessage: ", tiledeskChannelMessage);
   let project_id = req.body.payload.id_project;
 
-  let CONTENT_KEY = "whatsapp-" + project_id;
-  let settings = await db.get(CONTENT_KEY);
+  let broadcast_phone_number_id = req.body.phone_number_id;
+  let settings;
+  if (broadcast_phone_number_id) {
+    settings = await utils.getSettingsByPhoneNumberId(broadcast_phone_number_id);
+  }
+  if (!settings) {
+    settings = await db.get("whatsapp-" + project_id);
+  }
 
   if (!settings) {
     return res.status(400).send({ success: false, error: "WhatsApp is not installed for the project_id: " + project_id });

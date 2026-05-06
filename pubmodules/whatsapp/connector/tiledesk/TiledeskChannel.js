@@ -101,6 +101,12 @@ class TiledeskChannel {
       throw new Error(errorMessage);
     }
 
+    if (messageInfo.channel === "whatsapp" && messageInfo.whatsapp) {
+      if (!tiledeskMessage.attributes) tiledeskMessage.attributes = {};
+      tiledeskMessage.attributes.waba_id = messageInfo.whatsapp.waba_id || null;
+      tiledeskMessage.attributes.whatsapp_phone_number_id = messageInfo.whatsapp.phone_number_id || null;
+    }
+
     winston.debug("(wab) [TiledeskChannel] tiledeskMessage:", tiledeskMessage);
 
     try {
@@ -187,7 +193,9 @@ class TiledeskChannel {
     let new_request_id;
     tiledeskMessage.participants = ["bot_" + bot_id];
     tiledeskMessage.attributes = {
-      sourcePage: "whatsapp://&td_draft=true"
+      sourcePage: "whatsapp://&td_draft=true",
+      waba_id: messageInfo.whatsapp ? messageInfo.whatsapp.waba_id : null,
+      whatsapp_phone_number_id: messageInfo.whatsapp ? messageInfo.whatsapp.phone_number_id : null
     }
 
     if (messageInfo.channel == "whatsapp") {
