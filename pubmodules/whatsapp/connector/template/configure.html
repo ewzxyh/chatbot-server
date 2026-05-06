@@ -470,6 +470,7 @@
               '<span style="font-size:12px;color:#999;">WABA: ' + (inst.waba_id || '') + '</span>' +
             '</div>' +
             '<span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:500;background:#e8f5e9;color:#2e7d32;">Conectado</span>' +
+            '<button onclick="checkHealth(\'' + (inst.phone_number_id || '') + '\', \'' + (inst.wab_token || '') + '\', this)" style="padding:6px 14px;background:#fff;color:#1976d2;border:1px solid #e0e0e0;border-radius:6px;font-size:13px;cursor:pointer;">Verificar</button>' +
             '<button onclick="disconnectInstance(\'' + (inst.waba_id || '') + '\')" style="padding:6px 14px;background:#fff;color:#c62828;border:1px solid #e0e0e0;border-radius:6px;font-size:13px;cursor:pointer;">Remover</button>';
           container.appendChild(card);
         });
@@ -485,6 +486,45 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_id: '{{project_id}}', token: '{{token}}', waba_id: waba_id })
       }).then(function() { window.location.reload(); });
+    }
+
+    function checkHealth(phoneNumberId, wabToken, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Verificando...';
+
+      fetch('https://graph.facebook.com/v25.0/' + phoneNumberId + '?fields=verified_name,quality_rating,platform_type,status,name_status,is_official_business_account', {
+        headers: { 'Authorization': 'Bearer ' + wabToken }
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        btn.disabled = false;
+        if (data.error) {
+          btn.textContent = 'Erro';
+          btn.style.color = '#c62828';
+          btn.style.borderColor = '#c62828';
+          btn.title = data.error.message || 'Erro desconhecido';
+          return;
+        }
+
+        var quality = data.quality_rating || 'N/A';
+        var status = data.status || 'N/A';
+        var nameStatus = data.name_status || 'N/A';
+
+        var color = '#2e7d32';
+        if (quality === 'YELLOW' || quality === 'MEDIUM') color = '#f57f17';
+        if (quality === 'RED' || quality === 'LOW') color = '#c62828';
+
+        btn.textContent = quality;
+        btn.style.color = color;
+        btn.style.borderColor = color;
+        btn.title = 'Status: ' + status + ' | Qualidade: ' + quality + ' | Nome: ' + nameStatus;
+      })
+      .catch(function(err) {
+        btn.disabled = false;
+        btn.textContent = 'Erro';
+        btn.style.color = '#c62828';
+        btn.title = err.message;
+      });
     }
     </script>
 
