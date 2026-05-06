@@ -89,6 +89,33 @@ class KVBaseMongo {
     });
   }
 
+  getByField(field, value) {
+    return new Promise((resolve, reject) => {
+      let query = {};
+      query['value.' + field] = value;
+      this.db.collection(this.KV_COLLECTION).findOne(query, function(err, doc) {
+        if (err) { reject(err); }
+        else {
+          if (doc) { resolve(doc.value); }
+          else { resolve(null); }
+        }
+      });
+    });
+  }
+
+  getAll(value, field) {
+    return new Promise((resolve, reject) => {
+      let query = {};
+      query[field] = value;
+      this.db.collection(this.KV_COLLECTION).find(query).toArray(function(err, docs) {
+        if (err) { reject(err); }
+        else {
+          resolve(docs.map(function(d) { return d.value; }));
+        }
+      });
+    });
+  }
+
   remove(k, field) {
     return new Promise(resolve => {
       

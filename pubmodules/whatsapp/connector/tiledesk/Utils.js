@@ -13,16 +13,12 @@ class Utils {
     }
 
     async getSettings(project_id, waba_id) {
-        let CONTENT_KEY = "whatsapp-" + project_id;
-        let settings;
-        settings = await this.db.get(CONTENT_KEY);
-        if (!settings) {
-          CONTENT_KEY = "whatsapp-" + waba_id;
-          settings = await this.db.get(CONTENT_KEY);
+        if (waba_id) {
+          let settings = await this.db.get('whatsapp-' + waba_id);
+          if (settings) return settings;
         }
-      
-        return settings;
-      }
+        return await this.db.get('whatsapp-' + project_id);
+    }
       
     async getSettingsByProjectId(project_id) {
       try {
@@ -33,6 +29,22 @@ class Utils {
       }
     }
     
+    async getSettingsByPhoneNumberId(phone_number_id) {
+        try {
+            return await this.db.getByField('phone_number_id', phone_number_id);
+        } catch(err) {
+            return null;
+        }
+    }
+
+    async getAllSettingsByProjectId(project_id) {
+        try {
+            return await this.db.getAll(project_id, 'project_id');
+        } catch(err) {
+            return [];
+        }
+    }
+
     async deleteSettings(project_id, waba_id) {
       let CONTENT_KEY = "whatsapp-" + project_id;
       let deleted = await this.db.remove(CONTENT_KEY);
