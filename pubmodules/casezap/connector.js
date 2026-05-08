@@ -17,6 +17,7 @@ var requestService = require('../../services/requestService');
 var messageService = require('../../services/messageService');
 var messageEvent = require('../../event/messageEvent');
 var integrationEvent = require('../../event/integrationEvent');
+var mediaStorage = require('./mediaStorage');
 
 var DEDUP_TTL = 3600;
 var DEDUP_PREFIX = 'czdedup:';
@@ -95,6 +96,7 @@ async function handleWebhook(integration, req, res) {
     }
 
     mapped = await resolveInboundMedia(integration, mapped);
+    mapped = await mediaStorage.persistMappedMedia(mapped, integration);
 
     var integrationId = integration._id.toString();
     var leadId = 'casezap-' + integrationId + '-' + mapped.phone;
