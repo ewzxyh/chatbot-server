@@ -192,12 +192,14 @@ class TiledeskWhatsapp {
 
       let uploadedFile = {
         filename: response.data.filename,
-        url: this.base_file_url + "/files/download?path=" + encodeURIComponent(response.data.filename)
+        url: this.base_file_url + "/files?path=" + encodeURIComponent(response.data.filename),
+        downloadUrl: this.base_file_url + "/files/download?path=" + encodeURIComponent(response.data.filename)
       };
 
       if (response.data.thumbnail) {
         uploadedFile.thumbnail = response.data.thumbnail;
-        uploadedFile.thumbnailUrl = this.base_file_url + "/files/download?path=" + encodeURIComponent(response.data.thumbnail);
+        uploadedFile.thumbnailUrl = this.base_file_url + "/files?path=" + encodeURIComponent(response.data.thumbnail);
+        uploadedFile.thumbnailDownloadUrl = this.base_file_url + "/files/download?path=" + encodeURIComponent(response.data.thumbnail);
       }
 
       return uploadedFile;

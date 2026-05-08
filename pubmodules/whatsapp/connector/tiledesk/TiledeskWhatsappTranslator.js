@@ -587,21 +587,30 @@ const path = require('path');
     // media message - document
     else if (whatsappChannelMessage.type == 'document') {
 
-      let text = "Document attached"
+      let caption = null;
       if (whatsappChannelMessage.document.caption) {
-        text = whatsappChannelMessage.document.caption
+        caption = whatsappChannelMessage.document.caption
+      }
+
+      const documentName = whatsappChannelMessage.document.filename || "document";
+      let documentText = "[" + documentName + "](" + mediaDownloadUrl + ")";
+      if (caption) {
+        documentText = documentText + "\n" + caption;
       }
 
       var tiledeskMessage = {
-        text: "[Download document](" + mediaDownloadUrl + ")",
+        text: documentText,
         senderFullname: from,
         channel: { name: TiledeskWhatsappTranslator.CHANNEL_NAME },
         type: "file",
         metadata: {
-          name: whatsappChannelMessage.document.filename || "document",
+          name: documentName,
           type: whatsappChannelMessage.document.mime_type || "application/octet-stream",
           src: mediaDownloadUrl
         }
+      }
+      if (uploadedMedia.downloadUrl) {
+        tiledeskMessage.metadata.downloadUrl = uploadedMedia.downloadUrl;
       }
       return tiledeskMessage;
     }
