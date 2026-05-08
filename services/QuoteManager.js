@@ -22,10 +22,10 @@ const PLANS_LIST = {
     TEAM:       { requests: 5000,   messages: 0,    tokens: 10000000,   voice_duration: 0,          email: 200,     chatbots: 100,  namespace: 10,  kbs: 1000, contacts: 50000, platforms: 5, members: 10 },
     // FROM MARCH 2025
     FREE_TRIAL: { requests: 3000,   messages: 0,    tokens: 5000000,    voice_duration: 120000,     email: 200,     chatbots: 5,    namespace: 1,   kbs: 150,  contacts: 200,   platforms: 1, members: 1 },
-    STARTER:    { requests: 800,    messages: 0,    tokens: 2000000,    voice_duration: 0,          email: 200,     chatbots: 5,    namespace: 1,   kbs: 150,  contacts: 1000,  platforms: 1, members: 5 },
-    PRO:        { requests: 3000,   messages: 0,    tokens: 5000000,    voice_duration: 0,          email: 200,     chatbots: 20,   namespace: 3,   kbs: 300,  contacts: 11000, platforms: 5, members: 5 },
-    BUSINESS:   { requests: 5000,   messages: 0,    tokens: 10000000,   voice_duration: 0,          email: 200,     chatbots: 100,  namespace: 10,  kbs: 1000, contacts: 50000, platforms: 5, members: 10 },
-    CUSTOM:     { requests: 5000,   messages: 0,    tokens: 10000000,   voice_duration: 120000,     email: 200,     chatbots: 100,  namespace: 10,  kbs: 1000, contacts: 50000, platforms: 5, members: 10 }
+    STARTER:    { requests: -1,     messages: 0,    tokens: 2000000,    voice_duration: 0,          email: 200,     chatbots: 5,    namespace: 1,   kbs: 150,  contacts: 1000,  platforms: 1, members: 5 },
+    PRO:        { requests: -1,     messages: 0,    tokens: 5000000,    voice_duration: 0,          email: 200,     chatbots: 20,   namespace: 3,   kbs: 300,  contacts: 11000, platforms: 5, members: 5 },
+    BUSINESS:   { requests: -1,     messages: 0,    tokens: 10000000,   voice_duration: 0,          email: 200,     chatbots: 100,  namespace: 10,  kbs: 1000, contacts: 50000, platforms: 5, members: 10 },
+    CUSTOM:     { requests: -1,     messages: 0,    tokens: 10000000,   voice_duration: 120000,     email: 200,     chatbots: 100,  namespace: 10,  kbs: 1000, contacts: 50000, platforms: 5, members: 10 }
 }
 
 
@@ -258,7 +258,7 @@ class QuoteManager {
             return true;
         }
 
-        if (quote < limits[type]) {
+        if (limits[type] === -1 || quote < limits[type]) {
             return true;
         } else {
             return false;
@@ -294,6 +294,10 @@ class QuoteManager {
         let limit = data.limits[type];
         let quote = data.quote;
 
+        if (limit === -1) {
+            return;
+        }
+
         const checkpoint = await this.percentageCalculator(limit, quote);
         if (checkpoint == 0) {
             return;
@@ -325,6 +329,10 @@ class QuoteManager {
     }
 
     async percentageCalculator(limit, quote) {
+
+        if (limit === -1 || limit <= 0) {
+            return 0;
+        }
 
         let p = (quote / limit) * 100;
 
@@ -366,18 +374,25 @@ class QuoteManager {
     }
 
     async generateQuotesObject(quotes, limits) {
+        const percentage = (quote, limit) => {
+            if (limit === -1 || limit <= 0) {
+                return '0.0';
+            }
+            return ((quote / limit) * 100).toFixed(1);
+        };
+
         let quotes_obj = {
             requests: {
                 quote: quotes.requests.quote,
-                perc: ((quotes.requests.quote / limits['requests']) * 100).toFixed(1)
+                perc: percentage(quotes.requests.quote, limits['requests'])
             },
             tokens: {
                 quote: quotes.tokens.quote,
-                perc: ((quotes.tokens.quote / limits['tokens']) * 100).toFixed(1)
+                perc: percentage(quotes.tokens.quote, limits['tokens'])
             },
             email: {
                 quote: quotes.email.quote,
-                perc: ((quotes.email.quote / limits['email']) * 100).toFixed(1)
+                perc: percentage(quotes.email.quote, limits['email'])
             }
         }
         return quotes_obj

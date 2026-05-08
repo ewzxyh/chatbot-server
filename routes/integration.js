@@ -5,8 +5,9 @@ let Integration = require('../models/integrations');
 const cacheEnabler = require('../services/cacheEnabler');
 var cacheUtil = require('../utils/cacheUtil');
 const integrationEvent = require('../event/integrationEvent');
+const platformUsageService = require('../services/platformUsageService');
 
-const PLATFORM_CHANNELS = ['whatsapp', 'telegram', 'messenger', 'sms', 'voice', 'voice_twilio', 'casezap'];
+const PLATFORM_CHANNELS = platformUsageService.PLATFORM_CHANNELS;
 
 function sanitizeIntegration(integration) {
     if (!integration) return integration;
@@ -127,9 +128,12 @@ router.post('/', async (req, res) => {
         }
 
         try {
-            let platformsCount = await Integration.countDocuments({ id_project: id_project, name: { $in: PLATFORM_CHANNELS } });
+            let platformKeys = await platformUsageService.getConnectedPlatformKeys(id_project);
+            let platformsCount = platformKeys.size;
             let platformsLimit = (req.project && req.project.profile && req.project.profile.quotes && req.project.profile.quotes.platforms) || 1;
-            if (platformsCount >= platformsLimit) {
+            let newPlatformKey = platformUsageService.integrationPlatformKey({ name: req.body.name, value: req.body.value });
+            let alreadyCountedPlatform = req.body.name === 'whatsapp' && newPlatformKey && platformKeys.has(newPlatformKey);
+            if (!alreadyCountedPlatform && platformsCount >= platformsLimit) {
                 return res.status(403).json({
                     error: 'platforms_limit_reached',
                     message: 'Platform limit reached for your plan',

@@ -12,9 +12,9 @@ var SubscriptionPayment = require('./models/subscription-payment');
 var casepay = require('./casepay');
 var Lead = require('../../models/lead');
 var LeadConstants = require('../../models/leadConstants');
-var Integration = require('../../models/integrations');
 var Project_user = require('../../models/project_user');
 var emailService = require('../../services/emailService');
+var platformUsageService = require('../../services/platformUsageService');
 
 const WEBHOOK_SECRET = process.env.CASEPAY_WEBHOOK_SECRET;
 
@@ -34,8 +34,6 @@ function verifyWebhookSignature(req) {
   return signature === expected;
 }
 var { getPlan, getAllPlans } = require('./plans');
-
-const CHANNEL_NAMES = ['whatsapp', 'telegram', 'messenger', 'sms', 'voice', 'voice_twilio', 'casezap'];
 
 // GET /modules/payments/casepay/plans
 router.get('/plans', function (req, res) {
@@ -229,8 +227,8 @@ router.get('/status/:projectId',
 
       const [contactsCount, platformsCount, agentsCount] = await Promise.all([
         Lead.countDocuments({ id_project: req.params.projectId, status: LeadConstants.NORMAL }),
-        Integration.countDocuments({ id_project: req.params.projectId, name: { $in: CHANNEL_NAMES } }),
-        Project_user.countDocuments({ id_project: req.params.projectId, status: 'active' })
+        platformUsageService.countConnectedPlatforms(req.params.projectId),
+        Project_user.countDocuments({ id_project: req.params.projectId, status: 'active', id_user: { $exists: true, $ne: null } })
       ]);
 
       const contactsLimit = (project.profile.quotes && project.profile.quotes.contacts) || plan.quotes.contacts || 200;
