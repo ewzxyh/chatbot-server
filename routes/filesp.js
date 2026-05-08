@@ -24,6 +24,7 @@ const {
   buildProjectAssetPath,
   buildThumbnailPath,
 } = require('../services/fileUploadPathBuilder');
+const { createChatImageThumbnail } = require('../services/chatAttachmentThumbnailService');
 const roleConstants = require('../models/roleConstants.js');
 const faq_kb = require('../models/faq_kb');
 const project_user = require('../models/project_user');
@@ -269,13 +270,40 @@ router.post('/chat', [
         });
         await verifyFileContent(req.file.buffer, req.file.mimetype);
         await createObjectStorageFile(filename, req.file.buffer, req.file.mimetype, { expireAt });
-        return res.status(201).send({ message: "File uploaded successfully", filename });
+        let thumbnail;
+        try {
+          thumbnail = await createChatImageThumbnail({
+            filename,
+            buffer: req.file.buffer,
+            mimetype: req.file.mimetype,
+            expireAt,
+            storeThumbnail: createObjectStorageFile,
+          });
+        } catch (thumbErr) {
+          winston.error("Error generating chat thumbnail", thumbErr);
+        }
+
+        return res.status(201).send({ message: "File uploaded successfully", filename, thumbnail });
       }
 
       const buffer = await fileService.getFileDataAsBuffer(req.file.filename);
       await verifyFileContent(buffer, req.file.mimetype);
       await setGridFsExpiration(req.file, req.file.metadata && req.file.metadata.expireAt);
-      return res.status(201).send({ message: "File uploaded successfully", filename: req.file.filename })
+      let thumbnail;
+      try {
+        thumbnail = await createChatImageThumbnail({
+          fileService,
+          filename: req.file.filename,
+          buffer,
+          mimetype: req.file.mimetype,
+          expireAt: req.file.metadata && req.file.metadata.expireAt,
+          setExpiration: setGridFsExpiration,
+        });
+      } catch (thumbErr) {
+        winston.error("Error generating chat thumbnail", thumbErr);
+      }
+
+      return res.status(201).send({ message: "File uploaded successfully", filename: req.file.filename, thumbnail })
     } catch (err) {
       if (err?.source === "FileContentVerification") {
         let error_message = err?.message || "Content verification failed";
