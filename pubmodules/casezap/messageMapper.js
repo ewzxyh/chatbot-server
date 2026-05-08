@@ -27,11 +27,17 @@ function getText(message) {
 }
 
 function getDocumentName(message) {
-  return message.fileName || message.filename || message.docName || message.name || 'document';
+  var content = message.content && typeof message.content === 'object' ? message.content : {};
+  return message.fileName || message.filename || message.docName || message.name || content.fileName || content.filename || content.docName || content.name || 'document';
 }
 
 function getDocumentType(message) {
-  return message.mimetype || message.mimeType || message.contentType || 'file';
+  var content = message.content && typeof message.content === 'object' ? message.content : {};
+  return message.mimetype || message.mimeType || message.contentType || content.mimetype || content.mimeType || content.contentType || 'file';
+}
+
+function getDownloadId(message) {
+  return message.id || message.messageid || message.messageId;
 }
 
 function mapInbound(webhookData) {
@@ -54,6 +60,7 @@ function mapInbound(webhookData) {
     type: 'text',
     metadata: null
   };
+  result.downloadId = getDownloadId(message);
 
   switch (messageType) {
     case 'conversation':

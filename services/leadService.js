@@ -60,6 +60,10 @@ class LeadService {
 
 
   createIfNotExistsWithLeadId(lead_id, fullname, email, id_project, createdBy, attributes, status, phone) {
+    if (!createdBy) {
+      createdBy = "system";
+    }
+
     return new Promise(function (resolve, reject) {
       var updateOp = {
           $setOnInsert: {
@@ -84,6 +88,16 @@ class LeadService {
         if (err) {
           winston.error("Error createIfNotExistsWithLeadId", err);
           return reject(err);
+        }
+        if (lead && !lead.createdBy) {
+          lead.createdBy = createdBy;
+          return lead.save(function(saveErr, savedLead) {
+            if (saveErr) {
+              winston.error("Error repairing lead createdBy", saveErr);
+              return reject(saveErr);
+            }
+            resolve(savedLead);
+          });
         }
         resolve(lead);
       });

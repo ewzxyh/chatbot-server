@@ -30,10 +30,48 @@ describe('TiledeskWhatsapp uploadMedia', function() {
         BASE_FILE_URL: 'https://public.example/api/'
       });
 
-      const fileUrl = await client.uploadMedia(tmpFile, 'project-1', 'JWT user-token');
+      const uploadedFile = await client.uploadMedia(tmpFile, 'project-1', 'JWT user-token');
 
       assert.strictEqual(scope.isDone(), true);
-      assert.strictEqual(fileUrl, 'https://public.example/api/files/download?path=uploads%2Fusers%2Freport.pdf');
+      assert.deepStrictEqual(uploadedFile, {
+        filename: 'uploads/users/report.pdf',
+        url: 'https://public.example/api/files/download?path=uploads%2Fusers%2Freport.pdf',
+      });
+    } finally {
+      if (fs.existsSync(tmpFile)) {
+        fs.unlinkSync(tmpFile);
+      }
+    }
+  });
+
+  it('returns a public thumbnail download link when the chat upload creates one', async function() {
+    const tmpFile = path.join(os.tmpdir(), 'wab-upload-thumbnail-test.jpg');
+    fs.writeFileSync(tmpFile, 'image');
+
+    try {
+      const scope = nock('http://internal.example')
+        .post('/api/project-1/files/chat')
+        .reply(201, {
+          filename: 'uploads/users/user-1/files/folder-1/photo.jpg',
+          thumbnail: 'uploads/users/user-1/files/folder-1/thumbnails_200_200-photo.jpg',
+        });
+
+      const client = new TiledeskWhatsapp({
+        token: 'wa-token',
+        GRAPH_URL: 'https://graph.example/',
+        API_URL: 'http://internal.example/api',
+        BASE_FILE_URL: 'https://public.example/api/'
+      });
+
+      const uploadedFile = await client.uploadMedia(tmpFile, 'project-1', 'JWT user-token');
+
+      assert.strictEqual(scope.isDone(), true);
+      assert.deepStrictEqual(uploadedFile, {
+        filename: 'uploads/users/user-1/files/folder-1/photo.jpg',
+        url: 'https://public.example/api/files/download?path=uploads%2Fusers%2Fuser-1%2Ffiles%2Ffolder-1%2Fphoto.jpg',
+        thumbnail: 'uploads/users/user-1/files/folder-1/thumbnails_200_200-photo.jpg',
+        thumbnailUrl: 'https://public.example/api/files/download?path=uploads%2Fusers%2Fuser-1%2Ffiles%2Ffolder-1%2Fthumbnails_200_200-photo.jpg',
+      });
     } finally {
       if (fs.existsSync(tmpFile)) {
         fs.unlinkSync(tmpFile);

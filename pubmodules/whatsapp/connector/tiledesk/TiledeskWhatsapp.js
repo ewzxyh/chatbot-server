@@ -165,7 +165,7 @@ class TiledeskWhatsapp {
    * @param {string} path - The path to the media file
    * @param {string} id_project - The project ID
    * @param {string} token - The Tiledesk token
-   * @returns {Promise<string>} - The URL of the uploaded file
+   * @returns {Promise<Object|null>} - The uploaded file URLs
    */
   async uploadMedia(path, id_project, token) {
     let url = `${this.api_url}/${id_project}/files/chat`;
@@ -185,8 +185,22 @@ class TiledeskWhatsapp {
     return await axios.post(url, form, request_config).then((response) => {
         
       winston.debug("(wab) [TiledeskWhatsapp] upload response: ", response.data);
-      let file_url = this.base_file_url + "/files/download?path=" + encodeURIComponent(response.data.filename);
-      return file_url;
+      if (!response.data?.filename) {
+        winston.warn("(wab) uploadMedia response missing filename");
+        return null;
+      }
+
+      let uploadedFile = {
+        filename: response.data.filename,
+        url: this.base_file_url + "/files/download?path=" + encodeURIComponent(response.data.filename)
+      };
+
+      if (response.data.thumbnail) {
+        uploadedFile.thumbnail = response.data.thumbnail;
+        uploadedFile.thumbnailUrl = this.base_file_url + "/files/download?path=" + encodeURIComponent(response.data.thumbnail);
+      }
+
+      return uploadedFile;
 
     }).catch((err) => {
       if (err.response?.status === 413) {

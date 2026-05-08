@@ -94,6 +94,8 @@ async function handleWebhook(integration, req, res) {
       return res.status(200).json({ success: true, deduplicated: true });
     }
 
+    mapped = await resolveInboundMedia(integration, mapped);
+
     var integrationId = integration._id.toString();
     var leadId = 'casezap-' + integrationId + '-' + mapped.phone;
     var instanceLabel = (integration.value.instanceName || '') + ' (' + (integration.value.number || mapped.phone) + ')';
@@ -224,6 +226,46 @@ async function sendToUazApi(domain, token, endpoint, body) {
     }
     throw err;
   }
+}
+
+function shouldDownloadInboundMedia(mapped) {
+  return mapped &&
+    mapped.downloadId &&
+    mapped.metadata &&
+    !mapped.metadata.src &&
+    (mapped.type === 'image' || mapped.type === 'frame' || mapped.type === 'file');
+}
+
+async function resolveInboundMedia(integration, mapped) {
+  if (!shouldDownloadInboundMedia(mapped)) {
+    return mapped;
+  }
+
+  try {
+    var downloaded = await sendToUazApi(
+      integration.value.domain,
+      integration.value.token,
+      '/message/download',
+      { id: mapped.downloadId, return_link: true, return_base64: false }
+    );
+
+    if (!downloaded || !downloaded.fileURL) {
+      winston.warn('CaseZap media download returned no fileURL for message ' + mapped.messageId);
+      return mapped;
+    }
+
+    mapped.metadata.src = downloaded.fileURL;
+    if (downloaded.mimetype && mapped.type !== 'image') {
+      mapped.metadata.type = downloaded.mimetype;
+    }
+    if (mapped.type === 'file' && mapped.metadata.name) {
+      mapped.text = '[' + mapped.metadata.name + '](' + downloaded.fileURL + ')';
+    }
+  } catch (err) {
+    winston.warn('CaseZap media download failed for message ' + mapped.messageId + ': ' + err.message);
+  }
+
+  return mapped;
 }
 
 async function sendOutboundMessage(message) {

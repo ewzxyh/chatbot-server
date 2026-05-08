@@ -455,6 +455,9 @@ const path = require('path');
   async toTiledesk(whatsappChannelMessage, from, media_url) {
 
     winston.debug("(wab) [Translator] whatsapp message: ", whatsappChannelMessage);
+    const uploadedMedia = media_url && typeof media_url === 'object' ? media_url : { url: media_url };
+    const mediaDownloadUrl = uploadedMedia.url;
+    const mediaThumbnailUrl = uploadedMedia.thumbnailUrl;
 
     // text message
     if (whatsappChannelMessage.type == 'text') {
@@ -550,8 +553,11 @@ const path = require('path');
         channel: { name: TiledeskWhatsappTranslator.CHANNEL_NAME },
         type: "image",
         metadata: {
-          src: media_url
+          src: mediaDownloadUrl
         }
+      }
+      if (mediaThumbnailUrl) {
+        tiledeskMessage.metadata.thumbnail = mediaThumbnailUrl;
       }
       return tiledeskMessage;
     }
@@ -565,14 +571,14 @@ const path = require('path');
       }
 
       var tiledeskMessage = {
-        text: "[Download video](" + media_url + ")",
+        text: "[Download video](" + mediaDownloadUrl + ")",
         senderFullname: from,
         channel: { name: TiledeskWhatsappTranslator.CHANNEL_NAME },
         type: "file",
         metadata: {
           name: "video.mp4",
           type: "video/mp4",
-          src: media_url,
+          src: mediaDownloadUrl,
         }
       }
       return tiledeskMessage;
@@ -587,14 +593,14 @@ const path = require('path');
       }
 
       var tiledeskMessage = {
-        text: "[Dowload document](" + media_url + ")",
+        text: "[Download document](" + mediaDownloadUrl + ")",
         senderFullname: from,
         channel: { name: TiledeskWhatsappTranslator.CHANNEL_NAME },
         type: "file",
         metadata: {
           name: whatsappChannelMessage.document.filename || "document",
           type: whatsappChannelMessage.document.mime_type || "application/octet-stream",
-          src: media_url
+          src: mediaDownloadUrl
         }
       }
       return tiledeskMessage;
@@ -616,7 +622,7 @@ const path = require('path');
         metadata: {
           name: "audio.mp3",
           type: "audio/mpeg",
-          src: media_url
+          src: mediaDownloadUrl
         }
       }
       return tiledeskMessage;

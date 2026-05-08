@@ -168,6 +168,22 @@ describe('LeadService()', function () {
     });
   });
 
+  it('createIfNotExistsWithId-defaults-createdBy-when-missing', function (done) {
+    projectService.create("test1", userid).then(function (savedProject) {
+      var lead_id = "lead_id_default_created_by_" + savedProject._id;
+      leadService.createIfNotExistsWithLeadId(lead_id, "fullname", "redacted@example.invalid", savedProject._id, null).then(function (savedLead) {
+        expect(savedLead.lead_id).to.equal(lead_id);
+        expect(savedLead.createdBy).to.equal("system");
+
+        done();
+      }).catch(function (err) {
+        winston.error("test reject", err);
+        assert.isNotOk(err, 'Promise error');
+        done();
+      });
+    });
+  });
+
 });
 
 

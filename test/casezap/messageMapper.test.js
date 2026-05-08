@@ -98,6 +98,29 @@ describe('CaseZap messageMapper', function() {
       assert.strictEqual(result.metadata.src, 'https://media.url/content-image.jpg');
     });
 
+    it('should expose download id when UazApi image has encrypted content but no fileURL', function() {
+      var webhook = {
+        EventType: 'messages',
+        id: '5511999:img-004',
+        messageid: 'img-004',
+        chatid: 'redacted@example.invalid',
+        fromMe: false,
+        isGroup: false,
+        messageType: 'ImageMessage',
+        text: 'Imagem sem link publico',
+        content: {
+          URL: 'https://mmg.whatsapp.net/encrypted-image',
+          mimetype: 'image/jpeg'
+        },
+        senderName: 'User'
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'image');
+      assert.strictEqual(result.downloadId, '5511999:img-004');
+      assert.strictEqual(result.metadata.src, undefined);
+      assert.strictEqual(result.metadata.type, 'image');
+    });
+
     it('should map root-level UazApi document fileURL to a visible chat link', function() {
       var webhook = {
         EventType: 'messages',
@@ -116,6 +139,31 @@ describe('CaseZap messageMapper', function() {
       assert.strictEqual(result.text, '[report.pdf](https://media.url/report.pdf)');
       assert.strictEqual(result.metadata.src, 'https://media.url/report.pdf');
       assert.strictEqual(result.metadata.name, 'report.pdf');
+      assert.strictEqual(result.metadata.type, 'application/pdf');
+    });
+
+    it('should preserve document filename and mime type from encrypted UazApi content', function() {
+      var webhook = {
+        EventType: 'messages',
+        id: '5511999:doc-002',
+        messageid: 'doc-002',
+        chatid: 'redacted@example.invalid',
+        fromMe: false,
+        isGroup: false,
+        messageType: 'DocumentMessage',
+        content: {
+          URL: 'https://mmg.whatsapp.net/encrypted-document',
+          fileName: 'contrato.pdf',
+          mimetype: 'application/pdf'
+        },
+        senderName: 'User'
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'file');
+      assert.strictEqual(result.downloadId, '5511999:doc-002');
+      assert.strictEqual(result.text, 'contrato.pdf');
+      assert.strictEqual(result.metadata.src, undefined);
+      assert.strictEqual(result.metadata.name, 'contrato.pdf');
       assert.strictEqual(result.metadata.type, 'application/pdf');
     });
 
