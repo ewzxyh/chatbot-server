@@ -14,12 +14,19 @@ const sharp = require('sharp');
 
 
 
-const FileGridFsService = require('../services/fileGridFsService.js');
+const {
+  createLegacyFallbackFileServices,
+  createPrimaryFileService,
+  isObjectStorageEnabled,
+} = require('../services/fileStorageServiceFactory');
 const faq_kb = require('../models/faq_kb');
 const project_user = require('../models/project_user');
 const roleConstants = require('../models/roleConstants');
 
-const fileService = new FileGridFsService("images");
+const fileService = createPrimaryFileService("images");
+const fallbackFileServices = isObjectStorageEnabled()
+  ? createLegacyFallbackFileServices(["files", "images"])
+  : [];
 
 
 
@@ -54,7 +61,11 @@ if (MAX_UPLOAD_FILE_SIZE) {
 // }
 
 
-const upload = multer({ storage: fileService.getStorage("images"), fileFilter: fileFilter, limits: uploadlimits });
+const upload = multer({
+  storage: isObjectStorageEnabled() ? multer.memoryStorage() : fileService.getStorage("images"),
+  fileFilter: fileFilter,
+  limits: uploadlimits
+});
 
 /*
 curl -u redacted@example.invalid:123456 \
@@ -109,7 +120,11 @@ curl -u redacted@example.invalid:123456 \
 
 
 
-const uploadFixedFolder = multer({ storage: fileService.getStorageFixFolder("images"), fileFilter: fileFilter, limits: uploadlimits });
+const uploadFixedFolder = multer({
+  storage: isObjectStorageEnabled() ? multer.memoryStorage() : fileService.getStorageFixFolder("images"),
+  fileFilter: fileFilter,
+  limits: uploadlimits
+});
 
 /*
 curl -v -X PUT -u redacted@example.invalid:123456 \
@@ -173,7 +188,32 @@ curl -v -X PUT -u redacted@example.invalid:123456 \
 
 
 
-const uploadAvatar= multer({ storage: fileService.getStorageAvatar("images"), fileFilter: fileFilter, limits: uploadlimits });
+const uploadAvatar= multer({
+  storage: isObjectStorageEnabled() ? multer.memoryStorage() : fileService.getStorageAvatar("images"),
+  fileFilter: fileFilter,
+  limits: uploadlimits
+});
+
+function isFileNotFound(error) {
+  return error?.code === "ENOENT" || error?.msg === "File not found";
+}
+
+async function findFileServiceForPath(filePath) {
+  const services = [fileService].concat(fallbackFileServices);
+
+  for (const service of services) {
+    try {
+      const file = await service.find(filePath);
+      return { service, file };
+    } catch (error) {
+      if (!isFileNotFound(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw { code: "ENOENT", msg: "File not found" };
+}
 
 /*
 curl -v -X PUT -u redacted@example.invalid:123456 \
@@ -483,14 +523,23 @@ router.get("/", async (req, res) => {
 
 
   try {
-    let file = await fileService.find(req.query.path);
+    const { service, file } = await findFileServiceForPath(req.query.path);
     // console.log("file", file);
 
     res.set({ "Content-Length": file.length});
     res.set({ "Content-Type": file.contentType});
 
+    return service.getFileDataAsStream(req.query.path).on('error', (e)=> {
+        if (isFileNotFound(e)) {
+          winston.debug('Image not found: '+req.query.path);
+          return res.status(404).send({success: false, msg: 'Image not found.'});
+        }else {
+          winston.error('Error getting the image', e);
+          return res.status(500).send({success: false, msg: 'Error getting image.'});
+        }
+      }).pipe(res);
   } catch (e) {
-    if (e.code == "ENOENT") {
+    if (isFileNotFound(e)) {
       winston.debug('Image not found: '+req.query.path);
       return res.status(404).send({success: false, msg: 'Image not found.'});
     }else {
@@ -499,15 +548,6 @@ router.get("/", async (req, res) => {
     }      
   }
 
-  fileService.getFileDataAsStream(req.query.path).on('error', (e)=> {
-      if (e.code == "ENOENT") {
-        winston.debug('Image not found: '+req.query.path);
-        return res.status(404).send({success: false, msg: 'Image not found.'});
-      }else {
-        winston.error('Error getting the image', e);
-        return res.status(500).send({success: false, msg: 'Error getting image.'});
-      }      
-    }).pipe(res);
   // } catch (e) {
   //   winston.error('Error getting the image', e);
   //   return res.status(500).send({success: false, msg: 'Error getting image.'});

@@ -13,13 +13,25 @@ require('../middleware/passport.js')(passport);
 const validtoken = require('../middleware/valid-token.js')
 const roleChecker = require('../middleware/has-role.js');
 const winston = require('../config/winston.js');
-const FileGridFsService = require('../services/fileGridFsService.js');
+const {
+  createLegacyFallbackFileServices,
+  createPrimaryFileService,
+  isObjectStorageEnabled,
+} = require('../services/fileStorageServiceFactory');
+const {
+  buildAvatarPath,
+  buildChatFilePath,
+  buildProjectAssetPath,
+  buildThumbnailPath,
+} = require('../services/fileUploadPathBuilder');
 const roleConstants = require('../models/roleConstants.js');
 const faq_kb = require('../models/faq_kb');
 const project_user = require('../models/project_user');
 
-const fileService = new FileGridFsService("files");
-const fallbackFileService = new FileGridFsService("images");;
+const fileService = createPrimaryFileService("files");
+const fallbackFileServices = isObjectStorageEnabled()
+  ? createLegacyFallbackFileServices(["files", "images"])
+  : createLegacyFallbackFileServices(["images"]);
 
 
 let MAX_UPLOAD_FILE_SIZE = process.env.MAX_UPLOAD_FILE_SIZE || 1024000; // 1MB
@@ -142,22 +154,79 @@ function areMimeTypesEquivalent(mimeType1, mimeType2) {
 }
 
 const uploadChat = multer({
-  storage: fileService.getStorage("files"),
+  storage: isObjectStorageEnabled() ? multer.memoryStorage() : fileService.getStorage("files"),
   fileFilter: fileFilter('chat'),
   limits: uploadlimits
 }).single('file');
 
 const uploadAssets = multer({
-  storage: fileService.getStorageProjectAssets("files"),
+  storage: isObjectStorageEnabled() ? multer.memoryStorage() : fileService.getStorageProjectAssets("files"),
   fileFilter: fileFilter('assets'),
   limits: uploadlimits
 }).single('file');
 
 const uploadAvatar = multer({
-  storage: fileService.getStorageAvatarFiles("files"),
+  storage: isObjectStorageEnabled() ? multer.memoryStorage() : fileService.getStorageAvatarFiles("files"),
   fileFilter: fileFilter('avatar'),
   limits: uploadlimits
 }).single('file');
+
+function shouldUseObjectStorage() {
+  return fileService.storageType === 'r2';
+}
+
+function isFileNotFound(error) {
+  return error?.code === "ENOENT" || error?.msg === "File not found";
+}
+
+async function findFileServiceForPath(filePath) {
+  const services = [fileService].concat(fallbackFileServices);
+
+  for (const service of services) {
+    try {
+      const file = await service.find(filePath);
+      return { service, file };
+    } catch (error) {
+      if (!isFileNotFound(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw { code: "ENOENT", msg: "File not found" };
+}
+
+async function deleteFileIfExists(service, filePath) {
+  try {
+    await service.deleteFile(filePath);
+  } catch (error) {
+    if (!isFileNotFound(error)) {
+      throw error;
+    }
+  }
+}
+
+async function setGridFsExpiration(file, expireAt) {
+  const fileId = file && (file.id || file._id);
+  if (!fileId || !expireAt) {
+    return;
+  }
+
+  await mongoose.connection.db.collection('files.chunks').updateMany(
+    { files_id: fileId },
+    { $set: { "metadata.expireAt": expireAt }}
+  );
+}
+
+async function createObjectStorageFile(filename, buffer, contentType, metadata) {
+  await fileService.createFile(
+    filename,
+    buffer,
+    undefined,
+    contentType,
+    metadata ? { metadata } : undefined
+  );
+}
 
 
 // *********************** //
@@ -188,12 +257,24 @@ router.post('/chat', [
       return res.status(status).send({ success: false, error: err.message || "An error occurred while uploading the file" })
     }
     try {
+      if (!req.file) {
+        return res.status(400).send({ success: false, error: 'No file uploaded' });
+      }
+
+      if (shouldUseObjectStorage()) {
+        const filename = buildChatFilePath({
+          userId: req.user && req.user.id,
+          folderName: "files",
+          originalname: req.file.originalname,
+        });
+        await verifyFileContent(req.file.buffer, req.file.mimetype);
+        await createObjectStorageFile(filename, req.file.buffer, req.file.mimetype, { expireAt });
+        return res.status(201).send({ message: "File uploaded successfully", filename });
+      }
+
       const buffer = await fileService.getFileDataAsBuffer(req.file.filename);
       await verifyFileContent(buffer, req.file.mimetype);
-      await mongoose.connection.db.collection('files.chunks').updateMany(
-        { files_id: req.file.id },
-        { $set: { "metadata.expireAt": req.file.metadata.expireAt }}
-      )
+      await setGridFsExpiration(req.file, req.file.metadata && req.file.metadata.expireAt);
       return res.status(201).send({ message: "File uploaded successfully", filename: req.file.filename })
     } catch (err) {
       if (err?.source === "FileContentVerification") {
@@ -238,15 +319,43 @@ router.post('/assets', [
     }
 
     try {
+      if (!req.file) {
+        return res.status(400).send({ success: false, error: 'No file uploaded' });
+      }
+
+      if (shouldUseObjectStorage()) {
+        const projectId = req.project && req.project._id
+          ? req.project._id.toString()
+          : req.projectid && req.projectid.toString();
+        const filename = buildProjectAssetPath({
+          projectId,
+          folderName: "files",
+          originalname: req.file.originalname,
+        });
+        const metadata = req.expireAt ? { expireAt: req.expireAt } : undefined;
+        await verifyFileContent(req.file.buffer, req.file.mimetype);
+        await createObjectStorageFile(filename, req.file.buffer, req.file.mimetype, metadata);
+
+        const ext = path.extname(req.file.originalname).toLowerCase();
+        let thumbnail;
+        if (images_extensions.includes(ext)) {
+          thumbnail = buildThumbnailPath(filename);
+          const resized = await sharp(req.file.buffer).resize(200, 200).toBuffer();
+          await createObjectStorageFile(thumbnail, resized, req.file.mimetype, metadata);
+        }
+
+        return res.status(201).send({
+          message: 'File uploaded successfully',
+          filename: encodeURIComponent(filename),
+          thumbnail: thumbnail ? encodeURIComponent(thumbnail) : undefined
+        });
+      }
 
       const buffer = await fileService.getFileDataAsBuffer(req.file.filename);
       await verifyFileContent(buffer, req.file.mimetype);
 
       if (req.file.metadata && req.file.metadata.expireAt) {
-        await mongoose.connection.db.collection('files.chunks').updateMany(
-          { files_id: req.file.id },
-          { $set: { "metadata.expireAt": req.file.metadata.expireAt }}
-        );
+        await setGridFsExpiration(req.file, req.file.metadata.expireAt);
       }
 
       const ext = path.extname(req.file.originalname).toLowerCase();
@@ -263,10 +372,7 @@ router.post('/assets', [
         await fileService.createFile(thumbFilename, resized, undefined, req.file.mimetype, thumbMetadata);
         
         if (req.expireAt) {
-          await mongoose.connection.db.collection('files.chunks').updateMany(
-            { files_id: ( await fileService.find(thumbFilename))._id },
-            { $set: { "metadata.expireAt": req.expireAt }}
-          );
+          await setGridFsExpiration(await fileService.find(thumbFilename), req.expireAt);
         }
         thumbnail = thumbFilename;
       }
@@ -362,10 +468,33 @@ router.post('/users/photo', [
         entity_id = bot_id;
       }
   
-      var destinationFolder = 'uploads/users/' + entity_id + "/images/";
-      winston.debug("destinationFolder:" + destinationFolder);
-  
-      var thumFilename = destinationFolder + 'thumbnails_200_200-photo.jpg';
+      const targetFilename = buildAvatarPath({ entityId: entity_id });
+      const thumFilename = buildThumbnailPath(targetFilename);
+
+      if (shouldUseObjectStorage()) {
+        await verifyFileContent(req.file.buffer, req.file.mimetype);
+        await deleteFileIfExists(fileService, targetFilename);
+        await deleteFileIfExists(fileService, thumFilename);
+        await createObjectStorageFile(targetFilename, req.file.buffer, req.file.mimetype);
+
+        try {
+          const resizeImage = await sharp(req.file.buffer).resize(200, 200).toBuffer();
+          await createObjectStorageFile(thumFilename, resizeImage, req.file.mimetype);
+
+          return res.status(201).json({
+            message: 'Image uploaded successfully',
+            filename: encodeURIComponent(targetFilename),
+            thumbnail: encodeURIComponent(thumFilename)
+          });
+        } catch (thumbErr) {
+          winston.error("Error generating or creating thumbnail", thumbErr);
+          return res.status(201).json({
+            message: 'Image uploaded successfully',
+            filename: encodeURIComponent(targetFilename),
+            thumbnail: undefined
+          });
+        }
+      }
   
       winston.debug("req.file.filename:" + req.file.filename);
       const buffer = await fileService.getFileDataAsBuffer(req.file.filename);
@@ -393,6 +522,11 @@ router.post('/users/photo', [
       }
   
     } catch (error) {
+      if (error?.source === "FileContentVerification") {
+        let error_message = error?.message || "Content verification failed";
+        winston.warn("File content verification failed. Message: ", error_message);
+        return res.status(403).send({ success: false, error: error_message });
+      }
       winston.error('Error uploading user image.', error);
       return res.status(500).send({ success: false, error: 'Error uploading user image.' });
     }
@@ -411,54 +545,56 @@ router.get("/", [
     res.set({ "Content-Disposition": "attachment; filename=\""+req.query.path+"\"" });
   }
   
-  let fService = fileService;
   try {
-    let file = await fileService.find(req.query.path);
+    const { service, file } = await findFileServiceForPath(req.query.path);
     res.set({ "Content-Length": file.length});
     res.set({ "Content-Type": file.contentType});
-  } catch (e) {
-    if (e.code == "ENOENT") {
-      winston.debug(`File ${req.query.path} not found on primary file service. Fallback to secondary.`)
-      
-      // To instantiate fallbackFileService here where needed you need to wait for the open event.
-      // Instance moved on top
-      // await new Promise(r => fallbackFileService.conn.once("open", r));
-
-      try {
-        let file = await fallbackFileService.find(req.query.path)
-        res.set({ "Content-Length": file.length });
-        res.set({ "Content-Type": file.contentType });
-        fService = fallbackFileService;
-      } catch (e) {
-        if (e.code == "ENOENT") {
-          winston.debug(`File ${req.query.path} not found on seconday file service.`)
-          return res.status(404).send({ success: false, error: 'File not found.' });
-        }else {
-          winston.error('Error getting file: ', e);
-          return res.status(500).send({success: false, error: 'Error getting file.'});
-        }
+    return service.getFileDataAsStream(req.query.path).on('error', (e)=> {
+      if (isFileNotFound(e)) {
+        winston.debug('File not found: '+req.query.path);
+        return res.status(404).send({success: false, error: 'File not found.'});
       }
-
-    } else {
       winston.error('Error getting file', e);
       return res.status(500).send({success: false, error: 'Error getting file.'});
+    }).pipe(res);
+  } catch (e) {
+    if (isFileNotFound(e)) {
+      winston.debug(`File ${req.query.path} not found on any configured file service.`)
+      return res.status(404).send({ success: false, error: 'File not found.' });
     }
+    winston.error('Error getting file', e);
+    return res.status(500).send({success: false, error: 'Error getting file.'});
   }
-  
-  fService.getFileDataAsStream(req.query.path).pipe(res);
 });
 
 router.get("/download", [
   passport.authenticate(['basic', 'jwt'], { session: false }), 
   validtoken,
-], (req, res) => {
+], async (req, res) => {
   winston.debug('path', req.query.path);
 
   let filename = pathlib.basename(req.query.path);
   winston.debug("filename:"+filename);
 
-  res.attachment(filename);
-  fileService.getFileDataAsStream(req.query.path).pipe(res);
+  try {
+    const { service } = await findFileServiceForPath(req.query.path);
+    res.attachment(filename);
+    return service.getFileDataAsStream(req.query.path).on('error', (e)=> {
+      if (isFileNotFound(e)) {
+        winston.debug('File not found: '+req.query.path);
+        return res.status(404).send({success: false, error: 'File not found.'});
+      }
+      winston.error('Error getting file', e);
+      return res.status(500).send({success: false, error: 'Error getting file.'});
+    }).pipe(res);
+  } catch (e) {
+    if (isFileNotFound(e)) {
+      winston.debug(`File ${req.query.path} not found on any configured file service.`)
+      return res.status(404).send({ success: false, error: 'File not found.' });
+    }
+    winston.error('Error getting file', e);
+    return res.status(500).send({success: false, error: 'Error getting file.'});
+  }
 });
 
 /**
@@ -494,38 +630,10 @@ router.delete("/", [
       return res.status(400).send({ success: false, error: 'No filename specified in path' });
     }
 
-    // Determine which service to use based on path
-    // Try primary service first (files bucket)
-    let fService = fileService;
-    let fileExists = false;
-    
     try {
-      await fileService.find(filePath);
-      fileExists = true;
-    } catch (e) {
-      if (e.code == "ENOENT") {
-        winston.debug(`File ${filePath} not found on primary file service. Trying fallback.`);
-        try {
-          await fallbackFileService.find(filePath);
-          fService = fallbackFileService;
-          fileExists = true;
-        } catch (e2) {
-          if (e2.code == "ENOENT") {
-            winston.debug(`File ${filePath} not found on fallback file service.`);
-            return res.status(404).send({ success: false, error: 'File not found.' });
-          } else {
-            winston.error('Error checking file on fallback service: ', e2);
-            return res.status(500).send({ success: false, error: 'Error checking file existence.' });
-          }
-        }
-      } else {
-        winston.error('Error checking file on primary service: ', e);
-        return res.status(500).send({ success: false, error: 'Error checking file existence.' });
-      }
-    }
+      const { service: fService } = await findFileServiceForPath(filePath);
 
-    // Delete the main file
-    try {
+      // Delete the main file
       const deletedFile = await fService.deleteFile(filePath);
       winston.debug("File deleted successfully:", deletedFile.filename);
 
@@ -540,26 +648,19 @@ router.delete("/", [
         let thumbPath = filePath.replace(filename, thumbFilename);
         winston.debug("thumbPath:" + thumbPath);
 
-        try {
-          // Try to delete thumbnail from the same service
-          await fService.deleteFile(thumbPath);
-          winston.debug("Thumbnail deleted successfully:" + thumbPath);
-        } catch (thumbErr) {
-          // Thumbnail might not exist or be in different service, try fallback
-          if (thumbErr.code == "ENOENT" || thumbErr.msg == "File not found") {
-            winston.debug(`Thumbnail ${thumbPath} not found on ${fService === fileService ? 'primary' : 'fallback'} service. Trying other service.`);
-            
-            const otherService = fService === fileService ? fallbackFileService : fileService;
-            try {
-              await otherService.deleteFile(thumbPath);
-              winston.debug("Thumbnail deleted from fallback service:" + thumbPath);
-            } catch (fallbackThumbErr) {
-              // Thumbnail doesn't exist, that's ok
-              winston.debug(`Thumbnail ${thumbPath} not found on fallback service either. Skipping.`);
+        const services = [fService]
+          .concat([fileService].concat(fallbackFileServices).filter((service) => service !== fService));
+
+        for (const service of services) {
+          try {
+            await service.deleteFile(thumbPath);
+            winston.debug("Thumbnail deleted successfully:" + thumbPath);
+            break;
+          } catch (thumbErr) {
+            if (!isFileNotFound(thumbErr)) {
+              winston.error('Error deleting thumbnail:', thumbErr);
+              break;
             }
-          } else {
-            winston.error('Error deleting thumbnail:', thumbErr);
-            // Don't fail the whole request if thumbnail deletion fails
           }
         }
       }
@@ -570,6 +671,10 @@ router.delete("/", [
       });
 
     } catch (deleteErr) {
+      if (isFileNotFound(deleteErr)) {
+        winston.debug(`File ${filePath} not found on any configured file service.`);
+        return res.status(404).send({ success: false, error: 'File not found.' });
+      }
       winston.error('Error deleting file:', deleteErr);
       return res.status(500).send({ success: false, error: 'Error deleting file.' });
     }
