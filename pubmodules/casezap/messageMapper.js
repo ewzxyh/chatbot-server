@@ -5,8 +5,37 @@ function extractPhone(jid) {
   return jid.replace('@s.whatsapp.net', '').replace('@lid', '');
 }
 
+function getMessage(webhookData) {
+  return webhookData.message || webhookData;
+}
+
+function getMediaUrl(message) {
+  var content = message.content;
+  if (content && typeof content === 'object') {
+    content = content.url || content.fileURL || content.mediaUrl;
+  }
+  return message.mediaUrl || message.fileURL || message.fileUrl || message.url || content;
+}
+
+function getText(message) {
+  if (message.text) return message.text;
+  if (typeof message.content === 'string') return message.content;
+  if (message.content && typeof message.content === 'object') {
+    return message.content.conversation || message.content.caption || message.content.text || '';
+  }
+  return '';
+}
+
+function getDocumentName(message) {
+  return message.fileName || message.filename || message.docName || message.name || 'document';
+}
+
+function getDocumentType(message) {
+  return message.mimetype || message.mimeType || message.contentType || 'file';
+}
+
 function mapInbound(webhookData) {
-  var message = webhookData.message || {};
+  var message = getMessage(webhookData || {});
   var chat = webhookData.chat || {};
   var chatid = message.chatid || chat.wa_chatid || '';
   var phone = extractPhone(chatid);
@@ -30,22 +59,22 @@ function mapInbound(webhookData) {
     case 'conversation':
     case 'extendedtextmessage':
     case 'text':
-      result.text = message.text || message.content || '';
+      result.text = getText(message);
       result.type = 'text';
       break;
 
     case 'imagemessage':
     case 'image':
       result.type = 'image';
-      result.text = message.text || message.content || '';
-      result.metadata = { src: message.mediaUrl || message.content, type: 'image' };
+      result.text = getText(message);
+      result.metadata = { src: getMediaUrl(message), type: 'image' };
       break;
 
     case 'videomessage':
     case 'video':
       result.type = 'frame';
-      result.text = message.text || message.content || '';
-      result.metadata = { src: message.mediaUrl || message.content, type: 'video' };
+      result.text = getText(message);
+      result.metadata = { src: getMediaUrl(message), type: 'video' };
       break;
 
     case 'audiomessage':
@@ -53,32 +82,34 @@ function mapInbound(webhookData) {
     case 'audio':
     case 'ptt':
       result.type = 'file';
-      result.metadata = { src: message.mediaUrl || message.content, type: 'audio' };
+      result.metadata = { src: getMediaUrl(message), type: message.mimetype || message.mimeType || 'audio' };
       break;
 
     case 'documentmessage':
     case 'document':
+      var documentUrl = getMediaUrl(message);
+      var documentName = getDocumentName(message);
       result.type = 'file';
-      result.text = message.text || '';
-      result.metadata = { src: message.mediaUrl || message.content, name: message.fileName || 'document', type: 'file' };
+      result.text = message.text || (documentUrl ? '[' + documentName + '](' + documentUrl + ')' : documentName);
+      result.metadata = { src: documentUrl, name: documentName, type: getDocumentType(message) };
       break;
 
     case 'stickermessage':
     case 'sticker':
       result.type = 'image';
-      result.metadata = { src: message.mediaUrl || message.content, type: 'image' };
+      result.metadata = { src: getMediaUrl(message), type: 'image' };
       break;
 
     case 'locationmessage':
     case 'location':
       result.type = 'text';
-      result.text = (message.text || '') + '\nhttps://maps.google.com/?q=' + (message.latitude || 0) + ',' + (message.longitude || 0);
+      result.text = getText(message) + '\nhttps://maps.google.com/?q=' + (message.latitude || 0) + ',' + (message.longitude || 0);
       break;
 
     case 'contactmessage':
     case 'contact':
       result.type = 'text';
-      result.text = message.text || message.content || '[contact]';
+      result.text = getText(message) || '[contact]';
       break;
 
     case 'reactionmessage':
@@ -87,7 +118,7 @@ function mapInbound(webhookData) {
 
     default:
       result.type = 'text';
-      result.text = message.text || message.content || '[' + messageType + ']';
+      result.text = getText(message) || '[' + messageType + ']';
       break;
   }
 
@@ -194,5 +225,7 @@ function mapOutbound(tiledeskMessage, recipientPhone) {
 module.exports = {
   mapInbound: mapInbound,
   mapOutbound: mapOutbound,
-  extractPhone: extractPhone
+  extractPhone: extractPhone,
+  getMediaUrl: getMediaUrl,
+  getText: getText
 };

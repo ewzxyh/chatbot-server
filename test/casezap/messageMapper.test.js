@@ -33,6 +33,24 @@ describe('CaseZap messageMapper', function() {
       assert.strictEqual(result.isGroup, false);
     });
 
+    it('should map root-level UazApi conversation payload', function() {
+      var webhook = {
+        EventType: 'messages',
+        messageid: '3EB0538DA65A59F6D8A251',
+        chatid: 'redacted@example.invalid',
+        senderName: 'Joao Silva',
+        fromMe: false,
+        isGroup: false,
+        messageType: 'conversation',
+        text: 'Ola, preciso de ajuda!'
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.text, 'Ola, preciso de ajuda!');
+      assert.strictEqual(result.type, 'text');
+      assert.strictEqual(result.phone, '5511999999999');
+      assert.strictEqual(result.messageId, '3EB0538DA65A59F6D8A251');
+    });
+
     it('should map image message', function() {
       var webhook = {
         EventType: 'messages',
@@ -42,6 +60,63 @@ describe('CaseZap messageMapper', function() {
       var result = messageMapper.mapInbound(webhook);
       assert.strictEqual(result.type, 'image');
       assert.strictEqual(result.metadata.src, 'https://media.url/img.jpg');
+    });
+
+    it('should map root-level UazApi image fileURL', function() {
+      var webhook = {
+        EventType: 'messages',
+        messageid: 'img-002',
+        chatid: 'redacted@example.invalid',
+        fromMe: false,
+        isGroup: false,
+        messageType: 'imageMessage',
+        fileURL: 'https://media.url/img-root.jpg',
+        senderName: 'User'
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'image');
+      assert.strictEqual(result.metadata.src, 'https://media.url/img-root.jpg');
+    });
+
+    it('should not leak raw content objects into image text or src', function() {
+      var webhook = {
+        EventType: 'messages',
+        messageid: 'img-003',
+        chatid: 'redacted@example.invalid',
+        fromMe: false,
+        isGroup: false,
+        messageType: 'imageMessage',
+        content: {
+          caption: 'caption from content',
+          url: 'https://media.url/content-image.jpg'
+        },
+        senderName: 'User'
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'image');
+      assert.strictEqual(result.text, 'caption from content');
+      assert.strictEqual(result.metadata.src, 'https://media.url/content-image.jpg');
+    });
+
+    it('should map root-level UazApi document fileURL to a visible chat link', function() {
+      var webhook = {
+        EventType: 'messages',
+        messageid: 'doc-001',
+        chatid: 'redacted@example.invalid',
+        fromMe: false,
+        isGroup: false,
+        messageType: 'documentMessage',
+        fileURL: 'https://media.url/report.pdf',
+        fileName: 'report.pdf',
+        mimetype: 'application/pdf',
+        senderName: 'User'
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'file');
+      assert.strictEqual(result.text, '[report.pdf](https://media.url/report.pdf)');
+      assert.strictEqual(result.metadata.src, 'https://media.url/report.pdf');
+      assert.strictEqual(result.metadata.name, 'report.pdf');
+      assert.strictEqual(result.metadata.type, 'application/pdf');
     });
 
     it('should map audio message', function() {

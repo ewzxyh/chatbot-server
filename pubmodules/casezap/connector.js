@@ -44,6 +44,16 @@ async function checkAndMarkProcessed(messageId) {
 var casezapProjects = new Map();
 var casezapEnabled = process.env.CASEZAP_ENABLED !== 'false';
 
+function mapConnectionStatus(body) {
+  var rawStatus = body && (
+    (body.data && body.data.state) ||
+    (body.instance && body.instance.status) ||
+    body.status
+  );
+  rawStatus = rawStatus ? String(rawStatus).toLowerCase() : '';
+  return (rawStatus === 'open' || rawStatus === 'connected') ? 'active' : 'disconnected';
+}
+
 async function handleWebhook(integration, req, res) {
   var projectId = integration.id_project;
 
@@ -54,7 +64,7 @@ async function handleWebhook(integration, req, res) {
     }
 
     if (body.EventType === 'connection') {
-      var newStatus = (body.data && body.data.state === 'open') ? 'active' : 'disconnected';
+      var newStatus = mapConnectionStatus(body);
       await Integration.findByIdAndUpdate(integration._id, { $set: { 'value.status': newStatus } });
       winston.info('CaseZap connection event: integration ' + integration._id + ' status=' + newStatus);
       return res.status(200).json({ success: true });
@@ -423,6 +433,7 @@ module.exports = {
   setupIntegrationListener: setupIntegrationListener,
   registerWebhook: registerWebhook,
   buildRegisterWebhookUpdate: buildRegisterWebhookUpdate,
+  mapConnectionStatus: mapConnectionStatus,
   setRedisClient: setRedisClient,
   casezapProjects: casezapProjects
 };
