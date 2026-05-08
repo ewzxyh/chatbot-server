@@ -299,7 +299,7 @@ async function registerWebhook(integration, baseUrl) {
     });
 
     await Integration.findByIdAndUpdate(integration._id, {
-      $set: { 'value.webhookSecret': webhookSecret, 'value.status': 'active' }
+      $set: buildRegisterWebhookUpdate(integration, webhookSecret)
     });
 
     casezapProjects.set(integration._id.toString(), {
@@ -320,6 +320,13 @@ async function registerWebhook(integration, baseUrl) {
       throw new Error('Nao foi possivel conectar ao dominio da API: ' + (err.message || ''));
     }
   }
+}
+
+function buildRegisterWebhookUpdate(integration, webhookSecret) {
+  return {
+    'value.webhookSecret': webhookSecret,
+    'value.status': 'disconnected'
+  };
 }
 
 async function cleanupWebhook(integrationId, domain, token, baseUrl) {
@@ -415,6 +422,7 @@ module.exports = {
   setupOutboundListener: setupOutboundListener,
   setupIntegrationListener: setupIntegrationListener,
   registerWebhook: registerWebhook,
+  buildRegisterWebhookUpdate: buildRegisterWebhookUpdate,
   setRedisClient: setRedisClient,
   casezapProjects: casezapProjects
 };

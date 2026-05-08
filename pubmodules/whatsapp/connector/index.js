@@ -52,6 +52,7 @@ router.use("/api", apiRoute);
 
 let API_URL = null;
 let GRAPH_URL = null;
+let BASE_FILE_URL = null;
 let BASE_URL = null;
 let APPS_API_URL = null;
 let REDIS_HOST = null;
@@ -934,7 +935,8 @@ router.post('/webhook', async (req, res) => {
         const util = new TiledeskWhatsapp({
           token: settings.wab_token,
           GRAPH_URL: GRAPH_URL,
-          API_URL: API_URL
+          API_URL: API_URL,
+          BASE_FILE_URL: BASE_FILE_URL
         });
 
         const media = whatsappChannelMessage[whatsappChannelMessage.type];
@@ -1124,7 +1126,8 @@ router.post("/webhook/:project_id", async (req, res) => {
           const util = new TiledeskWhatsapp({
             token: settings.wab_token,
             GRAPH_URL: GRAPH_URL,
-            API_URL: API_URL
+            API_URL: API_URL,
+            BASE_FILE_URL: BASE_FILE_URL
           });
 
           if (whatsappChannelMessage.type == "image") {
@@ -1724,6 +1727,9 @@ async function startApp(settings, callback) {
     API_URL = settings.API_URL;
     winston.info("(wab) API_URL: " + API_URL);
   }
+
+  BASE_FILE_URL = settings.BASE_FILE_URL || API_URL;
+  winston.info("(wab) BASE_FILE_URL: " + BASE_FILE_URL);
 
   if (!settings.BASE_URL) {
     winston.error("(wab) BASE_URL is mandatory. Exit...");

@@ -39,7 +39,8 @@ class TiledeskWhatsapp {
     // this.media = config.channelMedia;
     this.token = config.token;
     this.GRAPH_URL = config.GRAPH_URL
-    this.api_url = config.API_URL;
+    this.api_url = config.API_URL.replace(/\/+$/, '');
+    this.base_file_url = (config.BASE_FILE_URL || config.API_URL).replace(/\/+$/, '');
 
 
     this.log = false;
@@ -184,7 +185,7 @@ class TiledeskWhatsapp {
     return await axios.post(url, form, request_config).then((response) => {
         
       winston.debug("(wab) [TiledeskWhatsapp] upload response: ", response.data);
-      let file_url = this.api_url + "/files/download?path=" + response.data.filename;
+      let file_url = this.base_file_url + "/files/download?path=" + encodeURIComponent(response.data.filename);
       return file_url;
 
     }).catch((err) => {

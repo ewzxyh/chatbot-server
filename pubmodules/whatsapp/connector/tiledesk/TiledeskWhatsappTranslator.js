@@ -74,7 +74,10 @@ const path = require('path');
 
     else if (tiledeskChannelMessage.metadata) {
 
-      if ((tiledeskChannelMessage.metadata.type && tiledeskChannelMessage.metadata.type.startsWith('image')) || tiledeskChannelMessage.type.startsWith('image')) {
+      var metadataType = tiledeskChannelMessage.metadata.type || '';
+      var messageType = tiledeskChannelMessage.type || '';
+
+      if ((metadataType && metadataType.startsWith('image')) || messageType.startsWith('image')) {
         var imgUrl = tiledeskChannelMessage.metadata.src;
         whatsapp_message.type = 'image'
         whatsapp_message.image = {
@@ -83,7 +86,7 @@ const path = require('path');
         }
       }
 
-      else if ((tiledeskChannelMessage.metadata.type && tiledeskChannelMessage.metadata.type.startsWith('video')) || tiledeskChannelMessage.type.startsWith('video')) {
+      else if ((metadataType && metadataType.startsWith('video')) || messageType.startsWith('video')) {
         var videoUrl = tiledeskChannelMessage.metadata.src;
         whatsapp_message.type = 'video'
         whatsapp_message.video = {
@@ -92,16 +95,19 @@ const path = require('path');
         }
       }
 
-      else if (tiledeskChannelMessage.metadata.type.startsWith('application')) {
-        //var doc = tiledeskChannelMessage.metadata.src;
-        var doc = tiledeskChannelMessage.metadata.downloadURL;
+      else if (metadataType.startsWith('application')) {
+        var doc = tiledeskChannelMessage.metadata.downloadURL || tiledeskChannelMessage.metadata.src || tiledeskChannelMessage.metadata.url;
+        if (!doc) {
+          winston.verbose("(wab) [Translator] document url missing")
+          return null
+        }
         whatsapp_message.type = 'document'
         whatsapp_message.document = {
           link: doc,
           filename: tiledeskChannelMessage.metadata.name,
         }
 
-        let index = tiledeskChannelMessage.text.indexOf(tiledeskChannelMessage.metadata.src);
+        let index = tiledeskChannelMessage.text && tiledeskChannelMessage.metadata.src ? tiledeskChannelMessage.text.indexOf(tiledeskChannelMessage.metadata.src) : -1;
         if (index != -1) {
           let length = tiledeskChannelMessage.metadata.src.length;
           let caption = tiledeskChannelMessage.text.substring(index + length + 2);
@@ -586,8 +592,8 @@ const path = require('path');
         channel: { name: TiledeskWhatsappTranslator.CHANNEL_NAME },
         type: "file",
         metadata: {
-          name: "document.pdf",
-          type: "application/pdf",
+          name: whatsappChannelMessage.document.filename || "document",
+          type: whatsappChannelMessage.document.mime_type || "application/octet-stream",
           src: media_url
         }
       }
