@@ -5,7 +5,9 @@ process.env.MONGODB_URL = process.env.MONGODB_URL || 'mongodb://localhost:27017/
 process.env.MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/tiledesk-test';
 
 var adminEmail = 'operation-admin-' + process.pid + '-' + Date.now() + '@email.com';
+var secondaryAdminEmail = 'operation-secondary-admin-' + process.pid + '-' + Date.now() + '@email.com';
 process.env.ADMIN_EMAIL = adminEmail;
+process.env.SUPER_ADMIN_EMAILS = secondaryAdminEmail;
 
 var chai = require('chai');
 var chaiHttp = require('chai-http');
@@ -24,7 +26,9 @@ describe('OperationalRoute', function() {
 
   before(async function() {
     await User.deleteOne({ email: adminEmail });
+    await User.deleteOne({ email: secondaryAdminEmail });
     await userService.signup(adminEmail, pwd, 'Admin', 'Operation');
+    await userService.signup(secondaryAdminEmail, pwd, 'Secondary', 'Admin');
   });
 
   beforeEach(async function() {
@@ -89,6 +93,18 @@ describe('OperationalRoute', function() {
         expect(res.body.services).to.be.an('array');
         expect(res.body.channels).to.be.an('array');
         expect(res.body.alerts).to.be.an('array');
+        done();
+      });
+  });
+
+  it('returns health summary to configured secondary super admin', function(done) {
+    chai.request(server)
+      .get('/sadmin/health/summary')
+      .auth(secondaryAdminEmail, pwd)
+      .end(function(err, res) {
+        if (err) return done(err);
+        res.should.have.status(200);
+        expect(res.body).to.have.property('overallStatus');
         done();
       });
   });

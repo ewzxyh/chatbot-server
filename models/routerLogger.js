@@ -5,7 +5,7 @@ var config = require('../config/database');
 
 var winston = require('../config/winston');
 
-var dbUrl = process.env.MONGODB_LOGS_URI || config.databaselogs || process.env.MONGODB_URI;
+var dbUrl = process.env.MONGODB_LOGS_URI || process.env.MONGODB_LOGS_URL || process.env.MONGODB_URI || config.databaselogs;
 winston.info('VisitorCounterSchema dbUrl: '+dbUrl);
 
 // mongoose.set('useFindAndModify', false); //??

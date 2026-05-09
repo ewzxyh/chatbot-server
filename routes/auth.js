@@ -10,6 +10,7 @@ var uniqid = require('uniqid');
 var emailService = require("../services/emailService");
 var pendinginvitation = require("../services/pendingInvitationService");
 var userService = require("../services/userService");
+var superAdminService = require("../services/superAdminService");
 
 var noentitycheck = require('../middleware/noentitycheck');
 
@@ -95,7 +96,7 @@ router.post('/signup',
 
           let token = req.headers.authorization.split(" ")[1];
           let decode = jwt.verify(token, pubConfigSecret)
-          if (decode && (decode.email === process.env.ADMIN_EMAIL)) {
+          if (decode && superAdminService.isSuperAdminEmail(decode.email)) {
             let updatedUser = await User.findByIdAndUpdate(savedUser._id, { emailverified: true }, { new: true }).exec();
             winston.debug("updatedUser: ", updatedUser);
             skipVerificationEmail = true;
@@ -655,8 +656,7 @@ function (req, res) {
 
               var returnObject = { success: true, token: 'JWT ' + token, user: userJson };
 
-              var adminEmail = process.env.ADMIN_EMAIL || "redacted@example.invalid";
-              if (email === adminEmail) {
+              if (superAdminService.isSuperAdminEmail(email)) {
                 returnObject.role = "admin";
               }
 

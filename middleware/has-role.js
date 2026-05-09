@@ -1,6 +1,7 @@
 var Faq_kb = require("../models/faq_kb");
 var Subscription = require("../models/subscription");
 var winston = require('../config/winston');
+var superAdminService = require('../services/superAdminService');
 
 var projectUserService = require("../services/projectUserService");
 class RoleChecker {
@@ -49,9 +50,7 @@ class RoleChecker {
             } else {
               winston.debug("isTypeAsFunction is false");
 
-              var adminEmail = process.env.ADMIN_EMAIL || "redacted@example.invalid";
-
-              if (user && user.email && user.email === adminEmail) { //skip has role check 
+              if (user && user.email && superAdminService.isSuperAdminEmail(user.email)) { //skip has role check
                 return true;
               }
               return false;
@@ -139,7 +138,7 @@ class RoleChecker {
             * Updated by Johnny - 29mar2024 - START
             */
             // console.log("req.user: ", req.user);
-            if (req.user.email === process.env.ADMIN_EMAIL) {
+            if (superAdminService.isSuperAdminEmail(req.user.email)) {
               req.user.attributes = { isSuperadmin: true };
               next();
             } else {
@@ -290,7 +289,7 @@ class RoleChecker {
              * Updated by Johnny - 29mar2024 - START
              */
             // console.log("req.user: ", req.user);
-            if (req.user.email === process.env.ADMIN_EMAIL) {
+            if (superAdminService.isSuperAdminEmail(req.user.email)) {
               req.user.attributes = { isSuperadmin: true };
               next();
             } else {
