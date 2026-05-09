@@ -14,6 +14,7 @@ var {
   createChatImageThumbnail
 } = require('../../services/chatAttachmentThumbnailService');
 var verifyFileContent = require('../../middleware/file-type.js');
+var operationalLogger = require('../../services/operationalLogger');
 
 var defaultFileService;
 
@@ -178,59 +179,93 @@ async function downloadExternalMedia(sourceUrl, options) {
 
 async function persistInboundMediaFromUrl(mapped, integration, options) {
   options = options || {};
+  var startedAt = Date.now();
   var baseFileUrl = getBaseFileUrl(options);
   if (!shouldPersistExternalMedia(mapped, baseFileUrl)) {
     return null;
   }
 
   var sourceUrl = mapped.metadata.src;
-  var downloaded = await downloadExternalMedia(sourceUrl, options);
-  var inferredFromMetadata = validMime(mapped.metadata.type);
-  var inferredFromName = validMime(mime.lookup(mapped.metadata.name || filenameFromUrl(sourceUrl)));
-  var contentType = validMime(downloaded.contentType) || inferredFromMetadata || inferredFromName || 'application/octet-stream';
-  var originalname = originalFilename(mapped, sourceUrl, contentType);
-
-  if (contentType === 'application/octet-stream') {
-    contentType = validMime(mime.lookup(originalname)) || contentType;
-  }
-
-  await verifyFileContent(downloaded.buffer, contentType);
-
   var integrationId = integration && integration._id ? integration._id.toString() : 'unknown';
-  var filename = buildChatFilePath({
-    userId: 'casezap-' + integrationId,
-    folderName: 'files',
-    originalname: originalname
-  });
-  var expireAt = options.expireAt || new Date(Date.now() + parseInt(process.env.CHAT_FILE_EXPIRATION_TIME || '2592000', 10) * 1000);
-  var fileService = options.fileService || getDefaultFileService();
-
-  await waitForFileServiceReady(fileService);
-  await fileService.createFile(filename, downloaded.buffer, undefined, contentType, { metadata: { expireAt: expireAt } });
-
-  var thumbnail;
   try {
-    thumbnail = await createChatImageThumbnail({
-      fileService: fileService,
-      filename: filename,
-      buffer: downloaded.buffer,
-      mimetype: contentType,
-      expireAt: expireAt
-    });
-  } catch (err) {
-    winston.warn('CaseZap thumbnail generation failed: ' + err.message);
-  }
+    var downloaded = await downloadExternalMedia(sourceUrl, options);
+    var inferredFromMetadata = validMime(mapped.metadata.type);
+    var inferredFromName = validMime(mime.lookup(mapped.metadata.name || filenameFromUrl(sourceUrl)));
+    var contentType = validMime(downloaded.contentType) || inferredFromMetadata || inferredFromName || 'application/octet-stream';
+    var originalname = originalFilename(mapped, sourceUrl, contentType);
 
-  var urls = publicFileUrls(filename, baseFileUrl);
-  return {
-    filename: filename,
-    url: urls.url,
-    downloadUrl: urls.downloadUrl,
-    thumbnail: thumbnail,
-    thumbnailUrl: thumbnail ? publicFileUrls(thumbnail, baseFileUrl).url : undefined,
-    sourceUrl: sourceUrl,
-    contentType: contentType
-  };
+    if (contentType === 'application/octet-stream') {
+      contentType = validMime(mime.lookup(originalname)) || contentType;
+    }
+
+    await verifyFileContent(downloaded.buffer, contentType);
+
+    var filename = buildChatFilePath({
+      userId: 'casezap-' + integrationId,
+      folderName: 'files',
+      originalname: originalname
+    });
+    var expireAt = options.expireAt || new Date(Date.now() + parseInt(process.env.CHAT_FILE_EXPIRATION_TIME || '2592000', 10) * 1000);
+    var fileService = options.fileService || getDefaultFileService();
+
+    await waitForFileServiceReady(fileService);
+    await fileService.createFile(filename, downloaded.buffer, undefined, contentType, { metadata: { expireAt: expireAt } });
+
+    var thumbnail;
+    try {
+      thumbnail = await createChatImageThumbnail({
+        fileService: fileService,
+        filename: filename,
+        buffer: downloaded.buffer,
+        mimetype: contentType,
+        expireAt: expireAt
+      });
+    } catch (err) {
+      winston.warn('CaseZap thumbnail generation failed: ' + err.message);
+    }
+
+    operationalLogger.recordSafe({
+      area: 'storage',
+      channel: 'casezap',
+      id_project: integration && integration.id_project,
+      integrationId: integrationId,
+      messageId: mapped.messageId,
+      event: 'media.rehosted',
+      status: 'success',
+      latencyMs: Date.now() - startedAt,
+      details: {
+        filename: filename,
+        contentType: contentType,
+        bytes: downloaded.buffer.length,
+        thumbnail: Boolean(thumbnail)
+      }
+    });
+
+    var urls = publicFileUrls(filename, baseFileUrl);
+    return {
+      filename: filename,
+      url: urls.url,
+      downloadUrl: urls.downloadUrl,
+      thumbnail: thumbnail,
+      thumbnailUrl: thumbnail ? publicFileUrls(thumbnail, baseFileUrl).url : undefined,
+      sourceUrl: sourceUrl,
+      contentType: contentType
+    };
+  } catch (err2) {
+    operationalLogger.recordSafe({
+      level: 'error',
+      area: 'storage',
+      channel: 'casezap',
+      id_project: integration && integration.id_project,
+      integrationId: integrationId,
+      messageId: mapped.messageId,
+      event: 'media.rehost_failed',
+      status: 'failed',
+      latencyMs: Date.now() - startedAt,
+      error: err2
+    });
+    throw err2;
+  }
 }
 
 async function persistMappedMedia(mapped, integration, options) {

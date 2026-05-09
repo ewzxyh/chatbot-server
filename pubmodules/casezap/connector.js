@@ -18,6 +18,7 @@ var messageService = require('../../services/messageService');
 var messageEvent = require('../../event/messageEvent');
 var integrationEvent = require('../../event/integrationEvent');
 var mediaStorage = require('./mediaStorage');
+var operationalLogger = require('../../services/operationalLogger');
 
 var DEDUP_TTL = 3600;
 var DEDUP_PREFIX = 'czdedup:';
@@ -45,6 +46,13 @@ async function checkAndMarkProcessed(messageId) {
 var casezapProjects = new Map();
 var casezapEnabled = process.env.CASEZAP_ENABLED !== 'false';
 
+function recordOperation(event) {
+  operationalLogger.recordSafe(Object.assign({
+    area: 'webhook',
+    channel: 'casezap'
+  }, event));
+}
+
 function mapConnectionStatus(body) {
   var rawStatus = body && (
     (body.data && body.data.state) ||
@@ -57,41 +65,120 @@ function mapConnectionStatus(body) {
 
 async function handleWebhook(integration, req, res) {
   var projectId = integration.id_project;
+  var startedAt = Date.now();
+  var integrationId = integration._id.toString();
 
   try {
     var body = req.body;
     if (!body || !body.EventType) {
+      recordOperation({
+        level: 'warn',
+        id_project: projectId,
+        integrationId: integrationId,
+        event: 'webhook.failed',
+        status: 'failed',
+        errorCode: 'invalid_payload',
+        errorMessage: 'Invalid CaseZap payload',
+        latencyMs: Date.now() - startedAt
+      });
       return res.status(400).json({ error: 'Invalid payload' });
     }
+
+    recordOperation({
+      id_project: projectId,
+      integrationId: integrationId,
+      event: 'webhook.received',
+      status: 'success',
+      details: { eventType: body.EventType }
+    });
 
     if (body.EventType === 'connection') {
       var newStatus = mapConnectionStatus(body);
       await Integration.findByIdAndUpdate(integration._id, { $set: { 'value.status': newStatus } });
       winston.info('CaseZap connection event: integration ' + integration._id + ' status=' + newStatus);
+      recordOperation({
+        id_project: projectId,
+        integrationId: integrationId,
+        event: 'webhook.connection',
+        status: 'success',
+        latencyMs: Date.now() - startedAt,
+        details: { connectionStatus: newStatus }
+      });
       return res.status(200).json({ success: true });
     }
 
     if (body.EventType === 'messages_update') {
+      recordOperation({
+        id_project: projectId,
+        integrationId: integrationId,
+        event: 'webhook.skipped',
+        status: 'skipped',
+        latencyMs: Date.now() - startedAt,
+        details: { reason: 'messages_update' }
+      });
       return res.status(200).json({ success: true });
     }
 
     if (body.EventType !== 'messages') {
+      recordOperation({
+        id_project: projectId,
+        integrationId: integrationId,
+        event: 'webhook.skipped',
+        status: 'skipped',
+        latencyMs: Date.now() - startedAt,
+        details: { reason: 'unsupported_event_type', eventType: body.EventType }
+      });
       return res.status(200).json({ success: true });
     }
 
     var mapped = messageMapper.mapInbound(body);
     if (!mapped) {
+      recordOperation({
+        id_project: projectId,
+        integrationId: integrationId,
+        event: 'webhook.skipped',
+        status: 'skipped',
+        latencyMs: Date.now() - startedAt,
+        details: { reason: 'unmappable_message_type' }
+      });
       return res.status(200).json({ success: true, skipped: 'unmappable message type' });
     }
 
     if (mapped.fromMe) {
+      recordOperation({
+        id_project: projectId,
+        integrationId: integrationId,
+        messageId: mapped.messageId,
+        event: 'webhook.skipped',
+        status: 'skipped',
+        latencyMs: Date.now() - startedAt,
+        details: { reason: 'fromMe' }
+      });
       return res.status(200).json({ success: true, skipped: 'fromMe' });
     }
     if (mapped.isGroup) {
+      recordOperation({
+        id_project: projectId,
+        integrationId: integrationId,
+        messageId: mapped.messageId,
+        event: 'webhook.skipped',
+        status: 'skipped',
+        latencyMs: Date.now() - startedAt,
+        details: { reason: 'group_message' }
+      });
       return res.status(200).json({ success: true, skipped: 'group message' });
     }
 
     if (await checkAndMarkProcessed(mapped.messageId)) {
+      recordOperation({
+        id_project: projectId,
+        integrationId: integrationId,
+        messageId: mapped.messageId,
+        event: 'webhook.skipped',
+        status: 'skipped',
+        latencyMs: Date.now() - startedAt,
+        details: { reason: 'deduplicated' }
+      });
       return res.status(200).json({ success: true, deduplicated: true });
     }
 
@@ -159,10 +246,30 @@ async function handleWebhook(integration, req, res) {
       null
     );
 
+    recordOperation({
+      id_project: projectId,
+      integrationId: integrationId,
+      requestId: requestId,
+      messageId: mapped.messageId,
+      event: 'webhook.processed',
+      status: 'success',
+      latencyMs: Date.now() - startedAt,
+      details: { messageType: mapped.type }
+    });
+
     res.status(200).json({ success: true });
 
   } catch (err) {
     winston.error('CaseZap webhook error for integration ' + integration._id, err);
+    recordOperation({
+      level: 'error',
+      id_project: projectId,
+      integrationId: integrationId,
+      event: 'webhook.failed',
+      status: 'failed',
+      latencyMs: Date.now() - startedAt,
+      error: err
+    });
     res.status(500).json({ error: 'Internal error' });
   }
 }
@@ -182,6 +289,14 @@ router.post('/webhook/:integration_id', async function(req, res) {
     var integration = await Integration.findById(integrationId);
     if (!integration || !integration.value || integration.value.webhookSecret !== secret) {
       winston.warn('CaseZap webhook: invalid secret for integration ' + integrationId);
+      recordOperation({
+        level: 'warn',
+        integrationId: integrationId,
+        event: 'webhook.failed',
+        status: 'failed',
+        errorCode: 'invalid_secret',
+        errorMessage: 'Invalid webhook secret'
+      });
       return res.status(401).json({ error: 'Invalid webhook secret' });
     }
     await handleWebhook(integration, req, res);
@@ -204,6 +319,15 @@ router.post('/webhook/project/:project_id', async function(req, res) {
     var integration = await Integration.findOne({ id_project: projectId, name: 'casezap' });
     if (!integration || !integration.value || integration.value.webhookSecret !== secret) {
       winston.warn('CaseZap webhook: invalid secret for project ' + projectId);
+      recordOperation({
+        level: 'warn',
+        id_project: projectId,
+        integrationId: integration ? integration._id.toString() : undefined,
+        event: 'webhook.failed',
+        status: 'failed',
+        errorCode: 'invalid_secret',
+        errorMessage: 'Invalid webhook secret'
+      });
       return res.status(401).json({ error: 'Invalid webhook secret' });
     }
     await handleWebhook(integration, req, res);

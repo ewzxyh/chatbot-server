@@ -31,6 +31,7 @@ const { TemplateManager } = require("./tiledesk/TemplateManager");
 const { WhatsappLogger } = require("./tiledesk/WhatsappLogger");
 const Utils = require("./tiledesk/Utils");
 const whatsappService = require("./tiledesk/WhatsappService");
+const operationalLogger = require("../../../services/operationalLogger");
 
 // mongo
 const { KVBaseMongo } = require("./tiledesk/KVBaseMongo");
@@ -63,6 +64,35 @@ let JOB_TOPIC_EXCHANGE = null;
 let BRAND_NAME = null;
 let FB_APP_ID = null;
 let CONFIGURATION_ID = null;
+
+function getWebhookValue(body) {
+  return body && body.entry && body.entry[0] && body.entry[0].changes && body.entry[0].changes[0] && body.entry[0].changes[0].value
+    ? body.entry[0].changes[0].value
+    : {};
+}
+
+function getWebhookMessageId(body) {
+  const value = getWebhookValue(body);
+  if (value.messages && value.messages[0]) return value.messages[0].id;
+  if (value.statuses && value.statuses[0]) return value.statuses[0].id;
+  return undefined;
+}
+
+function getWebhookKind(body) {
+  const value = getWebhookValue(body);
+  if (value.messages && value.messages[0]) return 'message:' + value.messages[0].type;
+  if (value.statuses && value.statuses[0]) return 'status:' + value.statuses[0].status;
+  return 'unknown';
+}
+
+function recordWabaOperation(settings, wabaId, event) {
+  operationalLogger.recordSafe(Object.assign({
+    area: 'webhook',
+    channel: 'waba',
+    id_project: settings && settings.project_id,
+    integrationId: wabaId || (settings && (settings.waba_id || settings.phone_number_id))
+  }, event));
+}
 
 // Handlebars register helpers
 handlebars.registerHelper("isEqual", (a, b) => {
@@ -842,6 +872,7 @@ router.post("/tiledesk", async (req, res) => {
 
 // Endpoint for Whatsapp Business connected via OAuth
 router.post('/webhook', async (req, res) => {
+  const webhookStartedAt = Date.now();
 
   if (req.body.object !== "whatsapp_business_account") {
     winston.verbose("(wab) Event not from whatsapp");
@@ -862,8 +893,24 @@ router.post('/webhook', async (req, res) => {
   if (!settings) {
     winston.warn("(wab) settings not found for waba: " + waba_id);
     winston.warn("(wab) settings not found for request: ", req.body);
+    recordWabaOperation(null, waba_id, {
+      level: 'warn',
+      event: 'webhook.failed',
+      status: 'failed',
+      messageId: getWebhookMessageId(req.body),
+      latencyMs: Date.now() - webhookStartedAt,
+      errorCode: 'settings_not_found',
+      errorMessage: 'WhatsApp settings not found for WABA'
+    });
     return res.sendStatus(200);
   }
+
+  recordWabaOperation(settings, waba_id, {
+    event: 'webhook.received',
+    status: 'success',
+    messageId: getWebhookMessageId(req.body),
+    details: { kind: getWebhookKind(req.body), route: 'oauth' }
+  });
 
   const tdClient = new TiledeskClient({
     projectId: settings.project_id,
@@ -944,6 +991,16 @@ router.post('/webhook', async (req, res) => {
 
         if (!filename) {
           winston.debug(`(wab) Unable to download media with id ${media.id}. Message not sent.`);
+          recordWabaOperation(settings, waba_id, {
+            level: 'error',
+            event: 'webhook.failed',
+            status: 'failed',
+            messageId: whatsappChannelMessage.id,
+            latencyMs: Date.now() - webhookStartedAt,
+            errorCode: 'media_download_failed',
+            errorMessage: 'Unable to download media from WhatsApp',
+            details: { mediaType: whatsappChannelMessage.type }
+          });
           return res.status(500).send({ success: false, error: "unable to download media" });
         }
 
@@ -967,9 +1024,25 @@ router.post('/webhook', async (req, res) => {
           winston.debug("(wab) response: ", response);
         } catch (err) {
           winston.error("(wab) send message error: ", err);
+          recordWabaOperation(settings, waba_id, {
+            level: 'error',
+            event: 'webhook.failed',
+            status: 'failed',
+            messageId: whatsappChannelMessage.id,
+            latencyMs: Date.now() - webhookStartedAt,
+            error: err
+          });
         }
       } else {
         winston.verbose("(wab) tiledeskJsonMessage is undefined");
+        recordWabaOperation(settings, waba_id, {
+          level: 'warn',
+          event: 'webhook.skipped',
+          status: 'skipped',
+          messageId: whatsappChannelMessage.id,
+          latencyMs: Date.now() - webhookStartedAt,
+          details: { reason: 'translation_empty', messageType: whatsappChannelMessage.type }
+        });
       }
     }
   }
@@ -1000,12 +1073,21 @@ router.post('/webhook', async (req, res) => {
     wl.updateMessageStatus(message_id, status, error);
   }
 
+  recordWabaOperation(settings, waba_id, {
+    event: 'webhook.processed',
+    status: 'success',
+    messageId: getWebhookMessageId(req.body),
+    latencyMs: Date.now() - webhookStartedAt,
+    details: { kind: getWebhookKind(req.body), route: 'oauth' }
+  });
+
   res.sendStatus(200);
 
 })
 
 // Endpoint for Whatsapp Business
 router.post("/webhook/:project_id", async (req, res) => {
+  const webhookStartedAt = Date.now();
   winston.warn('(wab) Legacy webhook route used for project ' + req.params.project_id + '. Migrate to OAuth.');
   // Parse the request body from the POST
   let project_id = req.params.project_id;
@@ -1021,8 +1103,24 @@ router.post("/webhook/:project_id", async (req, res) => {
     if (!settings) {
       winston.warn("(wab) settings not found for project_id: " + project_id);
       winston.warn("(wab) settings not found for request: ", req.body);
+      recordWabaOperation({ project_id: project_id }, req.body.entry && req.body.entry[0] && req.body.entry[0].id, {
+        level: 'warn',
+        event: 'webhook.failed',
+        status: 'failed',
+        messageId: getWebhookMessageId(req.body),
+        latencyMs: Date.now() - webhookStartedAt,
+        errorCode: 'settings_not_found',
+        errorMessage: 'WhatsApp settings not found for project'
+      });
       return res.sendStatus(200);
     }
+
+    recordWabaOperation(settings, req.body.entry && req.body.entry[0] && req.body.entry[0].id, {
+      event: 'webhook.received',
+      status: 'success',
+      messageId: getWebhookMessageId(req.body),
+      details: { kind: getWebhookKind(req.body), route: 'legacy' }
+    });
 
     const tdClient = new TiledeskClient({
       projectId: project_id,
@@ -1135,6 +1233,16 @@ router.post("/webhook/:project_id", async (req, res) => {
             const filename = await util.downloadMedia(media.id);
             if (!filename) {
               winston.debug("(wab) Unable to download media with id " + media.id + ". Message not sent.");
+              recordWabaOperation(settings, message_info.whatsapp.waba_id, {
+                level: 'error',
+                event: 'webhook.failed',
+                status: 'failed',
+                messageId: whatsappChannelMessage.id,
+                latencyMs: Date.now() - webhookStartedAt,
+                errorCode: 'media_download_failed',
+                errorMessage: 'Unable to download image from WhatsApp',
+                details: { mediaType: whatsappChannelMessage.type }
+              });
               return res.status(500).send({ success: false, error: "unable to download media" });
             }
 
@@ -1151,6 +1259,16 @@ router.post("/webhook/:project_id", async (req, res) => {
             const filename = await util.downloadMedia(media.id);
             if (!filename) {
               winston.debug("(wab) Unable to download media with id " + media.id + ". Message not sent.");
+              recordWabaOperation(settings, message_info.whatsapp.waba_id, {
+                level: 'error',
+                event: 'webhook.failed',
+                status: 'failed',
+                messageId: whatsappChannelMessage.id,
+                latencyMs: Date.now() - webhookStartedAt,
+                errorCode: 'media_download_failed',
+                errorMessage: 'Unable to download video from WhatsApp',
+                details: { mediaType: whatsappChannelMessage.type }
+              });
               return res.status(500).send({ success: false, error: "unable to download media" });
             }
             let file_path = path.join(__dirname, "tmp", filename);
@@ -1167,6 +1285,16 @@ router.post("/webhook/:project_id", async (req, res) => {
             const filename = await util.downloadMedia(media.id);
             if (!filename) {
               winston.debug("(wab) Unable to download media with id " + media.id + ". Message not sent.");
+              recordWabaOperation(settings, message_info.whatsapp.waba_id, {
+                level: 'error',
+                event: 'webhook.failed',
+                status: 'failed',
+                messageId: whatsappChannelMessage.id,
+                latencyMs: Date.now() - webhookStartedAt,
+                errorCode: 'media_download_failed',
+                errorMessage: 'Unable to download document from WhatsApp',
+                details: { mediaType: whatsappChannelMessage.type }
+              });
               return res.status(500).send({ success: false, error: "unable to download media" });
             }
             let file_path = path.join(__dirname, "tmp", filename);
@@ -1183,6 +1311,16 @@ router.post("/webhook/:project_id", async (req, res) => {
             const filename = await util.downloadMedia(media.id);
             if (!filename) {
               winston.debug("(wab) Unable to download media with id " + media.id + ". Message not sent.");
+              recordWabaOperation(settings, message_info.whatsapp.waba_id, {
+                level: 'error',
+                event: 'webhook.failed',
+                status: 'failed',
+                messageId: whatsappChannelMessage.id,
+                latencyMs: Date.now() - webhookStartedAt,
+                errorCode: 'media_download_failed',
+                errorMessage: 'Unable to download audio from WhatsApp',
+                details: { mediaType: whatsappChannelMessage.type }
+              });
               return res.status(500).send({ success: false, error: "unable to download media" });
             }
             let file_path = path.join(__dirname, "tmp", filename);
@@ -1204,6 +1342,14 @@ router.post("/webhook/:project_id", async (req, res) => {
           winston.debug("(wab) response: ", response);
         } else {
           winston.verbose("(wab) tiledeskJsonMessage is undefined");
+          recordWabaOperation(settings, message_info.whatsapp.waba_id, {
+            level: 'warn',
+            event: 'webhook.skipped',
+            status: 'skipped',
+            messageId: whatsappChannelMessage.id,
+            latencyMs: Date.now() - webhookStartedAt,
+            details: { reason: 'translation_empty', messageType: whatsappChannelMessage.type }
+          });
         }
       }
     }
@@ -1244,10 +1390,26 @@ router.post("/webhook/:project_id", async (req, res) => {
       wl.updateMessageStatus(message_id, status, error);
     }
 
+    recordWabaOperation(settings, req.body.entry && req.body.entry[0] && req.body.entry[0].id, {
+      event: 'webhook.processed',
+      status: 'success',
+      messageId: getWebhookMessageId(req.body),
+      latencyMs: Date.now() - webhookStartedAt,
+      details: { kind: getWebhookKind(req.body), route: 'legacy' }
+    });
+
     res.sendStatus(200);
   } else {
     // Return a '404 Not Found' if event is not from a WhatsApp API
     winston.verbose("(wab) event not from whatsapp");
+    recordWabaOperation({ project_id: project_id }, undefined, {
+      level: 'warn',
+      event: 'webhook.failed',
+      status: 'failed',
+      latencyMs: Date.now() - webhookStartedAt,
+      errorCode: 'invalid_payload',
+      errorMessage: 'Event not from WhatsApp'
+    });
     res.sendStatus(404);
   }
 });

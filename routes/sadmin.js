@@ -13,6 +13,8 @@ var LeadConstants = require('../models/leadConstants');
 var Integration = require('../models/integrations');
 var SubscriptionPayment = require('../pubmodules/billing/models/subscription-payment');
 var { getPlan, getAllPlans } = require('../pubmodules/billing/plans');
+var OperationalEvent = require('../models/operationalEvent');
+var operationalHealthService = require('../services/operationalHealthService');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
 
@@ -24,6 +26,12 @@ var LEGACY_PLAN_MAP = {
 };
 
 var VALID_PLAN_KEYS = ['free', 'starter', 'pro', 'business'];
+
+function parseLimit(value, fallback, max) {
+  var parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, max);
+}
 
 router.get('/stats', auth, async function (req, res) {
   try {
@@ -173,6 +181,68 @@ router.get('/payments', auth, async function (req, res) {
   } catch (err) {
     winston.error('sadmin payments error', err);
     res.status(500).json({ error: 'Failed to fetch payments' });
+  }
+});
+
+router.get('/health/summary', auth, async function (req, res) {
+  try {
+    var summary = await operationalHealthService.getSummary(req.app);
+    res.json(summary);
+  } catch (err) {
+    winston.error('sadmin health summary error', err);
+    res.status(500).json({ error: 'Failed to fetch health summary' });
+  }
+});
+
+router.get('/health/services', auth, async function (req, res) {
+  try {
+    var services = await operationalHealthService.getServices(req.app.get('redis_client'));
+    res.json({ generatedAt: new Date().toISOString(), services: services });
+  } catch (err) {
+    winston.error('sadmin health services error', err);
+    res.status(500).json({ error: 'Failed to fetch service health' });
+  }
+});
+
+router.get('/health/channels', auth, async function (req, res) {
+  try {
+    var channels = await operationalHealthService.getChannels();
+    res.json({ generatedAt: new Date().toISOString(), channels: channels });
+  } catch (err) {
+    winston.error('sadmin health channels error', err);
+    res.status(500).json({ error: 'Failed to fetch channel health' });
+  }
+});
+
+router.get('/health/queues', auth, async function (req, res) {
+  try {
+    var rabbit = await operationalHealthService.checkRabbit();
+    res.json({ generatedAt: new Date().toISOString(), queueService: rabbit });
+  } catch (err) {
+    winston.error('sadmin health queues error', err);
+    res.status(500).json({ error: 'Failed to fetch queue health' });
+  }
+});
+
+router.get('/operational-events', auth, async function (req, res) {
+  try {
+    var query = {};
+    if (req.query.project_id) query.id_project = req.query.project_id;
+    if (req.query.channel) query.channel = req.query.channel;
+    if (req.query.level) query.level = req.query.level;
+    if (req.query.area) query.area = req.query.area;
+    if (req.query.integrationId) query.integrationId = req.query.integrationId;
+
+    var limit = parseLimit(req.query.limit, 50, 200);
+    var events = await OperationalEvent.find(query)
+      .sort({ timestamp: -1 })
+      .limit(limit)
+      .lean();
+
+    res.json({ data: events, count: events.length, limit: limit });
+  } catch (err) {
+    winston.error('sadmin operational events error', err);
+    res.status(500).json({ error: 'Failed to fetch operational events' });
   }
 });
 
