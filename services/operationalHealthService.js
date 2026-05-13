@@ -3,6 +3,7 @@ var amqp = require('amqplib/callback_api');
 var pjson = require('../package.json');
 var Integration = require('../models/integrations');
 var OperationalEvent = require('../models/operationalEvent');
+var operationalAlertService = require('./operationalAlertService');
 
 var WEBHOOK_FAILURE_WINDOW_MINUTES = parseInt(process.env.OPERATIONAL_WEBHOOK_FAILURE_WINDOW_MINUTES || '15', 10);
 var WEBHOOK_FAILURE_THRESHOLD = parseInt(process.env.OPERATIONAL_WEBHOOK_FAILURE_THRESHOLD || '3', 10);
@@ -297,7 +298,12 @@ async function getWebhookFailureAlerts() {
       id_project: row._id.id_project,
       integrationId: row._id.integrationId,
       lastAt: row.lastAt,
-      lastError: row.lastError
+      lastError: row.lastError,
+      details: {
+        failures: row.count,
+        windowMinutes: WEBHOOK_FAILURE_WINDOW_MINUTES,
+        lastError: row.lastError
+      }
     };
   });
 }
@@ -314,7 +320,8 @@ function getServiceAlerts(services) {
       title: item.label + ' ' + (item.status === 'down' ? 'indisponivel' : 'degradado'),
       message: item.details && item.details.error ? item.details.error : item.status,
       service: item.name,
-      lastAt: nowIso()
+      lastAt: nowIso(),
+      details: item.details
     };
   });
 }
@@ -333,7 +340,8 @@ function getQueueAlerts(services) {
         title: 'Fila acumulando',
         message: queue.name + ' com ' + queue.messagesReady + ' mensagens prontas',
         queue: queue.name,
-        lastAt: nowIso()
+        lastAt: nowIso(),
+        details: queue
       });
     }
     if (queue.consumers === 0 && queue.messagesReady > 0) {
@@ -345,7 +353,8 @@ function getQueueAlerts(services) {
         title: 'Fila sem consumers',
         message: queue.name + ' tem mensagens e nenhum consumer',
         queue: queue.name,
-        lastAt: nowIso()
+        lastAt: nowIso(),
+        details: queue
       });
     }
   });
@@ -361,7 +370,16 @@ async function getSummary(app) {
   var tdCache = app && app.get ? app.get('redis_client') : null;
   var services = await getServices(tdCache);
   var channels = await getChannels();
-  var alerts = await getAlerts(services);
+  var dynamicAlerts = await getAlerts(services);
+  var alerts = dynamicAlerts;
+  try {
+    alerts = await operationalAlertService.syncAlerts(dynamicAlerts);
+  } catch (err) {
+    alerts = dynamicAlerts.map(function(alert) {
+      alert.persistenceError = err.message;
+      return alert;
+    });
+  }
   var overallStatus = mergeOverall(services.concat(channels));
   if (alerts.some(function(alert) { return alert.severity === 'critical'; })) {
     overallStatus = 'down';

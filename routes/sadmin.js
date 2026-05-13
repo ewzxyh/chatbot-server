@@ -15,6 +15,7 @@ var SubscriptionPayment = require('../pubmodules/billing/models/subscription-pay
 var { getPlan, getAllPlans } = require('../pubmodules/billing/plans');
 var OperationalEvent = require('../models/operationalEvent');
 var operationalHealthService = require('../services/operationalHealthService');
+var operationalAlertService = require('../services/operationalAlertService');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
 
@@ -243,6 +244,26 @@ router.get('/operational-events', auth, async function (req, res) {
   } catch (err) {
     winston.error('sadmin operational events error', err);
     res.status(500).json({ error: 'Failed to fetch operational events' });
+  }
+});
+
+router.get('/operational-alerts', auth, async function (req, res) {
+  try {
+    var limit = parseLimit(req.query.limit, 100, 200);
+    var alerts = await operationalAlertService.listAlerts({
+      status: req.query.status,
+      type: req.query.type,
+      severity: req.query.severity,
+      channel: req.query.channel,
+      service: req.query.service,
+      project_id: req.query.project_id,
+      limit: limit
+    });
+
+    res.json({ data: alerts, count: alerts.length, limit: limit });
+  } catch (err) {
+    winston.error('sadmin operational alerts error', err);
+    res.status(500).json({ error: 'Failed to fetch operational alerts' });
   }
 });
 
