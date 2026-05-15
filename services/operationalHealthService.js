@@ -100,6 +100,7 @@ function getRabbitUrl() {
     process.env.AMQP_URL ||
     process.env.RABBITMQ_URL ||
     process.env.AMQP_MANAGER_URL ||
+    process.env.RABBITMQ_URI ||
     null;
 }
 
