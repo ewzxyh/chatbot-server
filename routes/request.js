@@ -33,6 +33,7 @@ const RoleConstants = require('../models/roleConstants');
 const eventService = require('../pubmodules/events/eventService');
 const { Scheduler } = require('../services/Scheduler');
 const faq_kb = require('../models/faq_kb');
+var backgroundWorkers = require('../utils/backgroundWorkers');
 
 const datesUtil = require('../utils/datesUtil');
 //const JobManager = require('../utils/jobs-worker-queue-manager-v2/JobManagerV2');
@@ -48,13 +49,15 @@ let jobManager = new Publisher(AMQP_MANAGER_URL, {
   topic: "conversation-tags",
 })
 
-jobManager.connectAndStartPublisher((status, error) => {
-  if (error) {
-    winston.error("connectAndStartPublisher error: ", error);
-  } else {
-    winston.info("KbRoute - ConnectPublisher done with status: ", status);
-  }
-})
+if (!backgroundWorkers.disabled()) {
+  jobManager.connectAndStartPublisher((status, error) => {
+    if (error) {
+      winston.error("connectAndStartPublisher error: ", error);
+    } else {
+      winston.info("KbRoute - ConnectPublisher done with status: ", status);
+    }
+  })
+}
 
 
 

@@ -11,6 +11,7 @@ var MessageConstants = require("../models/messageConstants");
 var UIDGenerator = require("../utils/UIDGenerator");
 var LeadConstants = require("../models/leadConstants");
 var Segment2MongoConverter = require("../utils/segment2mongoConverter");
+var backgroundWorkers = require("../utils/backgroundWorkers");
 
 var JobManager = require("jobs-worker-queued");
 
@@ -208,6 +209,7 @@ router.post('/directDEPRECATED?', async function (req, res) {
 
 
 
+if (!backgroundWorkers.disabled()) {
  jobManager.run(async(data) => {
         winston.info("run job here with payload", data);
 
@@ -336,6 +338,7 @@ router.post('/direct', async function (req, res) {
 
 
 });
+}
 
 
 

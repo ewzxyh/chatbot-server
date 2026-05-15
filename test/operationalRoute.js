@@ -1,5 +1,6 @@
 process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'critical';
+process.env.DISABLE_BACKGROUND_WORKERS = 'true';
 process.env.OPERATIONAL_RABBITMQ_QUEUES = '';
 process.env.CREATE_INITIAL_DATA = 'false';
 process.env.MONGODB_URL = process.env.MONGODB_URL || 'mongodb://localhost:27017/tiledesk-test';

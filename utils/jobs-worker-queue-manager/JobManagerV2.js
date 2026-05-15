@@ -1,4 +1,5 @@
 var QueueManager = require("./queueManagerClassV2");
+var backgroundWorkers = require("../backgroundWorkers");
 
 class JobManager {
     constructor(queueUrl, options) {
@@ -19,6 +20,12 @@ class JobManager {
     }
     connectAndStartPublisher(callback) {
         var that = this;
+        if (backgroundWorkers.disabled()) {
+            if (callback) {
+                callback('disabled', null);
+            }
+            return;
+        }
         if (this.info) {console.log("[JobWorker] JobManager publisher started");}
         
         this.queueManager.connect(function(status, err) {
@@ -72,6 +79,9 @@ class JobManager {
 
     connectAndStartWorker() {
         var that = this;
+        if (backgroundWorkers.disabled()) {
+            return;
+        }
         if (this.info) {console.log("[JobWorker] JobManager worker started");}
         
         this.queueManager.connect(function() {

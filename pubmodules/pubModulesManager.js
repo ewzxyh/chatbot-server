@@ -3,6 +3,7 @@ var winston = require('../config/winston');
 var validtoken = require('../middleware/valid-token');
 var roleChecker = require('../middleware/has-role');
 var passport = require('passport');
+var backgroundWorkers = require('../utils/backgroundWorkers');
 require('../middleware/passport')(passport);
 
 class PubModulesManager {
@@ -180,6 +181,7 @@ class PubModulesManager {
    
     init(config) {
         winston.debug("PubModulesManager init");
+        var startListeners = !backgroundWorkers.disabled();
 
         this.jobsManager = config.jobsManager;
         this.tdCache = config.tdCache;
@@ -283,7 +285,9 @@ class PubModulesManager {
         try {
             this.rasa = require('./rasa');
             winston.debug("this.rasa:"+ this.rasa);    
-            this.rasa.listener.listen(config);      
+            if (startListeners) {
+                this.rasa.listener.listen(config);
+            }
 
             this.rasaRoute = this.rasa.rasaRoute;
 
@@ -299,7 +303,9 @@ class PubModulesManager {
         try {
             this.apps = require('./apps');
             winston.debug("this.apps: " + this.apps);
-            this.apps.listener.listen(config);
+            if (startListeners) {
+                this.apps.listener.listen(config);
+            }
 
             this.appsRoute = this.apps.appsRoute;
 
@@ -315,7 +321,9 @@ class PubModulesManager {
         try {
             this.whatsapp = require('./whatsapp');
             winston.debug("this.whatsapp: " + this.whatsapp);
-            this.whatsapp.listener.listen(config);
+            if (startListeners) {
+                this.whatsapp.listener.listen(config);
+            }
 
             this.whatsappRoute = this.whatsapp.whatsappRoute;
 
@@ -331,7 +339,9 @@ class PubModulesManager {
         try {
             this.messenger = require('./messenger');
             winston.debug("this.messenger: " + this.messenger);
-            this.messenger.listener.listen(config);
+            if (startListeners) {
+                this.messenger.listener.listen(config);
+            }
 
             this.messengerRoute = this.messenger.messengerRoute;
 
@@ -347,7 +357,9 @@ class PubModulesManager {
         try {
             this.telegram = require('./telegram');
             winston.info("this.telegram: " + this.telegram);
-            this.telegram.listener.listen(config);
+            if (startListeners) {
+                this.telegram.listener.listen(config);
+            }
 
             this.telegramRoute = this.telegram.telegramRoute;
 
@@ -363,7 +375,9 @@ class PubModulesManager {
         try {
             this.casezap = require('./casezap');
             winston.info("this.casezap: " + this.casezap);
-            this.casezap.listener.listen(config);
+            if (startListeners) {
+                this.casezap.listener.listen(config);
+            }
 
             this.casezapRoute = this.casezap.casezapRoute;
 
@@ -380,7 +394,9 @@ class PubModulesManager {
             try {
                 this.voice = require('./voice');
                 winston.info("this.voice: " + this.voice);
-                this.voice.listener.listen(config);
+                if (startListeners) {
+                    this.voice.listener.listen(config);
+                }
     
                 this.voiceRoute = this.voice.voiceRoute;
     
@@ -399,7 +415,9 @@ class PubModulesManager {
             try {
                 this.voiceTwilio = require('./voice-twilio');
                 winston.info("this.voiceTwilio: " + this.voiceTwilio);
-                this.voiceTwilio.listener.listen(config);
+                if (startListeners) {
+                    this.voiceTwilio.listener.listen(config);
+                }
 
                 this.voiceTwilioRoute = this.voiceTwilio.voiceTwilioRoute;
 
@@ -417,7 +435,9 @@ class PubModulesManager {
         try {
             this.sms = require('./sms');
             winston.info("this.sms: " + this.sms);
-            this.sms.listener.listen(config);
+            if (startListeners) {
+                this.sms.listener.listen(config);
+            }
 
             this.smsRoute = this.sms.smsRoute;
 
@@ -433,7 +453,9 @@ class PubModulesManager {
         try {
             this.mqttTest = require('./mqttTest');
             winston.info("this.mqttTest: " + this.mqttTest);
-            this.mqttTest.listener.listen(config);
+            if (startListeners) {
+                this.mqttTest.listener.listen(config);
+            }
 
             this.mqttTestRoute = this.mqttTest.mqttTestRoute;
 
@@ -449,7 +471,9 @@ class PubModulesManager {
         try {
             this.templates = require('./chatbotTemplates');
             winston.info("this.templates: " + this.templates);
-            this.templates.listener.listen(config);
+            if (startListeners) {
+                this.templates.listener.listen(config);
+            }
 
             this.templatesRoute = this.templates.templatesRoute;
 
@@ -465,7 +489,9 @@ class PubModulesManager {
         try {
             this.kaleyra = require('./kaleyra');
             winston.debug("this.kaleyra: " + this.kaleyra);
-            this.kaleyra.listener.listen(config);
+            if (startListeners) {
+                this.kaleyra.listener.listen(config);
+            }
 
             this.kaleyraRoute = this.kaleyra.kaleyraRoute;
 
@@ -543,7 +569,9 @@ class PubModulesManager {
         try {
             this.tilebot = require('./tilebot');
             winston.debug("this.tilebot:"+ this.tilebot);    
-            this.tilebot.listener.listen(config);      
+            if (startListeners) {
+                this.tilebot.listener.listen(config);
+            }
             this.tilebotRoute = this.tilebot.tilebotRoute;
 
             winston.info("PubModulesManager initialized tilebot.");
@@ -609,7 +637,9 @@ class PubModulesManager {
         try {
             this.dialogFlow = require('./dialogflow');
             winston.debug("this.dialogFlow:"+ this.dialogFlow);           
-            this.dialogFlow.listener.listen(config);
+            if (startListeners) {
+                this.dialogFlow.listener.listen(config);
+            }
             winston.info("PubModulesManager dialogFlow  initialized");
         } catch(err) {
             if (err.code == 'MODULE_NOT_FOUND') {

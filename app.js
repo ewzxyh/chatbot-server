@@ -32,6 +32,7 @@ var roleChecker = require('./middleware/has-role');
 
 const MaskData = require("maskdata");
 var winston = require('./config/winston');
+var backgroundWorkers = require('./utils/backgroundWorkers');
 
 
 // DATABASE CONNECTION
@@ -228,13 +229,17 @@ pubModulesManager.init({express:express, mongoose:mongoose, passport:passport, d
   
 jobsManager.listen(); //listen after pubmodules to enabled queued *.queueEnabled events
 
-let whatsappQueue = require('@tiledesk/tiledesk-whatsapp-jobworker');
-winston.info("whatsappQueue");
-jobsManager.listenWhatsappQueue(whatsappQueue);
+if (!backgroundWorkers.disabled()) {
+  let whatsappQueue = require('@tiledesk/tiledesk-whatsapp-jobworker');
+  winston.info("whatsappQueue");
+  jobsManager.listenWhatsappQueue(whatsappQueue);
 
-let multiWorkerQueue = require('@tiledesk/tiledesk-multi-worker');
-winston.info("multiWorkerQueue from App")
-jobsManager.listenMultiWorker(multiWorkerQueue);
+  let multiWorkerQueue = require('@tiledesk/tiledesk-multi-worker');
+  winston.info("multiWorkerQueue from App")
+  jobsManager.listenMultiWorker(multiWorkerQueue);
+} else {
+  winston.info("Background workers disabled. Skipping external queue workers");
+}
 
 var channelManager = require('./channels/channelManager');
 channelManager.listen(); 
@@ -267,7 +272,11 @@ try {
 //enterprise modules can modify pubmodule
 modulesManager.start();
 
-pubModulesManager.start();
+if (!backgroundWorkers.disabled()) {
+  pubModulesManager.start();
+} else {
+  winston.info("Background workers disabled. Skipping pubModulesManager.start");
+}
 
 
 settingDataLoader.save();

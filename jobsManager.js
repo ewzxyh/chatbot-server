@@ -1,5 +1,6 @@
 
 var winston = require('./config/winston');
+var backgroundWorkers = require('./utils/backgroundWorkers');
 
 class JobsManager {
     constructor(jobWorkerEnabled, geoService, botEvent, subscriptionNotifierQueued, botSubscriptionNotifier, updateLeadQueued, updateRequestSnapshotQueued) {
@@ -28,6 +29,9 @@ class JobsManager {
 
     listen() {      
         winston.info("JobsManager listener started");  
+        if (backgroundWorkers.disabled()) {
+            return winston.info("Background workers disabled. Skipping JobsManager listeners");
+        }
         if ( this.jobWorkerEnabled == true) {
            return winston.info("JobsManager jobWorkerEnabled is enabled. Skipping listeners");  
         }
@@ -49,6 +53,9 @@ class JobsManager {
 
     listenEmailNotification(emailNotification) {      
         winston.info("JobsManager listenEmailNotification started");  
+        if (backgroundWorkers.disabled()) {
+            return winston.info("Background workers disabled. Skipping listener for Email Notification");
+        }
         if ( this.jobWorkerEnabled == true) {
             return winston.info("JobsManager jobWorkerEnabled is enabled. Skipping listener for Email Notification");  
         }
@@ -58,6 +65,9 @@ class JobsManager {
 
     listenRoutingQueue(routingQueue) {
         winston.info("JobsManager routingQueue started");  
+        if (backgroundWorkers.disabled()) {
+            return winston.info("Background workers disabled. Skipping listener for routingQueue");
+        }
         if ( this.jobWorkerEnabled == true) {
             return winston.info("JobsManager jobWorkerEnabled is enabled. Skipping listener for routingQueue");  
         }
@@ -67,6 +77,9 @@ class JobsManager {
 
     listenScheduler(scheduler) {
         winston.info("JobsManager scheduler started");  
+        if (backgroundWorkers.disabled()) {
+            return winston.info("Background workers disabled. Skipping listener for scheduler");
+        }
         if ( this.jobWorkerEnabled == true) {
             return winston.info("JobsManager jobWorkerEnabled is enabled. Skipping listener for scheduler");  
         }
@@ -76,6 +89,9 @@ class JobsManager {
 
     listenActivityArchiver(activityArchiver) {
         winston.info("JobsManager listenActivityArchiver started"); 
+        if (backgroundWorkers.disabled()) {
+            return winston.info("Background workers disabled. Skipping listener for Activity Archiver");
+        }
         if ( this.jobWorkerEnabled == true) {
             return winston.info("JobsManager jobWorkerEnabled is enabled. Skipping listener for Activity Archiver");  
         } 
@@ -84,6 +100,9 @@ class JobsManager {
     }
 
     listenWhatsappQueue(whatsappQueue) {
+        if (backgroundWorkers.disabled()) {
+            return winston.info("Background workers disabled. Skipping listener for Whatsapp Queue");
+        }
         console.log("JobsManager listenWhatsappQueue started");
         console.log("whatsappQueue is: ", whatsappQueue)
         if ( this.jobWorkerEnabled == true) {
@@ -94,6 +113,9 @@ class JobsManager {
     }
 
     listenMultiWorker(multiWorkerQueue) {
+        if (backgroundWorkers.disabled()) {
+            return winston.info("Background workers disabled. Skipping listener for MultiWorker Queue");
+        }
         console.log("JobsManager multiWorkerQueue started");
         console.log("multiWorkerQueue is: ", multiWorkerQueue)
         if (this.jobWorkerEnabled == true) {
