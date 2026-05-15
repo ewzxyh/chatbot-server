@@ -4,10 +4,13 @@ var pjson = require('../package.json');
 var Integration = require('../models/integrations');
 var OperationalEvent = require('../models/operationalEvent');
 var operationalAlertService = require('./operationalAlertService');
+var channelDiagnosticsService = require('./channelDiagnosticsService');
 
 var WEBHOOK_FAILURE_WINDOW_MINUTES = parseInt(process.env.OPERATIONAL_WEBHOOK_FAILURE_WINDOW_MINUTES || '15', 10);
 var WEBHOOK_FAILURE_THRESHOLD = parseInt(process.env.OPERATIONAL_WEBHOOK_FAILURE_THRESHOLD || '3', 10);
 var QUEUE_READY_ALERT_THRESHOLD = parseInt(process.env.OPERATIONAL_QUEUE_READY_ALERT_THRESHOLD || '100', 10);
+var PROVIDER_CHECK_CONCURRENCY = parseInt(process.env.OPERATIONAL_PROVIDER_CHECK_CONCURRENCY || '10', 10);
+if (isNaN(PROVIDER_CHECK_CONCURRENCY) || PROVIDER_CHECK_CONCURRENCY < 1) PROVIDER_CHECK_CONCURRENCY = 10;
 
 function nowIso() {
   return new Date().toISOString();
@@ -28,6 +31,10 @@ function statusWeight(status) {
   if (status === 'degraded') return 2;
   if (status === 'unknown') return 1;
   return 0;
+}
+
+function highestStatus(current, candidate) {
+  return statusWeight(candidate) > statusWeight(current) ? candidate : current;
 }
 
 function mergeOverall(items) {
@@ -226,16 +233,48 @@ async function getLastEventMap(channel) {
   return map;
 }
 
+async function mapLimit(items, limit, iterator) {
+  var results = new Array(items.length);
+  var nextIndex = 0;
+  var workers = [];
+  var workerCount = Math.max(1, Math.min(limit || 1, items.length));
+
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      var index = nextIndex++;
+      results[index] = await iterator(items[index], index);
+    }
+  }
+
+  for (var i = 0; i < workerCount; i++) {
+    workers.push(runWorker());
+  }
+
+  await Promise.all(workers);
+  return results;
+}
+
 async function getChannels() {
   var integrations = await Integration.find({ name: { $in: ['whatsapp', 'casezap'] } }).lean();
   var wabaEvents = await getLastEventMap('waba');
   var casezapEvents = await getLastEventMap('casezap');
 
-  return integrations.map(function(integration) {
+  return mapLimit(integrations, PROVIDER_CHECK_CONCURRENCY, async function(integration) {
     var channel = integration.name === 'casezap' ? 'casezap' : 'waba';
     var key = integrationOperationalKey(integration);
     var eventInfo = channel === 'casezap' ? casezapEvents[key] : wabaEvents[key];
     eventInfo = eventInfo || {};
+    var diagnostics = null;
+    try {
+      diagnostics = await channelDiagnosticsService.checkIntegration(integration, { force: false });
+    } catch (err) {
+      diagnostics = {
+        providerHealth: 'unknown',
+        providerStatus: integration.value && integration.value.status,
+        providerReason: 'provider_check_failed',
+        providerError: err.message
+      };
+    }
 
     var status = 'ok';
     if (integration.value && integration.value.status === 'disconnected') {
@@ -244,14 +283,27 @@ async function getChannels() {
       var ageMs = Date.now() - new Date(eventInfo.lastError.timestamp).getTime();
       status = ageMs <= WEBHOOK_FAILURE_WINDOW_MINUTES * 60 * 1000 ? 'degraded' : 'ok';
     }
+    if (diagnostics && diagnostics.providerHealth) {
+      status = highestStatus(status, diagnostics.providerHealth);
+    }
 
     return {
       channel: channel,
       integrationId: key,
+      integrationDocId: String(integration._id),
       id_project: integration.id_project,
       name: integrationDisplayName(integration),
       status: status,
-      providerStatus: integration.value && integration.value.status,
+      providerStatus: diagnostics && diagnostics.providerStatus ? diagnostics.providerStatus : (integration.value && integration.value.status),
+      providerHealth: diagnostics && diagnostics.providerHealth,
+      providerReason: diagnostics && diagnostics.providerReason,
+      providerCode: diagnostics && diagnostics.providerCode,
+      providerCheckedAt: diagnostics && diagnostics.providerCheckedAt,
+      providerLatencyMs: diagnostics && diagnostics.providerLatencyMs,
+      providerError: diagnostics && diagnostics.providerError,
+      qualityRating: diagnostics && diagnostics.qualityRating,
+      nameStatus: diagnostics && diagnostics.nameStatus,
+      canSendNewMessages: diagnostics && diagnostics.canSendNewMessages,
       lastWebhookAt: eventInfo.lastWebhook ? eventInfo.lastWebhook.timestamp : null,
       lastEvent: eventInfo.lastEvent ? eventInfo.lastEvent.event : null,
       lastErrorAt: eventInfo.lastError ? eventInfo.lastError.timestamp : null,
@@ -361,16 +413,47 @@ function getQueueAlerts(services) {
   return alerts;
 }
 
-async function getAlerts(services) {
+function getChannelAlerts(channels) {
+  return (channels || []).filter(function(channel) {
+    return channel.status === 'down' || channel.status === 'degraded';
+  }).map(function(channel) {
+    var providerLabel = channel.channel === 'casezap' ? 'CaseZap' : 'WABA';
+    var reason = channel.providerReason || channel.lastError || channel.providerStatus || channel.status;
+    return {
+      key: ['channel', channel.channel, channel.integrationDocId || channel.integrationId || 'unknown'].join(':'),
+      type: 'channel_health',
+      severity: channel.status === 'down' ? 'critical' : 'warning',
+      status: 'open',
+      title: providerLabel + ' ' + (channel.status === 'down' ? 'indisponivel' : 'degradado'),
+      message: reason,
+      channel: channel.channel,
+      id_project: channel.id_project,
+      integrationId: channel.integrationDocId || channel.integrationId,
+      lastAt: channel.providerCheckedAt || channel.lastErrorAt || nowIso(),
+      lastError: channel.providerError || channel.lastError,
+      details: {
+        providerStatus: channel.providerStatus,
+        providerHealth: channel.providerHealth,
+        providerReason: channel.providerReason,
+        providerCode: channel.providerCode,
+        qualityRating: channel.qualityRating,
+        nameStatus: channel.nameStatus,
+        canSendNewMessages: channel.canSendNewMessages
+      }
+    };
+  });
+}
+
+async function getAlerts(services, channels) {
   var webhookAlerts = await getWebhookFailureAlerts();
-  return getServiceAlerts(services).concat(getQueueAlerts(services)).concat(webhookAlerts);
+  return getServiceAlerts(services).concat(getQueueAlerts(services)).concat(getChannelAlerts(channels)).concat(webhookAlerts);
 }
 
 async function getSummary(app) {
   var tdCache = app && app.get ? app.get('redis_client') : null;
   var services = await getServices(tdCache);
   var channels = await getChannels();
-  var dynamicAlerts = await getAlerts(services);
+  var dynamicAlerts = await getAlerts(services, channels);
   var alerts = dynamicAlerts;
   try {
     alerts = await operationalAlertService.syncAlerts(dynamicAlerts);
@@ -402,6 +485,7 @@ module.exports = {
   getServices: getServices,
   getChannels: getChannels,
   getAlerts: getAlerts,
+  testChannelConnection: channelDiagnosticsService.testChannelConnection,
   checkMongo: checkMongo,
   checkRedis: checkRedis,
   checkRabbit: checkRabbit

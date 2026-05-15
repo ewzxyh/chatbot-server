@@ -3,7 +3,7 @@ process.env.LOG_LEVEL = 'critical';
 
 const assert = require('assert');
 
-const { buildRegisterWebhookUpdate, mapConnectionStatus } = require('../../pubmodules/casezap/connector');
+const { buildRegisterWebhookUpdate, mapConnectionHealth, mapConnectionStatus } = require('../../pubmodules/casezap/connector');
 
 describe('CaseZap connector', function() {
   it('does not mark an instance active just because the webhook was registered', function() {
@@ -33,6 +33,16 @@ describe('CaseZap connector', function() {
     });
 
     assert.strictEqual(status, 'disconnected');
+  });
+
+  it('maps banned-like UazApi payloads to disconnected', function() {
+    assert.strictEqual(mapConnectionStatus({ instance: { status: 'bannedm' } }), 'disconnected');
+    assert.strictEqual(mapConnectionStatus({ instance: { status: 'banned' } }), 'disconnected');
+  });
+
+  it('keeps connecting provider status degraded instead of healthy', function() {
+    assert.strictEqual(mapConnectionHealth('connecting', 'disconnected'), 'degraded');
+    assert.strictEqual(mapConnectionHealth('bannedm', 'disconnected'), 'down');
   });
 
   it('keeps compatibility with older UazApi open-state payloads', function() {

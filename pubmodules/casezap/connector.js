@@ -53,14 +53,24 @@ function recordOperation(event) {
   }, event));
 }
 
-function mapConnectionStatus(body) {
+function extractConnectionStatus(body) {
   var rawStatus = body && (
     (body.data && body.data.state) ||
     (body.instance && body.instance.status) ||
     body.status
   );
-  rawStatus = rawStatus ? String(rawStatus).toLowerCase() : '';
+  return rawStatus ? String(rawStatus).toLowerCase() : '';
+}
+
+function mapConnectionStatus(body) {
+  var rawStatus = extractConnectionStatus(body);
   return (rawStatus === 'open' || rawStatus === 'connected') ? 'active' : 'disconnected';
+}
+
+function mapConnectionHealth(rawStatus, connectionStatus) {
+  if (connectionStatus === 'active') return 'ok';
+  if (rawStatus === 'connecting' || rawStatus === 'pending' || rawStatus === 'qr') return 'degraded';
+  return 'down';
 }
 
 async function handleWebhook(integration, req, res) {
@@ -94,7 +104,16 @@ async function handleWebhook(integration, req, res) {
 
     if (body.EventType === 'connection') {
       var newStatus = mapConnectionStatus(body);
-      await Integration.findByIdAndUpdate(integration._id, { $set: { 'value.status': newStatus } });
+      var rawStatus = extractConnectionStatus(body);
+      await Integration.findByIdAndUpdate(integration._id, {
+        $set: {
+          'value.status': newStatus,
+          'value.operational.lastProviderCheckAt': new Date().toISOString(),
+          'value.operational.lastProviderStatus': rawStatus || newStatus,
+          'value.operational.lastProviderHealth': mapConnectionHealth(rawStatus, newStatus),
+          'value.operational.lastProviderReason': rawStatus ? 'webhook_connection_' + rawStatus : 'webhook_connection'
+        }
+      });
       winston.info('CaseZap connection event: integration ' + integration._id + ' status=' + newStatus);
       recordOperation({
         id_project: projectId,
@@ -102,7 +121,7 @@ async function handleWebhook(integration, req, res) {
         event: 'webhook.connection',
         status: 'success',
         latencyMs: Date.now() - startedAt,
-        details: { connectionStatus: newStatus }
+        details: { connectionStatus: newStatus, providerStatus: rawStatus }
       });
       return res.status(200).json({ success: true });
     }
@@ -601,6 +620,8 @@ module.exports = {
   setupIntegrationListener: setupIntegrationListener,
   registerWebhook: registerWebhook,
   buildRegisterWebhookUpdate: buildRegisterWebhookUpdate,
+  extractConnectionStatus: extractConnectionStatus,
+  mapConnectionHealth: mapConnectionHealth,
   mapConnectionStatus: mapConnectionStatus,
   setRedisClient: setRedisClient,
   casezapProjects: casezapProjects

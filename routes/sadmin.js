@@ -215,6 +215,22 @@ router.get('/health/channels', auth, async function (req, res) {
   }
 });
 
+router.post('/health/channels/test', auth, async function (req, res) {
+  try {
+    var channel = req.body && req.body.channel;
+    var integrationId = req.body && req.body.integrationId;
+    if (['waba', 'casezap'].indexOf(channel) === -1 || !integrationId) {
+      return res.status(400).json({ error: 'channel and integrationId are required' });
+    }
+
+    var result = await operationalHealthService.testChannelConnection(channel, integrationId);
+    res.json({ generatedAt: new Date().toISOString(), result: result });
+  } catch (err) {
+    winston.error('sadmin health channel test error', err);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to test channel health' });
+  }
+});
+
 router.get('/health/queues', auth, async function (req, res) {
   try {
     var rabbit = await operationalHealthService.checkRabbit();

@@ -4,6 +4,12 @@ process.env.OPERATIONAL_RABBITMQ_QUEUES = '';
 process.env.CREATE_INITIAL_DATA = 'false';
 process.env.MONGODB_URL = process.env.MONGODB_URL || 'mongodb://localhost:27017/tiledesk-test';
 process.env.MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/tiledesk-test';
+process.env.DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL || 'http://localhost:4200/dashboard';
+process.env.EMAIL_BASEURL = process.env.EMAIL_BASEURL || 'http://localhost:4200/dashboard';
+process.env.META_GRAPH_URL = process.env.META_GRAPH_URL || 'https://graph.facebook.com/v25.0/';
+process.env.FB_APP_ID = process.env.FB_APP_ID || 'test-fb-app';
+process.env.FB_APP_SECRET = process.env.FB_APP_SECRET || 'test-fb-secret';
+process.env.MESSENGER_VERIFY_TOKEN = process.env.MESSENGER_VERIFY_TOKEN || 'test-verify-token';
 
 var adminEmail = 'operation-admin-' + process.pid + '-' + Date.now() + '@email.com';
 var secondaryAdminEmail = 'operation-secondary-admin-' + process.pid + '-' + Date.now() + '@email.com';
@@ -12,12 +18,15 @@ process.env.SUPER_ADMIN_EMAILS = secondaryAdminEmail;
 
 var chai = require('chai');
 var chaiHttp = require('chai-http');
+var mongoose = require('mongoose');
+var nock = require('nock');
 var server = require('../app');
 var User = require('../models/user');
 var userService = require('../services/userService');
 var operationalLogger = require('../services/operationalLogger');
 var OperationalEvent = require('../models/operationalEvent');
 var OperationalAlert = require('../models/operationalAlert');
+var Integration = require('../models/integrations');
 
 chai.use(chaiHttp);
 chai.should();
@@ -46,8 +55,15 @@ describe('OperationalRoute', function() {
   });
 
   beforeEach(async function() {
+    nock.cleanAll();
     await OperationalEvent.deleteMany({});
     await OperationalAlert.deleteMany({});
+    await Integration.deleteMany({ id_project: /^operation-/ });
+    await mongoose.connection.collection('kvstore').deleteMany({ project_id: /^operation-/ });
+  });
+
+  afterEach(function() {
+    nock.cleanAll();
   });
 
   it('sanitizes sensitive operational details', function() {
@@ -185,7 +201,167 @@ describe('OperationalRoute', function() {
           expect(res.body.data).to.have.lengthOf(1);
           expect(res.body.data[0].key).to.equal('service:mongo');
           done();
-        });
+      });
     })().catch(done);
+  });
+
+  it('detects CaseZap banned-like provider status', async function() {
+    var integration = await Integration.create({
+      id_project: 'operation-casezap-banned',
+      name: 'casezap',
+      value: {
+        instanceName: 'CaseZap banned',
+        domain: 'https://casezap-status.test',
+        token: 'cz-token'
+      }
+    });
+
+    nock('https://casezap-status.test')
+      .get('/instance/status')
+      .reply(200, {
+        instance: { status: 'bannedm' },
+        status: { connected: false, loggedIn: false }
+      });
+    nock('https://casezap-status.test')
+      .get('/instance/wa_messages_limits')
+      .reply(200, { can_send_new_messages: true });
+
+    var res = await new Promise(function(resolve, reject) {
+      chai.request(server)
+        .post('/sadmin/health/channels/test')
+        .auth(adminEmail, pwd)
+        .send({ channel: 'casezap', integrationId: String(integration._id) })
+        .end(function(err, response) {
+          if (err) return reject(err);
+          resolve(response);
+        });
+    });
+
+    res.should.have.status(200);
+    expect(res.body.result.providerHealth).to.equal('down');
+    expect(res.body.result.providerReason).to.contain('bannedm');
+
+    var updated = await Integration.findById(integration._id).lean();
+    expect(updated.value.status).to.equal('disconnected');
+    expect(updated.value.operational.lastProviderHealth).to.equal('down');
+  });
+
+  it('detects CaseZap message restrictions as degraded', async function() {
+    var integration = await Integration.create({
+      id_project: 'operation-casezap-limited',
+      name: 'casezap',
+      value: {
+        instanceName: 'CaseZap limited',
+        domain: 'https://casezap-limited.test',
+        token: 'cz-token'
+      }
+    });
+
+    nock('https://casezap-limited.test')
+      .get('/instance/status')
+      .reply(200, {
+        instance: { status: 'connected' },
+        status: { connected: true, loggedIn: true }
+      });
+    nock('https://casezap-limited.test')
+      .get('/instance/wa_messages_limits')
+      .reply(200, {
+        can_send_new_messages: false,
+        error_key: 'WHATSAPP_REACHOUT_TIMELOCK',
+        new_chat_message_capping: { status: 'CAPPED' }
+      });
+
+    var res = await new Promise(function(resolve, reject) {
+      chai.request(server)
+        .post('/sadmin/health/channels/test')
+        .auth(adminEmail, pwd)
+        .send({ channel: 'casezap', integrationId: String(integration._id) })
+        .end(function(err, response) {
+          if (err) return reject(err);
+          resolve(response);
+        });
+    });
+
+    res.should.have.status(200);
+    expect(res.body.result.providerHealth).to.equal('degraded');
+    expect(res.body.result.providerCode).to.equal('WHATSAPP_REACHOUT_TIMELOCK');
+  });
+
+  it('detects WABA restricted or red quality status', async function() {
+    var integration = await Integration.create({
+      id_project: 'operation-waba-restricted',
+      name: 'whatsapp',
+      value: {
+        verified_name: 'Restricted WABA',
+        waba_id: 'waba-restricted',
+        phone_number_id: 'phone-restricted'
+      }
+    });
+
+    await mongoose.connection.collection('kvstore').insertOne({
+      key: 'whatsapp-waba-restricted',
+      project_id: 'operation-waba-restricted',
+      value: {
+        wab_token: 'meta-token',
+        waba_id: 'waba-restricted',
+        phone_number_id: 'phone-restricted'
+      }
+    });
+
+    nock('https://graph.facebook.com')
+      .get('/v25.0/phone-restricted')
+      .query(true)
+      .reply(200, {
+        id: 'phone-restricted',
+        display_phone_number: '+15550000000',
+        verified_name: 'Restricted WABA',
+        status: 'RESTRICTED',
+        quality_rating: 'RED',
+        name_status: 'APPROVED'
+      });
+
+    var res = await new Promise(function(resolve, reject) {
+      chai.request(server)
+        .post('/sadmin/health/channels/test')
+        .auth(adminEmail, pwd)
+        .send({ channel: 'waba', integrationId: String(integration._id) })
+        .end(function(err, response) {
+          if (err) return reject(err);
+          resolve(response);
+        });
+    });
+
+    res.should.have.status(200);
+    expect(res.body.result.providerHealth).to.equal('degraded');
+    expect(res.body.result.providerStatus).to.equal('RESTRICTED');
+    expect(res.body.result.qualityRating).to.equal('RED');
+  });
+
+  it('adds channel health alerts to summary', async function() {
+    var integration = await Integration.create({
+      id_project: 'operation-casezap-summary',
+      name: 'casezap',
+      value: {
+        instanceName: 'CaseZap summary',
+        domain: 'https://casezap-summary.test',
+        token: 'cz-token'
+      }
+    });
+
+    nock('https://casezap-summary.test')
+      .get('/instance/status')
+      .reply(200, {
+        instance: { status: 'bannedm' },
+        status: { connected: false, loggedIn: false }
+      });
+    nock('https://casezap-summary.test')
+      .get('/instance/wa_messages_limits')
+      .reply(200, { can_send_new_messages: true });
+
+    var res = await getAsSuperAdmin('/sadmin/health/summary', adminEmail, pwd);
+    res.should.have.status(200);
+    expect(res.body.alerts.some(function(alert) {
+      return alert.key === 'channel:casezap:' + String(integration._id) && alert.severity === 'critical';
+    })).to.equal(true);
   });
 });
