@@ -143,7 +143,9 @@ function normalizeProviderHealth(input, options) {
   if (input && input.status) {
     if (input.status.connected === false || input.status.loggedIn === false) {
       status = highestStatus(status, 'down');
-      reason = input.status.connected === false ? 'provider_not_connected' : 'provider_not_logged_in';
+      if (reason === 'provider_status_unknown' || reason === 'provider_status_ok') {
+        reason = input.status.connected === false ? 'provider_not_connected' : 'provider_not_logged_in';
+      }
       providerStatus = providerStatus || 'disconnected';
     }
     if (input.status.connected === true && input.status.loggedIn !== false && status === 'unknown') {
