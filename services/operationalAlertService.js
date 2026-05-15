@@ -1,4 +1,5 @@
 var OperationalAlert = require('../models/operationalAlert');
+var operationalAlertNotifier = require('./operationalAlertNotifier');
 var operationalLogger = require('./operationalLogger');
 
 var ALERT_EVENT_COOLDOWN_MINUTES = parseInt(process.env.OPERATIONAL_ALERT_EVENT_COOLDOWN_MINUTES || '30', 10);
@@ -69,6 +70,7 @@ async function recordAlertEvent(eventName, level, alert) {
     status: eventName === 'alert.resolved' ? 'resolved' : 'open',
     details: ctx.details
   });
+  operationalAlertNotifier.notifySafe(eventName, alert);
 }
 
 function shouldRecordStillOpen(alert, referenceDate) {
