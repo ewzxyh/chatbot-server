@@ -74,24 +74,35 @@ function pingRedisClient(client) {
   });
 }
 
+function redisDetails(tdCache, details) {
+  var output = details || {};
+  if (tdCache && tdCache.redis_host) output.host = tdCache.redis_host;
+  if (tdCache && tdCache.redis_port) output.port = String(tdCache.redis_port);
+  if (tdCache && tdCache.readyAt) output.readyAt = tdCache.readyAt;
+  if (tdCache && tdCache.lastError && tdCache.lastError.message && !output.error) {
+    output.error = tdCache.lastError.message;
+  }
+  return output;
+}
+
 async function checkRedis(tdCache) {
   var startedAt = Date.now();
   var client = tdCache && tdCache.client ? tdCache.client : null;
   if (!client) {
-    return service('redis', 'Redis', 'unknown', null, { reason: 'not_configured' });
+    return service('redis', 'Redis', 'unknown', null, redisDetails(tdCache, { reason: 'not_configured' }));
   }
 
   if (client.ready !== true && client.connected !== true) {
-    return service('redis', 'Redis', 'down', null, { reason: 'not_ready' });
+    return service('redis', 'Redis', 'down', null, redisDetails(tdCache, { reason: 'not_ready' }));
   }
 
   try {
     var response = await pingRedisClient(client);
-    return service('redis', 'Redis', response === 'PONG' ? 'ok' : 'degraded', Date.now() - startedAt, {
+    return service('redis', 'Redis', response === 'PONG' ? 'ok' : 'degraded', Date.now() - startedAt, redisDetails(tdCache, {
       response: response
-    });
+    }));
   } catch (err) {
-    return service('redis', 'Redis', 'down', Date.now() - startedAt, { error: err.message });
+    return service('redis', 'Redis', 'down', Date.now() - startedAt, redisDetails(tdCache, { error: err.message }));
   }
 }
 

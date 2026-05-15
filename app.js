@@ -113,7 +113,14 @@ let tdCache = new TdCache({
     password: process.env.CACHE_REDIS_PASSWORD
 });
 
-tdCache.connect();
+tdCache.connect(function(err) {
+  if (err) {
+    return winston.warn('Redis connection error: ' + err.message);
+  }
+  winston.info('Redis cache connection ready');
+}).catch(function() {
+  // Error is reported through the callback above; this prevents unhandled rejections.
+});
 
 // ROUTES DECLARATION
 var troubleshooting = require('./routes/troubleshooting');

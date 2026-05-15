@@ -25,6 +25,7 @@ var server = require('../app');
 var User = require('../models/user');
 var userService = require('../services/userService');
 var operationalLogger = require('../services/operationalLogger');
+var operationalHealthService = require('../services/operationalHealthService');
 var OperationalEvent = require('../models/operationalEvent');
 var OperationalAlert = require('../models/operationalAlert');
 var Integration = require('../models/integrations');
@@ -139,6 +140,44 @@ describe('OperationalRoute', function() {
         expect(res.body).to.have.property('overallStatus');
         done();
       });
+  });
+
+  it('reports Redis health without exposing the password', async function() {
+    var secret = 'REDACTED_SECRET';
+    var result = await operationalHealthService.checkRedis({
+      redis_host: 'redis',
+      redis_port: '6379',
+      redis_password: secret,
+      readyAt: '2026-05-15T00:00:00.000Z',
+      client: {
+        ready: true,
+        ping: function(callback) {
+          callback(null, 'PONG');
+        }
+      }
+    });
+
+    expect(result.status).to.equal('ok');
+    expect(result.latencyMs).to.be.a('number');
+    expect(result.details.host).to.equal('redis');
+    expect(result.details.port).to.equal('6379');
+    expect(JSON.stringify(result)).to.not.contain(secret);
+  });
+
+  it('adds a Redis service alert when Redis is down', async function() {
+    var alerts = await operationalHealthService.getAlerts([{
+      name: 'redis',
+      label: 'Redis',
+      status: 'down',
+      latencyMs: null,
+      details: { reason: 'not_ready' }
+    }], []);
+
+    expect(alerts.some(function(alert) {
+      return alert.key === 'service:redis' &&
+        alert.type === 'service_health' &&
+        alert.severity === 'critical';
+    })).to.equal(true);
   });
 
   it('persists and resolves operational alerts from health summary', async function() {

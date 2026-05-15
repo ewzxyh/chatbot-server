@@ -7,6 +7,8 @@ class TdCache {
         this.redis_port = config.port;
         this.redis_password = config.password;
         this.client = null;
+        this.lastError = null;
+        this.readyAt = null;
     }
 
     async connect(callback) {
@@ -19,6 +21,7 @@ class TdCache {
                     password: this.redis_password
                 });
             this.client.on('error', err => {
+                this.lastError = err;
                 reject(err);
                 if (callback) {
                     callback(err);
@@ -27,7 +30,9 @@ class TdCache {
             // this.client.on('connect', function() {
             //     console.log('Redis Connected!');
             // });
-            this.client.on('ready',function() {
+            this.client.on('ready', () => {
+                this.lastError = null;
+                this.readyAt = new Date().toISOString();
                 resolve();
                 // onsole.log("Redis is ready.");
                 if (callback) {
