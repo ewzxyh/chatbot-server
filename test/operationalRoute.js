@@ -395,6 +395,75 @@ describe('OperationalRoute', function() {
     })().catch(done);
   });
 
+  it('returns operational metrics history to super admin', async function() {
+    var now = new Date();
+    var oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    var twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+
+    await OperationalEvent.create([
+      {
+        timestamp: oneHourAgo,
+        level: 'error',
+        area: 'webhook',
+        channel: 'casezap',
+        id_project: 'operation-metrics',
+        event: 'webhook.failed',
+        status: 'failed',
+        errorMessage: 'boom'
+      },
+      {
+        timestamp: twoHoursAgo,
+        level: 'warn',
+        area: 'queue',
+        channel: 'system',
+        event: 'queue.backlog',
+        status: 'open'
+      }
+    ]);
+
+    await OperationalAlert.create([
+      {
+        key: 'metrics:casezap',
+        type: 'webhook_failure',
+        severity: 'critical',
+        status: 'open',
+        title: 'Webhook falhando',
+        message: 'casezap failing',
+        channel: 'casezap',
+        id_project: 'operation-metrics',
+        lastAt: oneHourAgo
+      },
+      {
+        key: 'metrics:queue',
+        type: 'queue_backlog',
+        severity: 'warning',
+        status: 'resolved',
+        title: 'Fila acumulando',
+        message: 'queue backlog',
+        service: 'rabbitmq',
+        lastAt: twoHoursAgo,
+        resolvedAt: oneHourAgo
+      }
+    ]);
+
+    var res = await getAsSuperAdmin('/sadmin/operational-metrics?range=24h&bucket=hour', adminEmail, pwd);
+
+    res.should.have.status(200);
+    expect(res.body.range).to.equal('24h');
+    expect(res.body.bucket).to.equal('hour');
+    expect(res.body.events.total).to.equal(2);
+    expect(res.body.events.byLevel.error).to.equal(1);
+    expect(res.body.events.byLevel.warn).to.equal(1);
+    expect(res.body.events.byChannel.casezap).to.equal(1);
+    expect(res.body.alerts.total).to.equal(2);
+    expect(res.body.alerts.openCount).to.equal(1);
+    expect(res.body.alerts.criticalOpenCount).to.equal(1);
+    expect(res.body.alerts.bySeverity.critical).to.equal(1);
+    expect(res.body.alerts.byStatus.resolved).to.equal(1);
+    expect(res.body.events.byBucket).to.be.an('array');
+    expect(res.body.events.byBucket.some(function(bucket) { return bucket.count > 0; })).to.equal(true);
+  });
+
   it('detects CaseZap banned-like provider status', async function() {
     var integration = await Integration.create({
       id_project: 'operation-casezap-banned',
