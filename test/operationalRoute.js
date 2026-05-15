@@ -180,6 +180,88 @@ describe('OperationalRoute', function() {
     })).to.equal(true);
   });
 
+  it('reports Storage health with a write/read/delete probe', async function() {
+    var secret = 'REDACTED_SECRET';
+    var originalSecret = process.env.R2_SECRET_ACCESS_KEY;
+    process.env.R2_SECRET_ACCESS_KEY = secret;
+
+    var stored = {};
+    var calls = [];
+    var payload = Buffer.from('storage-ok');
+
+    try {
+      var result = await operationalHealthService.checkStorage({
+        cache: false,
+        driver: 'r2',
+        filename: 'healthchecks/storage/test-storage-ok.txt',
+        payload: payload,
+        fileService: {
+          createFile: async function(filename, data) {
+            calls.push('create');
+            stored[filename] = Buffer.from(data);
+          },
+          getFileDataAsBuffer: async function(filename) {
+            calls.push('read');
+            return stored[filename];
+          },
+          deleteFile: async function(filename) {
+            calls.push('delete');
+            delete stored[filename];
+          }
+        }
+      });
+
+      expect(result.status).to.equal('ok');
+      expect(result.name).to.equal('storage');
+      expect(result.details.driver).to.equal('r2');
+      expect(result.details.bytes).to.equal(payload.length);
+      expect(calls).to.deep.equal(['create', 'read', 'delete']);
+      expect(JSON.stringify(result)).to.not.contain(secret);
+    } finally {
+      if (originalSecret === undefined) {
+        delete process.env.R2_SECRET_ACCESS_KEY;
+      } else {
+        process.env.R2_SECRET_ACCESS_KEY = originalSecret;
+      }
+    }
+  });
+
+  it('reports Storage down when the readback verification fails', async function() {
+    var result = await operationalHealthService.checkStorage({
+      cache: false,
+      driver: 'r2',
+      filename: 'healthchecks/storage/test-storage-fail.txt',
+      payload: Buffer.from('expected-storage-data'),
+      fileService: {
+        createFile: async function() {},
+        getFileDataAsBuffer: async function() {
+          return Buffer.from('wrong-storage-data');
+        },
+        deleteFile: async function() {}
+      }
+    });
+
+    expect(result.status).to.equal('down');
+    expect(result.details.driver).to.equal('r2');
+    expect(result.details.error).to.contain('storage read verification failed');
+  });
+
+  it('adds a Storage service alert when Storage is down', async function() {
+    var alerts = await operationalHealthService.getAlerts([{
+      name: 'storage',
+      label: 'Storage',
+      status: 'down',
+      latencyMs: null,
+      details: { driver: 'r2', error: 'storage read verification failed' }
+    }], []);
+
+    expect(alerts.some(function(alert) {
+      return alert.key === 'service:storage' &&
+        alert.type === 'service_health' &&
+        alert.severity === 'critical';
+    })).to.equal(true);
+  });
+
   it('persists and resolves operational alerts from health summary', async function() {
     for (var i = 0; i < 3; i++) {
       await operationalLogger.record({

@@ -1,16 +1,24 @@
 var mongoose = require('mongoose');
 var amqp = require('amqplib/callback_api');
+var crypto = require('crypto');
 var pjson = require('../package.json');
 var Integration = require('../models/integrations');
 var OperationalEvent = require('../models/operationalEvent');
 var operationalAlertService = require('./operationalAlertService');
 var channelDiagnosticsService = require('./channelDiagnosticsService');
+var fileStorageFactory = require('./fileStorageServiceFactory');
+var R2FileService = require('./r2FileService');
 
 var WEBHOOK_FAILURE_WINDOW_MINUTES = parseInt(process.env.OPERATIONAL_WEBHOOK_FAILURE_WINDOW_MINUTES || '15', 10);
 var WEBHOOK_FAILURE_THRESHOLD = parseInt(process.env.OPERATIONAL_WEBHOOK_FAILURE_THRESHOLD || '3', 10);
 var QUEUE_READY_ALERT_THRESHOLD = parseInt(process.env.OPERATIONAL_QUEUE_READY_ALERT_THRESHOLD || '100', 10);
 var PROVIDER_CHECK_CONCURRENCY = parseInt(process.env.OPERATIONAL_PROVIDER_CHECK_CONCURRENCY || '10', 10);
 if (isNaN(PROVIDER_CHECK_CONCURRENCY) || PROVIDER_CHECK_CONCURRENCY < 1) PROVIDER_CHECK_CONCURRENCY = 10;
+
+var storageHealthCache = {
+  expiresAt: 0,
+  value: null
+};
 
 function nowIso() {
   return new Date().toISOString();
@@ -24,6 +32,16 @@ function service(name, label, status, latencyMs, details) {
     latencyMs: latencyMs,
     details: details || {}
   };
+}
+
+function boolEnv(name, fallback) {
+  if (process.env[name] === undefined) return fallback;
+  return process.env[name] === true || process.env[name] === 'true';
+}
+
+function parsePositiveInt(value, fallback) {
+  var parsed = parseInt(value, 10);
+  return isNaN(parsed) || parsed < 1 ? fallback : parsed;
 }
 
 function statusWeight(status) {
@@ -194,6 +212,165 @@ async function checkRabbit() {
   }
 }
 
+function collectStream(stream) {
+  return new Promise(function(resolve, reject) {
+    var chunks = [];
+    stream.on('error', reject);
+    stream.on('data', function(chunk) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    stream.on('end', function() {
+      resolve(Buffer.concat(chunks));
+    });
+  });
+}
+
+function createGridFsProbeService(bucketName) {
+  var bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: bucketName });
+  return {
+    createFile: function(filename, data, path, contentType, options) {
+      return new Promise(function(resolve, reject) {
+        var stream = bucket.openUploadStream(filename, {
+          contentType: contentType,
+          metadata: options && options.metadata ? options.metadata : {}
+        });
+        stream.on('error', reject);
+        stream.on('finish', function() {
+          resolve({ filename: filename, _id: stream.id, length: data.length, contentType: contentType });
+        });
+        stream.end(data);
+      });
+    },
+    getFileDataAsBuffer: function(filename) {
+      return collectStream(bucket.openDownloadStreamByName(filename));
+    },
+    deleteFile: async function(filename) {
+      var files = await bucket.find({ filename: filename }).toArray();
+      if (!files.length) {
+        var error = new Error('File not found');
+        error.code = 'ENOENT';
+        throw error;
+      }
+      return new Promise(function(resolve, reject) {
+        bucket.delete(files[0]._id, function(err) {
+          if (err) return reject(err);
+          resolve(files[0]);
+        });
+      });
+    }
+  };
+}
+
+async function performStorageProbe(fileService, filename, payload, contentType) {
+  var created = false;
+  var deleted = false;
+  try {
+    await fileService.createFile(filename, payload, undefined, contentType, {
+      metadata: {
+        purpose: 'operational-health',
+        createdAt: nowIso()
+      }
+    });
+    created = true;
+
+    var stored = await fileService.getFileDataAsBuffer(filename);
+    if (!Buffer.isBuffer(stored) || !stored.equals(payload)) {
+      throw new Error('storage read verification failed');
+    }
+
+    await fileService.deleteFile(filename);
+    deleted = true;
+
+    return {
+      filename: filename,
+      bytes: payload.length,
+      created: created,
+      read: true,
+      deleted: deleted
+    };
+  } catch (err) {
+    if (created && !deleted) {
+      try { await fileService.deleteFile(filename); } catch (cleanupErr) {}
+    }
+    throw err;
+  }
+}
+
+function storageDetails(driver, details) {
+  var output = details || {};
+  output.driver = driver;
+  if (driver === 'r2') {
+    output.bucket = process.env.R2_BUCKET || process.env.CLOUDFLARE_R2_BUCKET || null;
+    output.keyPrefix = process.env.R2_KEY_PREFIX || process.env.CLOUDFLARE_R2_KEY_PREFIX || null;
+  } else {
+    output.bucket = 'files';
+    output.database = mongoose.connection && mongoose.connection.name ? mongoose.connection.name : null;
+  }
+  return output;
+}
+
+async function checkStorage(options) {
+  options = options || {};
+  var cacheEnabled = options.cache !== false && !options.fileService;
+  var ttlSeconds = parsePositiveInt(process.env.OPERATIONAL_STORAGE_CHECK_TTL_SECONDS || '300', 300);
+
+  var startedAt = Date.now();
+  var driver = options.driver || (fileStorageFactory.isObjectStorageEnabled() ? 'r2' : 'gridfs');
+
+  if (!boolEnv('OPERATIONAL_STORAGE_CHECK_ENABLED', true)) {
+    return service('storage', 'Storage', 'skipped', null, storageDetails(driver, { reason: 'disabled' }));
+  }
+
+  if (cacheEnabled && storageHealthCache.value && Date.now() < storageHealthCache.expiresAt) {
+    return storageHealthCache.value;
+  }
+
+  try {
+    if (driver === 'gridfs' && (mongoose.connection.readyState !== 1 || !mongoose.connection.db)) {
+      return service('storage', 'Storage', 'down', null, storageDetails(driver, { reason: 'mongo_not_ready' }));
+    }
+
+    var fileService = options.fileService;
+    if (!fileService) {
+      fileService = driver === 'r2'
+        ? fileStorageFactory.createPrimaryFileService('files')
+        : createGridFsProbeService('files');
+    }
+
+    var random = crypto.randomBytes(8).toString('hex');
+    var filename = options.filename || ('healthchecks/storage/' + process.pid + '-' + Date.now() + '-' + random + '.txt');
+    var payload = options.payload || Buffer.from('chatcase-storage-health:' + nowIso());
+    var probe = await performStorageProbe(fileService, filename, payload, 'text/plain');
+    var result = service('storage', 'Storage', 'ok', Date.now() - startedAt, storageDetails(driver, {
+      checkedAt: nowIso(),
+      bytes: probe.bytes,
+      keyPrefix: driver === 'r2' ? (process.env.R2_KEY_PREFIX || process.env.CLOUDFLARE_R2_KEY_PREFIX || null) : undefined,
+      cacheTtlSeconds: ttlSeconds
+    }));
+
+    if (cacheEnabled) {
+      storageHealthCache = {
+        expiresAt: Date.now() + ttlSeconds * 1000,
+        value: result
+      };
+    }
+    return result;
+  } catch (err) {
+    var errorResult = service('storage', 'Storage', 'down', Date.now() - startedAt, storageDetails(driver, {
+      error: err.message,
+      checkedAt: nowIso(),
+      configured: driver === 'r2' ? R2FileService.isConfigured() : true
+    }));
+    if (cacheEnabled) {
+      storageHealthCache = {
+        expiresAt: Date.now() + ttlSeconds * 1000,
+        value: errorResult
+      };
+    }
+    return errorResult;
+  }
+}
+
 function checkServer() {
   return service('server', 'Server', 'ok', null, {
     version: pjson.version,
@@ -206,7 +383,8 @@ async function getServices(tdCache) {
   var results = await Promise.all([
     checkMongo(),
     checkRedis(tdCache),
-    checkRabbit()
+    checkRabbit(),
+    checkStorage()
   ]);
   results.unshift(checkServer());
   return results;
@@ -500,5 +678,7 @@ module.exports = {
   testChannelConnection: channelDiagnosticsService.testChannelConnection,
   checkMongo: checkMongo,
   checkRedis: checkRedis,
-  checkRabbit: checkRabbit
+  checkRabbit: checkRabbit,
+  checkStorage: checkStorage,
+  performStorageProbe: performStorageProbe
 };
