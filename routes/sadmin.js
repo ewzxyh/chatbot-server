@@ -242,6 +242,16 @@ router.get('/health/queues', auth, async function (req, res) {
   }
 });
 
+router.post('/health/storage/test', auth, async function (req, res) {
+  try {
+    var result = await operationalHealthService.testStorageConnection();
+    res.json({ generatedAt: new Date().toISOString(), result: result });
+  } catch (err) {
+    winston.error('sadmin health storage test error', err);
+    res.status(500).json({ error: 'Failed to test storage health' });
+  }
+});
+
 router.get('/operational-events', auth, async function (req, res) {
   try {
     var query = {};

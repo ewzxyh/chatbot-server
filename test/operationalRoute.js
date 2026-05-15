@@ -330,6 +330,28 @@ describe('OperationalRoute', function() {
     })).to.equal(true);
   });
 
+  it('forces a fresh Storage health probe from the super admin route', async function() {
+    var res = await new Promise(function(resolve, reject) {
+      chai.request(server)
+        .post('/sadmin/health/storage/test')
+        .auth(adminEmail, pwd)
+        .end(function(err, response) {
+          if (err) return reject(err);
+          resolve(response);
+        });
+    });
+
+    res.should.have.status(200);
+    expect(res.body).to.have.property('generatedAt');
+    expect(res.body.result.name).to.equal('storage');
+    expect(['ok', 'down', 'skipped']).to.contain(res.body.result.status);
+
+    var event = await OperationalEvent.findOne({ event: 'storage.health_check' }).sort({ timestamp: -1 }).lean();
+    expect(event).to.exist;
+    expect(event.area).to.equal('storage');
+    expect(event.channel).to.equal('system');
+  });
+
   it('persists and resolves operational alerts from health summary', async function() {
     for (var i = 0; i < 3; i++) {
       await operationalLogger.record({

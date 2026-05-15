@@ -7,6 +7,7 @@ var pjson = require('../package.json');
 var Integration = require('../models/integrations');
 var OperationalEvent = require('../models/operationalEvent');
 var operationalAlertService = require('./operationalAlertService');
+var operationalLogger = require('./operationalLogger');
 var channelDiagnosticsService = require('./channelDiagnosticsService');
 var fileStorageFactory = require('./fileStorageServiceFactory');
 var R2FileService = require('./r2FileService');
@@ -510,6 +511,7 @@ function storageDetails(driver, details) {
 
 async function checkStorage(options) {
   options = options || {};
+  var force = options.force === true;
   var cacheEnabled = options.cache !== false && !options.fileService;
   var ttlSeconds = parsePositiveInt(process.env.OPERATIONAL_STORAGE_CHECK_TTL_SECONDS || '300', 300);
 
@@ -520,7 +522,7 @@ async function checkStorage(options) {
     return service('storage', 'Storage', 'skipped', null, storageDetails(driver, { reason: 'disabled' }));
   }
 
-  if (cacheEnabled && storageHealthCache.value && Date.now() < storageHealthCache.expiresAt) {
+  if (cacheEnabled && !force && storageHealthCache.value && Date.now() < storageHealthCache.expiresAt) {
     return storageHealthCache.value;
   }
 
@@ -568,6 +570,21 @@ async function checkStorage(options) {
     }
     return errorResult;
   }
+}
+
+async function testStorageConnection() {
+  var result = await checkStorage({ force: true });
+  await operationalLogger.record({
+    level: result.status === 'down' ? 'error' : (result.status === 'skipped' ? 'warn' : 'info'),
+    area: 'storage',
+    channel: 'system',
+    event: 'storage.health_check',
+    status: result.status === 'ok' ? 'success' : result.status,
+    latencyMs: result.latencyMs,
+    errorMessage: result.status === 'ok' ? undefined : ((result.details && (result.details.error || result.details.reason)) || result.status),
+    details: result.details || {}
+  });
+  return result;
 }
 
 function checkServer() {
@@ -892,5 +909,6 @@ module.exports = {
   checkRedis: checkRedis,
   checkRabbit: checkRabbit,
   checkStorage: checkStorage,
+  testStorageConnection: testStorageConnection,
   performStorageProbe: performStorageProbe
 };
