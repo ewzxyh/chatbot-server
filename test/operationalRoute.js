@@ -180,6 +180,74 @@ describe('OperationalRoute', function() {
     })).to.equal(true);
   });
 
+  it('reports RabbitMQ queue metrics from the management API', async function() {
+    var result = await operationalHealthService.checkRabbit({
+      url: null,
+      queueNames: ['webhooks'],
+      managementClient: {
+        getQueue: async function(queueName) {
+          return {
+            name: queueName,
+            state: 'running',
+            messages: 108,
+            messages_ready: 101,
+            messages_unacknowledged: 7,
+            consumers: 2
+          };
+        }
+      }
+    });
+
+    expect(result.status).to.equal('degraded');
+    expect(result.details.queueSource).to.equal('management');
+    expect(result.details.queues).to.have.lengthOf(1);
+    expect(result.details.queues[0].name).to.equal('webhooks');
+    expect(result.details.queues[0].messagesReady).to.equal(101);
+    expect(result.details.queues[0].messagesUnacknowledged).to.equal(7);
+    expect(result.details.queues[0].messagesTotal).to.equal(108);
+    expect(result.details.queues[0].consumers).to.equal(2);
+  });
+
+  it('adds RabbitMQ queue alerts for ready backlog, unacked backlog, and missing consumers', async function() {
+    var alerts = await operationalHealthService.getAlerts([{
+      name: 'rabbitmq',
+      label: 'RabbitMQ',
+      status: 'degraded',
+      latencyMs: null,
+      details: {
+        queues: [{
+          name: 'ready-queue',
+          status: 'degraded',
+          messagesReady: 101,
+          messagesUnacknowledged: 0,
+          consumers: 1
+        }, {
+          name: 'unacked-queue',
+          status: 'degraded',
+          messagesReady: 0,
+          messagesUnacknowledged: 101,
+          consumers: 1
+        }, {
+          name: 'orphan-queue',
+          status: 'degraded',
+          messagesReady: 1,
+          messagesUnacknowledged: 0,
+          consumers: 0
+        }]
+      }
+    }], []);
+
+    expect(alerts.some(function(alert) {
+      return alert.key === 'queue_backlog:ready-queue' && alert.type === 'queue_backlog';
+    })).to.equal(true);
+    expect(alerts.some(function(alert) {
+      return alert.key === 'queue_unacked:unacked-queue' && alert.type === 'queue_unacked';
+    })).to.equal(true);
+    expect(alerts.some(function(alert) {
+      return alert.key === 'queue_no_consumers:orphan-queue' && alert.type === 'queue_no_consumers';
+    })).to.equal(true);
+  });
+
   it('reports Storage health with a write/read/delete probe', async function() {
     var secret = 'REDACTED_SECRET';
     var originalSecret = process.env.R2_SECRET_ACCESS_KEY;

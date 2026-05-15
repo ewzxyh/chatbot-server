@@ -1,6 +1,8 @@
 var mongoose = require('mongoose');
 var amqp = require('amqplib/callback_api');
 var crypto = require('crypto');
+var http = require('http');
+var https = require('https');
 var pjson = require('../package.json');
 var Integration = require('../models/integrations');
 var OperationalEvent = require('../models/operationalEvent');
@@ -12,6 +14,7 @@ var R2FileService = require('./r2FileService');
 var WEBHOOK_FAILURE_WINDOW_MINUTES = parseInt(process.env.OPERATIONAL_WEBHOOK_FAILURE_WINDOW_MINUTES || '15', 10);
 var WEBHOOK_FAILURE_THRESHOLD = parseInt(process.env.OPERATIONAL_WEBHOOK_FAILURE_THRESHOLD || '3', 10);
 var QUEUE_READY_ALERT_THRESHOLD = parseInt(process.env.OPERATIONAL_QUEUE_READY_ALERT_THRESHOLD || '100', 10);
+var QUEUE_UNACKED_ALERT_THRESHOLD = parseInt(process.env.OPERATIONAL_QUEUE_UNACKED_ALERT_THRESHOLD || '100', 10);
 var PROVIDER_CHECK_CONCURRENCY = parseInt(process.env.OPERATIONAL_PROVIDER_CHECK_CONCURRENCY || '10', 10);
 if (isNaN(PROVIDER_CHECK_CONCURRENCY) || PROVIDER_CHECK_CONCURRENCY < 1) PROVIDER_CHECK_CONCURRENCY = 10;
 
@@ -145,6 +148,23 @@ function getQueueNames() {
   }).filter(Boolean);
 }
 
+function toNumber(value, fallback) {
+  var parsed = Number(value);
+  return isNaN(parsed) ? fallback : parsed;
+}
+
+function queueStatus(queue) {
+  if (queue.error) return 'down';
+  if (queue.state && queue.state !== 'running') return 'degraded';
+  var ready = toNumber(queue.messagesReady, 0);
+  var unacked = toNumber(queue.messagesUnacknowledged, 0);
+  var consumers = toNumber(queue.consumers, 0);
+  if (consumers === 0 && (ready > 0 || unacked > 0)) return 'degraded';
+  if (ready >= QUEUE_READY_ALERT_THRESHOLD) return 'degraded';
+  if (unacked >= QUEUE_UNACKED_ALERT_THRESHOLD) return 'degraded';
+  return 'ok';
+}
+
 function connectRabbit(url) {
   return new Promise(function(resolve, reject) {
     amqp.connect(withHeartbeat(url), function(err, conn) {
@@ -171,25 +191,184 @@ function checkQueue(conn, queueName) {
           return resolve({
             name: queueName,
             status: 'down',
-            error: err.message
+            error: err.message,
+            source: 'amqp'
           });
         }
-        resolve({
+        var queue = {
           name: queueName,
-          status: ok.consumerCount === 0 && ok.messageCount > 0 ? 'degraded' : 'ok',
-          messagesReady: ok.messageCount,
-          consumers: ok.consumerCount
-        });
+          messagesReady: toNumber(ok.messageCount, 0),
+          messagesUnacknowledged: null,
+          messagesTotal: toNumber(ok.messageCount, 0),
+          consumers: toNumber(ok.consumerCount, 0),
+          source: 'amqp'
+        };
+        queue.status = queueStatus(queue);
+        resolve(queue);
       });
     });
   });
 }
 
-async function checkRabbit() {
+function normalizeManagementUrl(value) {
+  if (!value) return null;
+  var normalized = String(value).replace(/\/+$/g, '');
+  if (!/\/api$/.test(normalized)) normalized += '/api';
+  return normalized;
+}
+
+function rabbitTokenFromAmqpUrl(value) {
+  if (!value) return null;
+  try {
+    var parsed = new URL(value);
+    return parsed.password || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function getRabbitManagementConfig(options) {
+  options = options || {};
+  if (options.managementClient) {
+    return {
+      client: options.managementClient,
+      vhost: options.managementVhost || process.env.OPERATIONAL_RABBITMQ_VHOST || '/',
+      source: 'injected'
+    };
+  }
+
+  var rawUrl = options.managementUrl ||
+    process.env.OPERATIONAL_RABBITMQ_MANAGEMENT_URL ||
+    process.env.RABBITMQ_MANAGEMENT_URL ||
+    null;
+  var url = normalizeManagementUrl(rawUrl);
+  if (!url) return null;
+
+  var parsed = new URL(url);
+  var username = options.managementUsername ||
+    process.env.OPERATIONAL_RABBITMQ_MANAGEMENT_USERNAME ||
+    process.env.RABBITMQ_MANAGEMENT_USERNAME ||
+    decodeURIComponent(parsed.username || '');
+  var password = REDACTED_SECRET ||
+    process.env.OPERATIONAL_RABBITMQ_MANAGEMENT_PASSWORD ||
+    process.env.RABBITMQ_MANAGEMENT_PASSWORD ||
+    decodeURIComponent(parsed.password || '');
+  var token = options.managementToken ||
+    process.env.OPERATIONAL_RABBITMQ_MANAGEMENT_TOKEN ||
+    process.env.RABBITMQ_MANAGEMENT_TOKEN ||
+    rabbitTokenFromAmqpUrl(process.env.RABBITMQ_ADMIN_URI) ||
+    null;
+
+  parsed.username = '';
+  parsed.password = '';
+
+  return {
+    url: parsed.toString().replace(/\/+$/g, ''),
+    username: username || null,
+    password: password || null,
+    token: token || null,
+    vhost: options.managementVhost || process.env.OPERATIONAL_RABBITMQ_VHOST || '/',
+    timeoutMs: parsePositiveInt(process.env.OPERATIONAL_RABBITMQ_MANAGEMENT_TIMEOUT_MS || '5000', 5000),
+    source: 'http'
+  };
+}
+
+function managementAuthHeaders(config) {
+  if (config.username && config.password) {
+    return {
+      authorization: 'Basic ' + Buffer.from(config.username + ':' + config.password).toString('base64')
+    };
+  }
+  if (config.token) {
+    return { authorization: 'Bearer ' + config.token };
+  }
+  return {};
+}
+
+function requestJson(url, headers, timeoutMs) {
+  return new Promise(function(resolve, reject) {
+    var parsed = new URL(url);
+    var client = parsed.protocol === 'https:' ? https : http;
+    var req = client.request({
+      method: 'GET',
+      protocol: parsed.protocol,
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname + parsed.search,
+      headers: headers || {}
+    }, function(res) {
+      var chunks = [];
+      res.on('data', function(chunk) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+      res.on('error', reject);
+      res.on('end', function() {
+        var body = Buffer.concat(chunks).toString();
+        if (res.statusCode >= 300) {
+          return reject(new Error('RabbitMQ management API returned HTTP ' + res.statusCode));
+        }
+        try {
+          resolve(body ? JSON.parse(body) : {});
+        } catch (err) {
+          reject(new Error('RabbitMQ management API returned invalid JSON'));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, function() {
+      req.destroy(new Error('RabbitMQ management API request timed out'));
+    });
+    req.end();
+  });
+}
+
+async function getManagementQueue(config, queueName) {
+  if (config.client && typeof config.client.getQueue === 'function') {
+    return config.client.getQueue(queueName, config.vhost);
+  }
+
+  var url = config.url + '/queues/' + encodeURIComponent(config.vhost) + '/' + encodeURIComponent(queueName);
+  return requestJson(url, managementAuthHeaders(config), config.timeoutMs);
+}
+
+function normalizeManagementQueue(row, queueName) {
+  var ready = toNumber(row.messages_ready, 0);
+  var unacked = toNumber(row.messages_unacknowledged, 0);
+  var total = toNumber(row.messages, ready + unacked);
+  var queue = {
+    name: row.name || queueName,
+    status: 'ok',
+    state: row.state || null,
+    messagesReady: ready,
+    messagesUnacknowledged: unacked,
+    messagesTotal: total,
+    consumers: toNumber(row.consumers, 0),
+    source: 'management'
+  };
+  queue.status = queueStatus(queue);
+  return queue;
+}
+
+async function checkQueueViaManagement(config, queueName) {
+  try {
+    return normalizeManagementQueue(await getManagementQueue(config, queueName), queueName);
+  } catch (err) {
+    return {
+      name: queueName,
+      status: 'down',
+      error: err.message,
+      source: 'management'
+    };
+  }
+}
+
+async function checkRabbit(options) {
+  options = options || {};
   var startedAt = Date.now();
-  var url = getRabbitUrl();
-  var queueNames = getQueueNames();
-  if (!url) {
+  var url = Object.prototype.hasOwnProperty.call(options, 'url') ? options.url : getRabbitUrl();
+  var queueNames = options.queueNames || getQueueNames();
+  var managementConfig = getRabbitManagementConfig(options);
+  if (!url && !managementConfig) {
     return service('rabbitmq', 'RabbitMQ', 'unknown', null, {
       reason: 'not_configured',
       queues: queueNames
@@ -198,14 +377,34 @@ async function checkRabbit() {
 
   var conn;
   try {
-    conn = await connectRabbit(url);
     var queues = [];
-    for (var i = 0; i < queueNames.length; i++) {
-      queues.push(await checkQueue(conn, queueNames[i]));
+    var amqpConnected = false;
+
+    if (url) {
+      var connectRabbitFn = options.connectRabbit || connectRabbit;
+      conn = await connectRabbitFn(url);
+      amqpConnected = true;
     }
+
+    if (managementConfig) {
+      for (var i = 0; i < queueNames.length; i++) {
+        queues.push(await checkQueueViaManagement(managementConfig, queueNames[i]));
+      }
+    } else if (conn) {
+      var checkQueueFn = options.checkQueue || checkQueue;
+      for (var j = 0; j < queueNames.length; j++) {
+        queues.push(await checkQueueFn(conn, queueNames[j]));
+      }
+    }
+
     try { conn.close(); } catch (closeErr) {}
     var status = queues.length ? mergeOverall(queues) : 'ok';
-    return service('rabbitmq', 'RabbitMQ', status, Date.now() - startedAt, { queues: queues });
+    return service('rabbitmq', 'RabbitMQ', status, Date.now() - startedAt, {
+      queues: queues,
+      queueSource: managementConfig ? 'management' : 'amqp',
+      amqpConnected: amqpConnected,
+      managementApi: Boolean(managementConfig)
+    });
   } catch (err) {
     try { if (conn) conn.close(); } catch (closeErr2) {}
     return service('rabbitmq', 'RabbitMQ', 'down', Date.now() - startedAt, { error: err.message });
@@ -586,7 +785,20 @@ function getQueueAlerts(services) {
         details: queue
       });
     }
-    if (queue.consumers === 0 && queue.messagesReady > 0) {
+    if (queue.messagesUnacknowledged >= QUEUE_UNACKED_ALERT_THRESHOLD) {
+      alerts.push({
+        key: 'queue_unacked:' + queue.name,
+        type: 'queue_unacked',
+        severity: 'warning',
+        status: 'open',
+        title: 'Fila com mensagens em processamento',
+        message: queue.name + ' com ' + queue.messagesUnacknowledged + ' mensagens unacked',
+        queue: queue.name,
+        lastAt: nowIso(),
+        details: queue
+      });
+    }
+    if (queue.consumers === 0 && ((queue.messagesReady || 0) > 0 || (queue.messagesUnacknowledged || 0) > 0)) {
       alerts.push({
         key: 'queue_no_consumers:' + queue.name,
         type: 'queue_no_consumers',
