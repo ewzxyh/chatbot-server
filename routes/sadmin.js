@@ -16,6 +16,8 @@ var { getPlan, getAllPlans } = require('../pubmodules/billing/plans');
 var OperationalEvent = require('../models/operationalEvent');
 var operationalHealthService = require('../services/operationalHealthService');
 var operationalAlertService = require('../services/operationalAlertService');
+var operationalAlertNotifier = require('../services/operationalAlertNotifier');
+var operationalLogger = require('../services/operationalLogger');
 var operationalMetricsService = require('../services/operationalMetricsService');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
@@ -33,6 +35,63 @@ function parseLimit(value, fallback, max) {
   var parsed = parseInt(value, 10);
   if (isNaN(parsed) || parsed < 1) return fallback;
   return Math.min(parsed, max);
+}
+
+function getRequestUserEmail(req) {
+  if (req && req.user && req.user.email) return req.user.email;
+  if (req && req.user && req.user._json && req.user._json.email) return req.user._json.email;
+  return 'superadmin';
+}
+
+function getNotificationResultStatus(result) {
+  if (!result) return 'failed';
+  if ((result.webhook && result.webhook.status === 'failed') ||
+      (result.email && result.email.status === 'failed')) {
+    return 'failed';
+  }
+  if ((result.webhook && result.webhook.status === 'sent') ||
+      (result.email && result.email.status === 'sent')) {
+    return 'sent';
+  }
+  return 'skipped';
+}
+
+function buildNotificationTestAlert(req) {
+  var now = new Date();
+  var triggeredBy = getRequestUserEmail(req);
+  return {
+    key: 'manual_test:operational_alert_notification',
+    type: 'manual_test',
+    severity: 'critical',
+    status: 'open',
+    title: 'Teste manual de alertas operacionais',
+    message: 'Teste disparado pelo painel Superadmin para validar webhook/e-mail operacional.',
+    service: 'operation',
+    channel: 'system',
+    firstAt: now,
+    lastAt: now,
+    occurrences: 1,
+    details: {
+      triggeredBy: triggeredBy,
+      purpose: 'notification_test'
+    }
+  };
+}
+
+async function recordNotificationTest(status, result, error, req) {
+  await operationalLogger.record({
+    level: status === 'failed' ? 'warn' : 'info',
+    area: 'alert',
+    channel: 'system',
+    event: 'operational.alert_notification.test',
+    status: status,
+    error: error,
+    details: {
+      triggeredBy: getRequestUserEmail(req),
+      notificationStatus: status,
+      notificationResults: result
+    }
+  });
 }
 
 router.get('/stats', auth, async function (req, res) {
@@ -291,6 +350,25 @@ router.get('/operational-alerts', auth, async function (req, res) {
   } catch (err) {
     winston.error('sadmin operational alerts error', err);
     res.status(500).json({ error: 'Failed to fetch operational alerts' });
+  }
+});
+
+router.post('/operational-alerts/test-notification', auth, async function (req, res) {
+  var alert = buildNotificationTestAlert(req);
+  try {
+    var result = await operationalAlertNotifier.notify('alert.opened', alert);
+    var status = getNotificationResultStatus(result);
+    result.status = status;
+    result.ok = status !== 'failed';
+    await recordNotificationTest(status, result, null, req);
+    res.json({ generatedAt: new Date().toISOString(), result: result });
+  } catch (err) {
+    var failedResult = err.results || {};
+    failedResult.status = 'failed';
+    failedResult.ok = false;
+    failedResult.error = err.message;
+    await recordNotificationTest('failed', failedResult, err, req);
+    res.json({ generatedAt: new Date().toISOString(), result: failedResult });
   }
 });
 

@@ -46,6 +46,19 @@ function getAsSuperAdmin(path, email, password) {
   });
 }
 
+function postAsSuperAdmin(path, email, password, body) {
+  return new Promise(function(resolve, reject) {
+    chai.request(server)
+      .post(path)
+      .auth(email, password)
+      .send(body || {})
+      .end(function(err, res) {
+        if (err) return reject(err);
+        resolve(res);
+      });
+  });
+}
+
 describe('OperationalRoute', function() {
   var pwd = 'Pwd1234!';
 
@@ -415,6 +428,60 @@ describe('OperationalRoute', function() {
           done();
       });
     })().catch(done);
+  });
+
+  it('sends a manual operational alert notification test from the super admin route', async function() {
+    var originalWebhookUrl = process.env.OPERATIONAL_ALERT_WEBHOOK_URL;
+    var originalWebhookEvents = process.env.OPERATIONAL_ALERT_WEBHOOK_EVENTS;
+    var originalMinSeverity = process.env.OPERATIONAL_ALERT_MIN_SEVERITY;
+
+    process.env.OPERATIONAL_ALERT_WEBHOOK_URL = 'https://alerts-route.test/hook';
+    process.env.OPERATIONAL_ALERT_WEBHOOK_EVENTS = 'alert.opened';
+    process.env.OPERATIONAL_ALERT_MIN_SEVERITY = 'critical';
+
+    try {
+      var scope = nock('https://alerts-route.test')
+        .post('/hook', function(body) {
+          expect(body.event).to.equal('alert.opened');
+          expect(body.type).to.equal('manual_test');
+          expect(body.severity).to.equal('critical');
+          expect(body.title).to.equal('Teste manual de alertas operacionais');
+          return true;
+        })
+        .reply(202, { ok: true });
+
+      var res = await postAsSuperAdmin('/sadmin/operational-alerts/test-notification', adminEmail, pwd);
+
+      res.should.have.status(200);
+      expect(res.body.result.status).to.equal('sent');
+      expect(res.body.result.ok).to.equal(true);
+      expect(res.body.result.webhook.status).to.equal('sent');
+      expect(res.body.result.webhook.httpStatus).to.equal(202);
+      expect(scope.isDone()).to.equal(true);
+
+      var event = await OperationalEvent.findOne({ event: 'operational.alert_notification.test' }).lean();
+      expect(event).to.exist;
+      expect(event.status).to.equal('sent');
+      expect(event.details.notificationStatus).to.equal('sent');
+      expect(event.details.triggeredBy).to.contain('@email.com');
+      expect(event.details.notificationResults.webhook.status).to.equal('sent');
+    } finally {
+      if (originalWebhookUrl === undefined) {
+        delete process.env.OPERATIONAL_ALERT_WEBHOOK_URL;
+      } else {
+        process.env.OPERATIONAL_ALERT_WEBHOOK_URL = originalWebhookUrl;
+      }
+      if (originalWebhookEvents === undefined) {
+        delete process.env.OPERATIONAL_ALERT_WEBHOOK_EVENTS;
+      } else {
+        process.env.OPERATIONAL_ALERT_WEBHOOK_EVENTS = originalWebhookEvents;
+      }
+      if (originalMinSeverity === undefined) {
+        delete process.env.OPERATIONAL_ALERT_MIN_SEVERITY;
+      } else {
+        process.env.OPERATIONAL_ALERT_MIN_SEVERITY = originalMinSeverity;
+      }
+    }
   });
 
   it('returns operational metrics history to super admin', async function() {
