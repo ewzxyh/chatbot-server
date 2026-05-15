@@ -187,6 +187,7 @@ var mcp = require('./routes/mcp');
 var bootDataLoader = require('./services/bootDataLoader');
 var settingDataLoader = require('./services/settingDataLoader');
 var schemaMigrationService = require('./services/schemaMigrationService');
+var operationalMonitorService = require('./services/operationalMonitorService');
 var RouterLogger = require('./models/routerLogger');
 var cacheEnabler = require("./services/cacheEnabler");
 const session = require('express-session');
@@ -306,6 +307,8 @@ app.set('chatbot_service', new ChatbotService())
 app.set('redis_client', tdCache);
 app.set('quote_manager', qm);
 app.set('rate_manager', rm);
+app.set('operational_monitor', operationalMonitorService);
+operationalMonitorService.start({ app: app });
 
 // TODO DELETE IT IN THE NEXT RELEASE
 if (process.env.ENABLE_ALTERNATIVE_CORS_MIDDLEWARE === "true") {  
