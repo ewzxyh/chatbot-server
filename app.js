@@ -12,6 +12,8 @@ if (process.env.LOAD_DOTENV_SUBFOLDER ) {
 
 require('dotenv').config({ path: dotenvPath});
 
+var sentryService = require('./services/sentryService');
+sentryService.init();
 
 var express = require('express');
 var path = require('path');
@@ -732,6 +734,8 @@ app.use(function (err, req, res, next) {
 
 
 // mettere middleware qui per le quote
+
+sentryService.setupExpressErrorHandler(app);
 
 
 

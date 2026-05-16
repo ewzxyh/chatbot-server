@@ -19,6 +19,7 @@ var operationalAlertService = require('../services/operationalAlertService');
 var operationalAlertNotifier = require('../services/operationalAlertNotifier');
 var operationalLogger = require('../services/operationalLogger');
 var operationalMetricsService = require('../services/operationalMetricsService');
+var sentryService = require('../services/sentryService');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
 
@@ -370,6 +371,41 @@ router.post('/operational-alerts/test-notification', auth, async function (req, 
     await recordNotificationTest('failed', failedResult, err, req);
     res.json({ generatedAt: new Date().toISOString(), result: failedResult });
   }
+});
+
+router.post('/sentry/test', auth, async function (req, res) {
+  if (!sentryService.isInitialized()) {
+    return res.json({
+      generatedAt: new Date().toISOString(),
+      result: {
+        status: 'skipped',
+        enabled: sentryService.isEnabled(),
+        initialized: false,
+        reason: 'sentry_not_configured'
+      }
+    });
+  }
+
+  var err = new Error('ChatCase manual Sentry test event');
+  sentryService.captureException(err, {
+    tags: {
+      area: 'operation',
+      channel: 'system',
+      source: 'superadmin_manual_test'
+    },
+    fingerprint: ['chatcase-manual-sentry-test']
+  });
+  var flushed = await sentryService.flush(2000);
+
+  res.json({
+    generatedAt: new Date().toISOString(),
+    result: {
+      status: flushed ? 'sent' : 'queued',
+      enabled: true,
+      initialized: true,
+      flushed: flushed
+    }
+  });
 });
 
 router.get('/operational-metrics', auth, async function (req, res) {
