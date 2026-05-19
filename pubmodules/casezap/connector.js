@@ -373,6 +373,21 @@ async function sendToUazApi(domain, token, endpoint, body) {
   }
 }
 
+function maskPhoneForLog(phone) {
+  if (!phone) return '';
+  return String(phone).replace(/\d(?=(?:\D*\d){4})/g, '*');
+}
+
+function describeProviderError(err) {
+  if (!err) return 'unknown error';
+  var parts = [];
+  if (err.response && err.response.status) parts.push('status=' + err.response.status);
+  if (err.code) parts.push('code=' + err.code);
+  var message = operationalLogger.extractErrorMessage(err) || err.message;
+  if (message) parts.push('message=' + message);
+  return parts.join(' ') || 'unknown error';
+}
+
 function shouldDownloadInboundMedia(mapped) {
   return mapped &&
     mapped.downloadId &&
@@ -455,17 +470,17 @@ async function sendOutboundMessage(message) {
       await sendToUazApi(integration.value.domain, integration.value.token, outbound.endpoint, outbound.body);
       winston.debug('CaseZap sent to ' + phone + ' via ' + outbound.endpoint);
     } catch (firstErr) {
-      winston.warn('CaseZap send failed, retrying: ' + firstErr.message);
+      winston.warn('CaseZap send failed, retrying: ' + describeProviderError(firstErr));
       await new Promise(function(resolve) { setTimeout(resolve, 2000); });
       try {
         await sendToUazApi(integration.value.domain, integration.value.token, outbound.endpoint, outbound.body);
       } catch (retryErr) {
-        winston.error('CaseZap send failed after retry to ' + phone, retryErr);
+        winston.error('CaseZap send failed after retry to ' + maskPhoneForLog(phone) + ': ' + describeProviderError(retryErr));
       }
     }
 
   } catch (err) {
-    winston.error('CaseZap outbound error', err);
+    winston.error('CaseZap outbound error: ' + describeProviderError(err));
   }
 }
 
