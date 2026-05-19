@@ -135,6 +135,55 @@ function maxMediaBytes(options) {
   return parseInt(value, 10);
 }
 
+function headerValue(headers, name) {
+  if (!headers) {
+    return undefined;
+  }
+  return headers[name] || headers[name.toLowerCase()] || headers[name.toUpperCase()];
+}
+
+function parseContentLength(headers) {
+  var value = headerValue(headers, 'content-length');
+  if (!value) {
+    return undefined;
+  }
+  var parsed = parseInt(value, 10);
+  return isNaN(parsed) ? undefined : parsed;
+}
+
+function isMaxSizeExceededError(err) {
+  var message = err && err.message ? String(err.message) : '';
+  return Boolean(
+    err &&
+    (
+      /maxContentLength/i.test(message) ||
+      /maxBodyLength/i.test(message) ||
+      err.code === 'ERR_FR_MAX_BODY_LENGTH_EXCEEDED'
+    )
+  );
+}
+
+function externalOnlyMediaResult(mapped, sourceUrl, reason, headers) {
+  var metadata = mapped.metadata || {};
+  var contentType = validMime(headerValue(headers, 'content-type')) ||
+    validMime(metadata.type) ||
+    validMime(mime.lookup(metadata.name || filenameFromUrl(sourceUrl))) ||
+    'application/octet-stream';
+  var name = originalFilename(mapped, sourceUrl, contentType);
+
+  return {
+    filename: name,
+    url: sourceUrl,
+    downloadUrl: sourceUrl,
+    sourceUrl: sourceUrl,
+    contentType: contentType,
+    externalOnly: true,
+    rehostSkipped: true,
+    rehostReason: reason,
+    size: parseContentLength(headers)
+  };
+}
+
 function wait(ms) {
   return new Promise(function(resolve) {
     setTimeout(resolve, ms);
@@ -252,6 +301,32 @@ async function persistInboundMediaFromUrl(mapped, integration, options) {
       contentType: contentType
     };
   } catch (err2) {
+    if (isMaxSizeExceededError(err2)) {
+      var skipped = externalOnlyMediaResult(
+        mapped,
+        sourceUrl,
+        'max_size_exceeded',
+        err2.response && err2.response.headers
+      );
+      operationalLogger.recordSafe({
+        area: 'storage',
+        channel: 'casezap',
+        id_project: integration && integration.id_project,
+        integrationId: integrationId,
+        messageId: mapped.messageId,
+        event: 'media.rehost_skipped',
+        status: 'skipped',
+        latencyMs: Date.now() - startedAt,
+        details: {
+          reason: skipped.rehostReason,
+          filename: skipped.filename,
+          contentType: skipped.contentType,
+          bytes: skipped.size
+        }
+      });
+      return skipped;
+    }
+
     operationalLogger.recordSafe({
       level: 'error',
       area: 'storage',
@@ -277,6 +352,14 @@ async function persistMappedMedia(mapped, integration, options) {
   mapped.metadata.externalSrc = stored.sourceUrl;
   mapped.metadata.src = stored.url;
   mapped.metadata.downloadUrl = stored.downloadUrl;
+  if (stored.externalOnly) {
+    mapped.metadata.externalOnly = true;
+    mapped.metadata.rehostSkipped = true;
+    mapped.metadata.rehostReason = stored.rehostReason;
+  }
+  if (stored.size) {
+    mapped.metadata.size = stored.size;
+  }
   if (stored.thumbnailUrl) {
     mapped.metadata.thumbnail = stored.thumbnailUrl;
   }
@@ -284,7 +367,8 @@ async function persistMappedMedia(mapped, integration, options) {
     mapped.metadata.type = stored.contentType;
   }
   if (mapped.type === 'file' && mapped.metadata.name) {
-    mapped.text = '[' + mapped.metadata.name + '](' + stored.url + ')';
+    var href = stored.externalOnly ? (stored.downloadUrl || stored.url) : stored.url;
+    mapped.text = '[' + mapped.metadata.name + '](' + href + ')';
   }
 
   return mapped;

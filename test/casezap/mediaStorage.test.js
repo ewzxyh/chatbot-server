@@ -65,4 +65,45 @@ describe('CaseZap mediaStorage', function() {
 
     assert.strictEqual(shouldPersistExternalMedia(mapped, 'https://app.example/api'), false);
   });
+
+  it('keeps an external attachment link when the CaseZap file is too large to rehost', async function() {
+    const sourceUrl = 'https://chatcase.uazapi.com/files/Antigravity.exe';
+    const mapped = {
+      messageId: 'large-doc-1',
+      type: 'file',
+      text: '[Antigravity.exe](' + sourceUrl + ')',
+      metadata: {
+        src: sourceUrl,
+        name: 'Antigravity.exe',
+        type: 'application/x-msdownload'
+      }
+    };
+    const httpClient = {
+      get: async function() {
+        const err = new Error('maxContentLength size of 26214400 exceeded');
+        err.code = 'ERR_BAD_RESPONSE';
+        err.response = {
+          headers: {
+            'content-length': '143764912',
+            'content-type': 'application/x-msdownload'
+          }
+        };
+        throw err;
+      }
+    };
+
+    const result = await persistMappedMedia(mapped, { _id: '69f1115ecbfe61136b1535ea' }, {
+      httpClient,
+      baseFileUrl: 'https://app.example/api'
+    });
+
+    assert.strictEqual(result.metadata.src, sourceUrl);
+    assert.strictEqual(result.metadata.downloadUrl, sourceUrl);
+    assert.strictEqual(result.metadata.externalSrc, sourceUrl);
+    assert.strictEqual(result.metadata.externalOnly, true);
+    assert.strictEqual(result.metadata.rehostSkipped, true);
+    assert.strictEqual(result.metadata.rehostReason, 'max_size_exceeded');
+    assert.strictEqual(result.metadata.size, 143764912);
+    assert.strictEqual(result.text, '[Antigravity.exe](' + sourceUrl + ')');
+  });
 });
