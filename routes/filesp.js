@@ -62,25 +62,45 @@ const default_chat_allowed_extensions = process.env.CHAT_FILES_ALLOW_LIST || ".j
 const default_assets_allowed_extensions = process.env.ASSETS_FILES_ALLOW_LIST || ".jpg,.jpeg,.png,.gif,.pdf,.txt,.csv,.doc,.docx"; //,.xls,.xlsx,.ppt,.pptx,.zip,.rar
 const images_extensions = [ ".png", ".jpg", ".jpeg", ".gif" ];
 
+function getAllowedExtensions(req, extensionsSource = 'chat') {
+  const project = req.project;
+  const pu = req.projectuser || {};
+
+  if (extensionsSource === 'avatar') {
+    return images_extensions.join(',');
+  }
+  if (extensionsSource === 'assets') {
+    return default_assets_allowed_extensions;
+  }
+  if (pu.roleType === 2 || pu.role === roleConstants.GUEST) {
+    return project?.widget?.allowedUploadExtentions || default_chat_allowed_extensions;
+  }
+  return project?.settings?.allowed_upload_extentions || default_chat_allowed_extensions;
+}
+
+function allowsEveryExtension(allowedExtensions) {
+  return String(allowedExtensions || '').trim() === "*/*";
+}
+
+function shouldVerifyUploadedContent(req, extensionsSource = 'chat') {
+  if (extensionsSource === 'avatar') {
+    return true;
+  }
+  return !allowsEveryExtension(getAllowedExtensions(req, extensionsSource));
+}
+
+async function verifyUploadedContent(req, buffer, mimetype, extensionsSource = 'chat') {
+  if (!shouldVerifyUploadedContent(req, extensionsSource)) {
+    return true;
+  }
+  return verifyFileContent(buffer, mimetype);
+}
+
 const fileFilter = (extensionsSource = 'chat') => {
   return (req, file, cb) => {
 
-    const project = req.project;
-    const pu = req.projectuser;
-
-    let allowed_extensions;
+    const allowed_extensions = getAllowedExtensions(req, extensionsSource);
     let allowed_mime_types;
-
-    if (extensionsSource === 'avatar') {
-      // Avatar only accepts image extensions
-      allowed_extensions = images_extensions.join(',');
-    } else if (extensionsSource === 'assets') {
-      allowed_extensions = default_assets_allowed_extensions;
-    } else if (pu.roleType === 2 || pu.role === roleConstants.GUEST) {
-      allowed_extensions = project?.widget?.allowedUploadExtentions || default_chat_allowed_extensions;
-    } else {
-      allowed_extensions = project?.settings?.allowed_upload_extentions || default_chat_allowed_extensions;
-    }
 
     if (allowed_extensions !== "*/*") {
       allowed_mime_types = getMimeTypes(allowed_extensions);
@@ -268,7 +288,7 @@ router.post('/chat', [
           folderName: "files",
           originalname: req.file.originalname,
         });
-        await verifyFileContent(req.file.buffer, req.file.mimetype);
+        await verifyUploadedContent(req, req.file.buffer, req.file.mimetype, 'chat');
         await createObjectStorageFile(filename, req.file.buffer, req.file.mimetype, { expireAt });
         let thumbnail;
         try {
@@ -287,7 +307,7 @@ router.post('/chat', [
       }
 
       const buffer = await fileService.getFileDataAsBuffer(req.file.filename);
-      await verifyFileContent(buffer, req.file.mimetype);
+      await verifyUploadedContent(req, buffer, req.file.mimetype, 'chat');
       await setGridFsExpiration(req.file, req.file.metadata && req.file.metadata.expireAt);
       let thumbnail;
       try {
@@ -361,7 +381,7 @@ router.post('/assets', [
           originalname: req.file.originalname,
         });
         const metadata = req.expireAt ? { expireAt: req.expireAt } : undefined;
-        await verifyFileContent(req.file.buffer, req.file.mimetype);
+        await verifyUploadedContent(req, req.file.buffer, req.file.mimetype, 'assets');
         await createObjectStorageFile(filename, req.file.buffer, req.file.mimetype, metadata);
 
         const ext = path.extname(req.file.originalname).toLowerCase();
@@ -380,7 +400,7 @@ router.post('/assets', [
       }
 
       const buffer = await fileService.getFileDataAsBuffer(req.file.filename);
-      await verifyFileContent(buffer, req.file.mimetype);
+      await verifyUploadedContent(req, buffer, req.file.mimetype, 'assets');
 
       if (req.file.metadata && req.file.metadata.expireAt) {
         await setGridFsExpiration(req.file, req.file.metadata.expireAt);
@@ -713,5 +733,12 @@ router.delete("/", [
   }
 });
 
+
+router.__test = {
+  allowsEveryExtension,
+  getAllowedExtensions,
+  shouldVerifyUploadedContent,
+  verifyUploadedContent
+};
 
 module.exports = router;
