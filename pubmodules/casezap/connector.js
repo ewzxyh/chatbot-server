@@ -438,6 +438,7 @@ async function sendOutboundMessage(message) {
 
     var leadId = message.request.lead && message.request.lead.lead_id;
     if (message.sender === leadId) return;
+    if (isInternalOutboundMessage(message)) return;
 
     var projectId = message.id_project;
     var reqIntegrationId = message.request.integrationId;
@@ -482,6 +483,17 @@ async function sendOutboundMessage(message) {
   } catch (err) {
     winston.error('CaseZap outbound error: ' + describeProviderError(err));
   }
+}
+
+function isInternalOutboundMessage(message) {
+  if (!message) return true;
+  var attributes = message.attributes || {};
+  var subtype = attributes.subtype ? String(attributes.subtype) : '';
+
+  if (message.sender === 'system' || message.createdBy === 'system') return true;
+  if (subtype === 'info' || subtype.indexOf('info/') === 0) return true;
+
+  return false;
 }
 
 function setupOutboundListener() {
@@ -635,6 +647,7 @@ module.exports = {
   setupIntegrationListener: setupIntegrationListener,
   registerWebhook: registerWebhook,
   buildRegisterWebhookUpdate: buildRegisterWebhookUpdate,
+  isInternalOutboundMessage: isInternalOutboundMessage,
   extractConnectionStatus: extractConnectionStatus,
   mapConnectionHealth: mapConnectionHealth,
   mapConnectionStatus: mapConnectionStatus,
