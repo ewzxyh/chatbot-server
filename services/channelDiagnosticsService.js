@@ -1,5 +1,6 @@
 var axios = require('axios');
 var mongoose = require('mongoose');
+var { v4: uuidv4 } = require('uuid');
 var Integration = require('../models/integrations');
 var operationalLogger = require('./operationalLogger');
 
@@ -210,6 +211,12 @@ function getCaseZapToken(integration) {
   return value.token || value.apiToken || value.apikey || value.api_key || null;
 }
 
+function publicApiBaseUrl(options) {
+  options = options || {};
+  var baseUrl = options.baseUrl || process.env.EXTERNAL_BASE_URL || process.env.API_URL || '';
+  return String(baseUrl).replace(/\/+$/, '') + '/api';
+}
+
 function ensureTrailingSlash(url) {
   if (!url) return url;
   return url.charAt(url.length - 1) === '/' ? url : url + '/';
@@ -286,6 +293,21 @@ async function updateIntegrationOperational(integration, result, extra) {
       set['value.status'] = 'disconnected';
     }
   }
+
+  await Integration.findByIdAndUpdate(integration._id, { $set: set });
+}
+
+async function updateWebhookRegistration(integration, status, details) {
+  if (!integration || !integration._id) return;
+  details = details || {};
+  var set = {
+    'value.operational.lastWebhookRegistrationAt': nowIso(),
+    'value.operational.lastWebhookRegistrationStatus': status,
+    'value.operational.lastWebhookRegistrationError': details.error || null
+  };
+
+  if (details.webhookSecret) set['value.webhookSecret'] = details.webhookSecret;
+  if (details.webhookUrl) set['value.operational.lastWebhookRegistrationUrl'] = details.webhookUrl;
 
   await Integration.findByIdAndUpdate(integration._id, { $set: set });
 }
@@ -522,10 +544,129 @@ async function testChannelConnection(channel, integrationId) {
   return result;
 }
 
+async function registerCaseZapWebhook(integration, options) {
+  var startedAt = Date.now();
+  var baseUrl = buildCaseZapBaseUrl(integration);
+  var token = getCaseZapToken(integration);
+
+  if (!baseUrl || !token) {
+    var missing = new Error(!baseUrl ? 'missing_casezap_domain' : 'missing_casezap_token');
+    missing.statusCode = 400;
+    throw missing;
+  }
+
+  var webhookSecret = REDACTED_SECRET || uuidv4();
+  var webhookUrl = publicApiBaseUrl(options) + '/modules/casezap/webhook/' + integration._id + '?secret=' + webhookSecret;
+  var body = {
+    url: webhookUrl,
+    enabled: true,
+    events: ['messages', 'messages_update', 'connection'],
+    excludeMessages: ['wasSentByApi', 'isGroupYes']
+  };
+
+  await axios.post(ensureTrailingSlash(baseUrl) + 'webhook', body, {
+    headers: { token: token, 'Content-Type': 'application/json' },
+    timeout: DEFAULT_TIMEOUT_MS
+  });
+
+  await updateWebhookRegistration(integration, 'success', {
+    webhookSecret: webhookSecret,
+    webhookUrl: webhookUrl
+  });
+
+  return {
+    status: 'registered',
+    channel: 'casezap',
+    integrationId: String(integration._id),
+    id_project: integration.id_project,
+    providerLatencyMs: Date.now() - startedAt,
+    webhookUrl: webhookUrl.replace(/\?.*$/, '?[redacted]')
+  };
+}
+
+async function registerWabaWebhook(integration) {
+  var startedAt = Date.now();
+  var settings = await findWhatsappSettings(integration);
+  var value = settings && settings.value ? settings.value : {};
+  var token = value.wab_token || value.access_token;
+  var wabaId = value.waba_id || (integration.value && integration.value.waba_id);
+
+  if (!token || !wabaId) {
+    var missing = new Error(!wabaId ? 'missing_waba_id' : 'missing_waba_token');
+    missing.statusCode = 400;
+    throw missing;
+  }
+
+  await axios.post(graphUrl() + wabaId + '/subscribed_apps', {}, {
+    params: { access_token: token },
+    timeout: DEFAULT_TIMEOUT_MS
+  });
+
+  await updateWebhookRegistration(integration, 'success');
+
+  return {
+    status: 'registered',
+    channel: 'waba',
+    integrationId: String(integration._id),
+    providerIntegrationId: wabaId,
+    id_project: integration.id_project,
+    providerLatencyMs: Date.now() - startedAt
+  };
+}
+
+async function registerChannelWebhook(channel, integrationId, options) {
+  var names = channel === 'casezap' ? ['casezap'] : ['whatsapp'];
+  var integration = await Integration.findOne({ _id: integrationId, name: { $in: names } });
+  if (!integration) {
+    var notFound = new Error('Integration not found');
+    notFound.statusCode = 404;
+    throw notFound;
+  }
+
+  try {
+    var result = channel === 'casezap'
+      ? await registerCaseZapWebhook(integration, options)
+      : await registerWabaWebhook(integration);
+
+    await operationalLogger.record({
+      level: 'info',
+      area: 'webhook',
+      channel: result.channel,
+      id_project: result.id_project,
+      integrationId: result.integrationId,
+      event: 'channel.webhook_registered',
+      status: 'success',
+      latencyMs: result.providerLatencyMs,
+      details: {
+        providerIntegrationId: result.providerIntegrationId,
+        webhookUrl: result.webhookUrl
+      }
+    });
+
+    return result;
+  } catch (err) {
+    await updateWebhookRegistration(integration, 'failed', {
+      error: operationalLogger.extractErrorMessage(err)
+    });
+    await operationalLogger.record({
+      level: 'error',
+      area: 'webhook',
+      channel: channel,
+      id_project: integration.id_project,
+      integrationId: String(integration._id),
+      event: 'channel.webhook_register_failed',
+      status: 'failed',
+      error: err
+    });
+    throw err;
+  }
+}
+
 module.exports = {
   checkIntegration: checkIntegration,
   checkCaseZapIntegration: checkCaseZapIntegration,
   checkWabaIntegration: checkWabaIntegration,
   testChannelConnection: testChannelConnection,
+  registerChannelWebhook: registerChannelWebhook,
   normalizeProviderHealth: normalizeProviderHealth
 };

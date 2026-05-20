@@ -292,6 +292,25 @@ router.post('/health/channels/test', auth, async function (req, res) {
   }
 });
 
+router.post('/health/channels/webhook/register', auth, async function (req, res) {
+  try {
+    var channel = req.body && req.body.channel;
+    var integrationId = req.body && req.body.integrationId;
+    if (['waba', 'casezap'].indexOf(channel) === -1 || !integrationId) {
+      return res.status(400).json({ error: 'channel and integrationId are required' });
+    }
+
+    var externalUrl = process.env.EXTERNAL_BASE_URL || (req.protocol + '://' + req.get('host'));
+    var result = await operationalHealthService.registerChannelWebhook(channel, integrationId, {
+      baseUrl: externalUrl
+    });
+    res.json({ generatedAt: new Date().toISOString(), result: result });
+  } catch (err) {
+    winston.error('sadmin health channel webhook register error', err);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to register channel webhook' });
+  }
+});
+
 router.get('/health/queues', auth, async function (req, res) {
   try {
     var rabbit = await operationalHealthService.checkRabbit();
@@ -374,15 +393,16 @@ router.post('/operational-alerts/test-notification', auth, async function (req, 
 });
 
 router.post('/sentry/test', auth, async function (req, res) {
+  var sentryMetadata = sentryService.metadata ? sentryService.metadata() : {};
   if (!sentryService.isInitialized()) {
     return res.json({
       generatedAt: new Date().toISOString(),
-      result: {
+      result: Object.assign({
         status: 'skipped',
         enabled: sentryService.isEnabled(),
         initialized: false,
         reason: 'sentry_not_configured'
-      }
+      }, sentryMetadata)
     });
   }
 
@@ -403,7 +423,10 @@ router.post('/sentry/test', auth, async function (req, res) {
       status: flushed ? 'sent' : 'queued',
       enabled: true,
       initialized: true,
-      flushed: flushed
+      flushed: flushed,
+      environment: sentryMetadata.environment,
+      release: sentryMetadata.release,
+      serverName: sentryMetadata.serverName
     }
   });
 });

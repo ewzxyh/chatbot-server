@@ -685,6 +685,112 @@ describe('OperationalRoute', function() {
     expect(res.body.result.qualityRating).to.equal('RED');
   });
 
+  it('manually re-registers a CaseZap webhook and records the operation', async function() {
+    var originalExternalBaseUrl = process.env.EXTERNAL_BASE_URL;
+    process.env.EXTERNAL_BASE_URL = 'https://chatcase.example.com';
+    try {
+      var integration = await Integration.create({
+        id_project: 'operation-casezap-register',
+        name: 'casezap',
+        value: {
+          instanceName: 'CaseZap register',
+          domain: 'https://casezap-register.test',
+          token: 'cz-token'
+        }
+      });
+
+      nock('https://casezap-register.test')
+        .post('/webhook', function(body) {
+          return body &&
+            body.enabled === true &&
+            body.url.indexOf('/api/modules/casezap/webhook/' + String(integration._id)) !== -1 &&
+            body.url.indexOf('secret=') !== -1;
+        })
+        .reply(200, { ok: true });
+
+      var res = await postAsSuperAdmin('/sadmin/health/channels/webhook/register', adminEmail, pwd, {
+        channel: 'casezap',
+        integrationId: String(integration._id)
+      });
+
+      res.should.have.status(200);
+      expect(res.body.result.status).to.equal('registered');
+      expect(res.body.result.channel).to.equal('casezap');
+
+      var updated = await Integration.findById(integration._id).lean();
+      expect(updated.value.webhookSecret).to.be.a('string');
+      expect(updated.value.operational.lastWebhookRegistrationStatus).to.equal('success');
+
+      var event = await OperationalEvent.findOne({
+        channel: 'casezap',
+        integrationId: String(integration._id),
+        event: 'channel.webhook_registered'
+      }).lean();
+      expect(event).to.exist;
+      expect(event.status).to.equal('success');
+    } finally {
+      if (originalExternalBaseUrl === undefined) {
+        delete process.env.EXTERNAL_BASE_URL;
+      } else {
+        process.env.EXTERNAL_BASE_URL = originalExternalBaseUrl;
+      }
+    }
+  });
+
+  it('manually re-registers a WABA subscribed app and records the operation', async function() {
+    var integration = await Integration.create({
+      id_project: 'operation-waba-register',
+      name: 'whatsapp',
+      value: {
+        verified_name: 'WABA register',
+        waba_id: 'waba-register',
+        phone_number_id: 'phone-register'
+      }
+    });
+
+    await mongoose.connection.collection('kvstore').insertOne({
+      key: 'whatsapp-waba-register',
+      project_id: 'operation-waba-register',
+      value: {
+        wab_token: 'meta-token',
+        waba_id: 'waba-register',
+        phone_number_id: 'phone-register'
+      }
+    });
+
+    nock('https://graph.facebook.com')
+      .post('/v25.0/waba-register/subscribed_apps')
+      .query({ access_token: 'meta-token' })
+      .reply(200, { success: true });
+
+    var res = await postAsSuperAdmin('/sadmin/health/channels/webhook/register', adminEmail, pwd, {
+      channel: 'waba',
+      integrationId: String(integration._id)
+    });
+
+    res.should.have.status(200);
+    expect(res.body.result.status).to.equal('registered');
+    expect(res.body.result.channel).to.equal('waba');
+
+    var updated = await Integration.findById(integration._id).lean();
+    expect(updated.value.operational.lastWebhookRegistrationStatus).to.equal('success');
+
+    var event = await OperationalEvent.findOne({
+      channel: 'waba',
+      integrationId: String(integration._id),
+      event: 'channel.webhook_registered'
+    }).lean();
+    expect(event).to.exist;
+    expect(event.status).to.equal('success');
+  });
+
+  it('includes Sentry environment metadata in the manual Sentry test response', async function() {
+    var res = await postAsSuperAdmin('/sadmin/sentry/test', adminEmail, pwd);
+    res.should.have.status(200);
+    expect(res.body.result).to.have.property('environment');
+    expect(res.body.result).to.have.property('release');
+  });
+
   it('adds channel health alerts to summary', async function() {
     var integration = await Integration.create({
       id_project: 'operation-casezap-summary',

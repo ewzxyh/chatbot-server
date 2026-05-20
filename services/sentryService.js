@@ -210,6 +210,14 @@ function flush(timeoutMs) {
   return Sentry.flush(timeoutMs || 2000);
 }
 
+function metadata() {
+  return {
+    environment: environment(),
+    release: release() || null,
+    serverName: process.env.SENTRY_SERVER_NAME || null
+  };
+}
+
 module.exports = {
   init: init,
   isEnabled: isEnabled,
@@ -217,6 +225,7 @@ module.exports = {
   setupExpressErrorHandler: setupExpressErrorHandler,
   captureException: captureException,
   flush: flush,
+  metadata: metadata,
   _private: {
     beforeSend: beforeSend,
     scrubValue: scrubValue,
