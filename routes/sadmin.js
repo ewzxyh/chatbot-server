@@ -20,6 +20,7 @@ var operationalAlertNotifier = require('../services/operationalAlertNotifier');
 var operationalLogger = require('../services/operationalLogger');
 var operationalMetricsService = require('../services/operationalMetricsService');
 var sentryService = require('../services/sentryService');
+var usageMeteringService = require('../services/usageMeteringService');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
 
@@ -453,6 +454,29 @@ router.get('/operational-metrics', auth, async function (req, res) {
   } catch (err) {
     winston.error('sadmin operational metrics error', err);
     res.status(500).json({ error: 'Failed to fetch operational metrics' });
+  }
+});
+
+router.get('/usage-metering/projects/:id', auth, async function (req, res) {
+  try {
+    var service = usageMeteringService.createUsageMeteringService({
+      quoteManager: req.app.get('quote_manager')
+    });
+
+    var usage = await service.getProjectUsage(req.params.id, {
+      from: req.query.from,
+      to: req.query.to,
+      includeStorage: req.query.includeStorage !== 'false',
+      fileHeadLimit: parseLimit(req.query.fileHeadLimit, 500, 5000)
+    });
+
+    res.json(usage);
+  } catch (err) {
+    if (err && err.status === 404) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    winston.error('sadmin usage metering error', err);
+    res.status(500).json({ error: 'Failed to fetch usage metering' });
   }
 });
 
