@@ -5,6 +5,7 @@ require('../middleware/passport')(passport);
 var validtoken = require('../middleware/valid-token')
 var winston = require('../config/winston');
 var pathlib = require('path');
+var usageMediaTrafficService = require('../services/usageMediaTrafficService');
 
 
 var router = express.Router();
@@ -22,6 +23,8 @@ const fileService = createPrimaryFileService("files");
 const fallbackFileServices = isObjectStorageEnabled()
   ? createLegacyFallbackFileServices(["files", "images"])
   : createLegacyFallbackFileServices(["images"]);
+
+const usageMediaTraffic = usageMediaTrafficService.createUsageMediaTrafficService();
 
 
 
@@ -59,6 +62,15 @@ async function findFileServiceForPath(filePath) {
   }
 
   throw { code: "ENOENT", msg: "File not found" };
+}
+
+function recordMediaTraffic(req, file, endpoint) {
+  usageMediaTraffic.recordServedFileAsync({
+    projectId: req.query.id_project || req.projectid,
+    path: req.query.path,
+    bytes: file && file.length,
+    endpoint: endpoint
+  });
 }
 
 /*
@@ -107,6 +119,7 @@ router.get("/", async (req, res) => {
     const { service, file } = await findFileServiceForPath(req.query.path);
     res.set({ "Content-Length": file.length});
     res.set({ "Content-Type": file.contentType});
+    recordMediaTraffic(req, file, 'files.inline');
     return service.getFileDataAsStream(req.query.path).on('error', (e)=> {
       if (isFileNotFound(e)) {
         winston.debug('File not found: '+req.query.path);
@@ -132,8 +145,9 @@ router.get("/download", async (req, res) => {
   winston.debug("filename:"+filename);
 
   try {
-    const { service } = await findFileServiceForPath(req.query.path);
+    const { service, file } = await findFileServiceForPath(req.query.path);
     res.attachment(filename);
+    recordMediaTraffic(req, file, 'files.download');
     return service.getFileDataAsStream(req.query.path).on('error', (e)=> {
       if (isFileNotFound(e)) {
         winston.debug('File not found: '+req.query.path);

@@ -6,6 +6,7 @@ var Message = require('../models/message');
 var Lead = require('../models/lead');
 var LeadConstants = require('../models/leadConstants');
 var ProjectUser = require('../models/project_user');
+var UsageMediaTrafficDaily = require('../models/usageMediaTrafficDaily');
 var platformUsageService = require('./platformUsageService');
 var fileStorageServiceFactory = require('./fileStorageServiceFactory');
 var { getPlan } = require('../pubmodules/billing/plans');
@@ -38,12 +39,6 @@ function usageMetric(current, limit, extra) {
   }, extra || {});
   metric.percent = percent(metric.current, metric.limit);
   return metric;
-}
-
-function getNested(object, path) {
-  return String(path || '').split('.').reduce(function(value, part) {
-    return value == null ? undefined : value[part];
-  }, object);
 }
 
 function resolvePeriod(project, options, now) {
@@ -255,6 +250,105 @@ async function getQuoteUsage(project, quoteManager, now) {
   };
 }
 
+function dayStart(date) {
+  var day = new Date(date);
+  day.setUTCHours(0, 0, 0, 0);
+  return day;
+}
+
+function rowsToEndpointUsage(rows) {
+  var result = {
+    requests: 0,
+    bytes: 0,
+    byEndpoint: {}
+  };
+
+  (rows || []).forEach(function(row) {
+    var endpoint = row._id || 'unknown';
+    var requests = numberOrZero(row.requests);
+    var bytes = numberOrZero(row.bytes);
+    result.requests += requests;
+    result.bytes += bytes;
+    result.byEndpoint[endpoint] = {
+      requests: requests,
+      bytes: bytes
+    };
+  });
+
+  return result;
+}
+
+async function aggregateMediaTraffic(Model, projectId, period) {
+  if (!Model || !Model.aggregate) {
+    return rowsToEndpointUsage([]);
+  }
+
+  var rows = await Model.aggregate([
+    {
+      $match: {
+        id_project: String(projectId),
+        day: { $gte: dayStart(period.start), $lt: period.end }
+      }
+    },
+    {
+      $group: {
+        _id: '$endpoint',
+        requests: { $sum: '$requests' },
+        bytes: { $sum: '$bytes' }
+      }
+    },
+    { $sort: { _id: 1 } }
+  ]);
+
+  return rowsToEndpointUsage(rows);
+}
+
+function parseRate(value, fallback) {
+  var parsed = Number(value);
+  return isNaN(parsed) || parsed < 0 ? fallback : parsed;
+}
+
+function buildCostRates(overrides) {
+  return Object.assign({
+    storageGbMonth: parseRate(process.env.USAGE_COST_STORAGE_GB_MONTH_USD, 0.015),
+    mediaTrafficGb: parseRate(process.env.USAGE_COST_MEDIA_TRAFFIC_GB_USD, 0),
+    aiToken1k: parseRate(process.env.USAGE_COST_AI_TOKEN_1K_USD, 0),
+    emailUnit: parseRate(process.env.USAGE_COST_EMAIL_UNIT_USD, 0)
+  }, overrides || {});
+}
+
+function money(value) {
+  return Math.round(numberOrZero(value) * 100) / 100;
+}
+
+function estimateCost(usage, rates) {
+  var bytesInGb = 1024 * 1024 * 1024;
+  var storageBytes = numberOrZero(usage.attachments && usage.attachments.bytes);
+  var trafficBytes = numberOrZero(usage.mediaTraffic && usage.mediaTraffic.bytes);
+  var tokens = numberOrZero(usage.tokens && usage.tokens.current);
+  var email = numberOrZero(usage.email && usage.email.current);
+
+  var storageCost = (storageBytes / bytesInGb) * rates.storageGbMonth;
+  var trafficCost = (trafficBytes / bytesInGb) * rates.mediaTrafficGb;
+  var tokenCost = (tokens / 1000) * rates.aiToken1k;
+  var emailCost = email * rates.emailUnit;
+  var total = storageCost + trafficCost + tokenCost + emailCost;
+
+  return {
+    currency: 'USD',
+    rates: rates,
+    storageBytes: storageBytes,
+    mediaTrafficBytes: trafficBytes,
+    tokens: tokens,
+    email: email,
+    storageCostMonthly: money(storageCost),
+    mediaTrafficCostMonthly: money(trafficCost),
+    tokenCostMonthly: money(tokenCost),
+    emailCostMonthly: money(emailCost),
+    estimatedCostMonthly: money(total)
+  };
+}
+
 function createUsageMeteringService(deps) {
   deps = deps || {};
 
@@ -263,11 +357,13 @@ function createUsageMeteringService(deps) {
     Request: deps.Request || Request,
     Message: deps.Message || Message,
     Lead: deps.Lead || Lead,
-    ProjectUser: deps.ProjectUser || ProjectUser
+    ProjectUser: deps.ProjectUser || ProjectUser,
+    UsageMediaTrafficDaily: deps.UsageMediaTrafficDaily || UsageMediaTrafficDaily
   };
   var platformService = deps.platformUsageService || platformUsageService;
   var nowFn = deps.now || function() { return new Date(); };
   var leadNormalStatus = deps.leadNormalStatus || LeadConstants.NORMAL;
+  var costRates = buildCostRates(deps.costRates);
 
   async function getProjectUsage(projectId, options) {
     options = options || {};
@@ -310,6 +406,7 @@ function createUsageMeteringService(deps) {
       messagesByChannel,
       messagesByType,
       quoteUsage,
+      mediaTraffic,
       attachmentMessages
     ] = await Promise.all([
       models.Lead.countDocuments(contactsQuery),
@@ -321,6 +418,7 @@ function createUsageMeteringService(deps) {
       aggregateByField(models.Message, baseMatch, 'channel.name'),
       aggregateByField(models.Message, baseMatch, 'type'),
       getQuoteUsage(project, quoteManager, now),
+      aggregateMediaTraffic(models.UsageMediaTrafficDaily, projectId, period),
       models.Message.find(baseMatch).select('metadata text type').lean()
     ]);
 
@@ -333,7 +431,7 @@ function createUsageMeteringService(deps) {
       ? { paths: Array.from(new Set(attachmentPaths)), count: Array.from(new Set(attachmentPaths)).length, measuredCount: 0, missingCount: 0, bytes: null, truncated: false, headLimit: 0 }
       : await measureFilePaths(attachmentPaths, fileServices, options.fileHeadLimit);
 
-    return {
+    var usage = {
       generatedAt: toIso(now),
       project: {
         id: String(project._id),
@@ -357,10 +455,14 @@ function createUsageMeteringService(deps) {
         byType: messagesByType
       },
       attachments: attachments,
+      mediaTraffic: mediaTraffic,
       tokens: quoteUsage.tokens,
       email: quoteUsage.email,
       quoteSource: quoteUsage.quoteSource
     };
+
+    usage.costEstimate = estimateCost(usage, costRates);
+    return usage;
   }
 
   return {
@@ -372,5 +474,7 @@ module.exports = {
   createUsageMeteringService: createUsageMeteringService,
   resolvePeriod: resolvePeriod,
   extractFilePathsFromMessage: extractFilePathsFromMessage,
-  measureFilePaths: measureFilePaths
+  measureFilePaths: measureFilePaths,
+  aggregateMediaTraffic: aggregateMediaTraffic,
+  estimateCost: estimateCost
 };

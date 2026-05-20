@@ -164,6 +164,20 @@ describe('usageMeteringService', function() {
       platformUsageService: {
         countConnectedPlatforms: async function() { return 2; }
       },
+      UsageMediaTrafficDaily: {
+        aggregate: async function() {
+          return [
+            { _id: 'files.inline', requests: 3, bytes: 4096 },
+            { _id: 'files.download', requests: 1, bytes: 2048 }
+          ];
+        }
+      },
+      costRates: {
+        storageGbMonth: 1,
+        mediaTrafficGb: 2,
+        aiToken1k: 0.5,
+        emailUnit: 0.01
+      },
       quoteManager: {
         getAllQuotes: async function() {
           return {
@@ -205,6 +219,15 @@ describe('usageMeteringService', function() {
     assert.strictEqual(usage.attachments.count, 2);
     assert.strictEqual(usage.attachments.measuredCount, 2);
     assert.strictEqual(usage.attachments.bytes, 3072);
+    assert.strictEqual(usage.mediaTraffic.requests, 4);
+    assert.strictEqual(usage.mediaTraffic.bytes, 6144);
+    assert.deepStrictEqual(usage.mediaTraffic.byEndpoint, {
+      'files.download': { requests: 1, bytes: 2048 },
+      'files.inline': { requests: 3, bytes: 4096 }
+    });
+    assert.strictEqual(usage.costEstimate.currency, 'USD');
+    assert.strictEqual(usage.costEstimate.rates.storageGbMonth, 1);
+    assert.strictEqual(usage.costEstimate.estimatedCostMonthly, 0.09);
     assert.strictEqual(usage.tokens.current, 42);
     assert.strictEqual(usage.tokens.limit, 10000000);
     assert.strictEqual(usage.email.current, 7);

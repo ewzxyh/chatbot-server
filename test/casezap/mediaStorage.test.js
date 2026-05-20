@@ -39,7 +39,7 @@ describe('CaseZap mediaStorage', function() {
       }
     };
 
-    const result = await persistMappedMedia(mapped, { _id: '69f1115ecbfe61136b1535ea' }, {
+    const result = await persistMappedMedia(mapped, { _id: '69f1115ecbfe61136b1535ea', id_project: 'project-1' }, {
       fileService,
       baseFileUrl: 'https://app.example/api',
       expireAt: new Date('2026-05-08T00:00:00Z')
@@ -52,6 +52,8 @@ describe('CaseZap mediaStorage', function() {
     assert.strictEqual(result.metadata.externalSrc, sourceUrl);
     assert.ok(result.metadata.src.startsWith('https://app.example/api/files?path='));
     assert.ok(result.metadata.downloadUrl.startsWith('https://app.example/api/files/download?path='));
+    assert.ok(result.metadata.src.includes('&id_project=project-1'));
+    assert.ok(result.metadata.downloadUrl.includes('&id_project=project-1'));
     assert.strictEqual(result.text, '[' + result.metadata.name + '](' + result.metadata.src + ')');
   });
 

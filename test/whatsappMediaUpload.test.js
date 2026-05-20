@@ -35,8 +35,8 @@ describe('TiledeskWhatsapp uploadMedia', function() {
       assert.strictEqual(scope.isDone(), true);
       assert.deepStrictEqual(uploadedFile, {
         filename: 'uploads/users/report.pdf',
-        url: 'https://public.example/api/files?path=uploads%2Fusers%2Freport.pdf',
-        downloadUrl: 'https://public.example/api/files/download?path=uploads%2Fusers%2Freport.pdf',
+        url: 'https://public.example/api/files?path=uploads%2Fusers%2Freport.pdf&id_project=project-1',
+        downloadUrl: 'https://public.example/api/files/download?path=uploads%2Fusers%2Freport.pdf&id_project=project-1',
       });
     } finally {
       if (fs.existsSync(tmpFile)) {
@@ -69,11 +69,11 @@ describe('TiledeskWhatsapp uploadMedia', function() {
       assert.strictEqual(scope.isDone(), true);
       assert.deepStrictEqual(uploadedFile, {
         filename: 'uploads/users/user-1/files/folder-1/photo.jpg',
-        url: 'https://public.example/api/files?path=uploads%2Fusers%2Fuser-1%2Ffiles%2Ffolder-1%2Fphoto.jpg',
-        downloadUrl: 'https://public.example/api/files/download?path=uploads%2Fusers%2Fuser-1%2Ffiles%2Ffolder-1%2Fphoto.jpg',
+        url: 'https://public.example/api/files?path=uploads%2Fusers%2Fuser-1%2Ffiles%2Ffolder-1%2Fphoto.jpg&id_project=project-1',
+        downloadUrl: 'https://public.example/api/files/download?path=uploads%2Fusers%2Fuser-1%2Ffiles%2Ffolder-1%2Fphoto.jpg&id_project=project-1',
         thumbnail: 'uploads/users/user-1/files/folder-1/thumbnails_200_200-photo.jpg',
-        thumbnailUrl: 'https://public.example/api/files?path=uploads%2Fusers%2Fuser-1%2Ffiles%2Ffolder-1%2Fthumbnails_200_200-photo.jpg',
-        thumbnailDownloadUrl: 'https://public.example/api/files/download?path=uploads%2Fusers%2Fuser-1%2Ffiles%2Ffolder-1%2Fthumbnails_200_200-photo.jpg',
+        thumbnailUrl: 'https://public.example/api/files?path=uploads%2Fusers%2Fuser-1%2Ffiles%2Ffolder-1%2Fthumbnails_200_200-photo.jpg&id_project=project-1',
+        thumbnailDownloadUrl: 'https://public.example/api/files/download?path=uploads%2Fusers%2Fuser-1%2Ffiles%2Ffolder-1%2Fthumbnails_200_200-photo.jpg&id_project=project-1',
       });
     } finally {
       if (fs.existsSync(tmpFile)) {

@@ -8,6 +8,7 @@ const mime = require('mime-types');
 const path = require('path');
 const sharp = require('sharp');
 const verifyFileContent = require('../middleware/file-type.js');
+const usageMediaTrafficService = require('../services/usageMediaTrafficService');
 
 require('../middleware/passport.js')(passport);
 const validtoken = require('../middleware/valid-token.js')
@@ -33,6 +34,7 @@ const fileService = createPrimaryFileService("files");
 const fallbackFileServices = isObjectStorageEnabled()
   ? createLegacyFallbackFileServices(["files", "images"])
   : createLegacyFallbackFileServices(["images"]);
+const usageMediaTraffic = usageMediaTrafficService.createUsageMediaTrafficService();
 
 
 let MAX_UPLOAD_FILE_SIZE = process.env.MAX_UPLOAD_FILE_SIZE || 1024000; // 1MB
@@ -247,6 +249,15 @@ async function createObjectStorageFile(filename, buffer, contentType, metadata) 
     contentType,
     metadata ? { metadata } : undefined
   );
+}
+
+function recordMediaTraffic(req, file, endpoint) {
+  usageMediaTraffic.recordServedFileAsync({
+    projectId: req.query.id_project || req.projectid,
+    path: req.query.path,
+    bytes: file && file.length,
+    endpoint: endpoint
+  });
 }
 
 
@@ -597,6 +608,7 @@ router.get("/", [
     const { service, file } = await findFileServiceForPath(req.query.path);
     res.set({ "Content-Length": file.length});
     res.set({ "Content-Type": file.contentType});
+    recordMediaTraffic(req, file, 'project_files.inline');
     return service.getFileDataAsStream(req.query.path).on('error', (e)=> {
       if (isFileNotFound(e)) {
         winston.debug('File not found: '+req.query.path);
@@ -625,8 +637,9 @@ router.get("/download", [
   winston.debug("filename:"+filename);
 
   try {
-    const { service } = await findFileServiceForPath(req.query.path);
+    const { service, file } = await findFileServiceForPath(req.query.path);
     res.attachment(filename);
+    recordMediaTraffic(req, file, 'project_files.download');
     return service.getFileDataAsStream(req.query.path).on('error', (e)=> {
       if (isFileNotFound(e)) {
         winston.debug('File not found: '+req.query.path);

@@ -5,6 +5,7 @@ require('../middleware/passport')(passport);
 var validtoken = require('../middleware/valid-token')
 var winston = require('../config/winston');
 var pathlib = require('path');
+var usageMediaTrafficService = require('../services/usageMediaTrafficService');
 
 var router = express.Router();
 
@@ -27,6 +28,7 @@ const fileService = createPrimaryFileService("images");
 const fallbackFileServices = isObjectStorageEnabled()
   ? createLegacyFallbackFileServices(["files", "images"])
   : [];
+const usageMediaTraffic = usageMediaTrafficService.createUsageMediaTrafficService();
 
 
 
@@ -213,6 +215,15 @@ async function findFileServiceForPath(filePath) {
   }
 
   throw { code: "ENOENT", msg: "File not found" };
+}
+
+function recordMediaTraffic(req, file) {
+  usageMediaTraffic.recordServedFileAsync({
+    projectId: req.query.id_project || req.projectid,
+    path: req.query.path,
+    bytes: file && file.length,
+    endpoint: 'images.inline'
+  });
 }
 
 /*
@@ -528,6 +539,7 @@ router.get("/", async (req, res) => {
 
     res.set({ "Content-Length": file.length});
     res.set({ "Content-Type": file.contentType});
+    recordMediaTraffic(req, file);
 
     return service.getFileDataAsStream(req.query.path).on('error', (e)=> {
         if (isFileNotFound(e)) {

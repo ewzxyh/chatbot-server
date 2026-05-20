@@ -37,6 +37,19 @@ function getAsSuperAdmin(path, email, password) {
   });
 }
 
+function postAsSuperAdmin(path, email, password, body) {
+  return new Promise(function(resolve, reject) {
+    chai.request(server)
+      .post(path)
+      .auth(email, password)
+      .send(body || {})
+      .end(function(err, res) {
+        if (err) return reject(err);
+        resolve(res);
+      });
+  });
+}
+
 describe('UsageMeteringRoute', function() {
   var pwd = 'Pwd1234!';
   var adminUser;
@@ -126,6 +139,82 @@ describe('UsageMeteringRoute', function() {
     expect(res.body.messages.total).to.equal(1);
     expect(res.body.messages.byChannel.casezap).to.equal(1);
     expect(res.body.attachments.bytes).to.equal(null);
+  });
+
+  it('persists and exports monthly project usage snapshots for superadmin', async function() {
+    var project = await Project.create({
+      name: 'Usage Metering Snapshot Project',
+      createdBy: 'usage-metering-test',
+      profile: {
+        name: 'Business',
+        type: 'payment',
+        agents: 10,
+        quotes: {
+          contacts: 50000,
+          platforms: 5,
+          members: 10,
+          tokens: 10000000,
+          email: 200
+        },
+        subStart: new Date('2026-05-01T00:00:00.000Z'),
+        subEnd: new Date('2026-06-01T00:00:00.000Z')
+      }
+    });
+
+    await ProjectUser.create({
+      id_project: project._id,
+      id_user: adminUser._id,
+      role: 'owner',
+      createdBy: 'usage-metering-test',
+      status: 'active'
+    });
+
+    await Lead.create({
+      lead_id: 'lead-usage-snapshot-1',
+      id_project: String(project._id),
+      status: 100,
+      createdBy: 'usage-metering-test',
+      createdAt: new Date('2026-05-05T00:00:00.000Z')
+    });
+
+    await Request.create({
+      request_id: 'usage-request-snapshot-1',
+      first_text: 'hello',
+      id_project: String(project._id),
+      createdBy: 'usage-metering-test',
+      createdAt: new Date('2026-05-05T00:00:00.000Z')
+    });
+
+    await Message.create({
+      sender: 'visitor',
+      recipient: 'support-group-' + project._id,
+      type: 'text',
+      channel_type: 'group',
+      channel: { name: 'casezap' },
+      text: 'hello',
+      id_project: String(project._id),
+      status: 200,
+      createdBy: 'usage-metering-test',
+      createdAt: new Date('2026-05-05T00:00:00.000Z')
+    });
+
+    var savePath = '/sadmin/usage-metering/projects/' + project._id +
+      '/snapshots?from=2026-05-01T00:00:00.000Z&to=2026-06-01T00:00:00.000Z&includeStorage=false';
+    var saveRes = await postAsSuperAdmin(savePath, adminEmail, pwd);
+
+    expect(saveRes).to.have.status(201);
+    expect(saveRes.body.periodKey).to.equal('2026-05');
+    expect(saveRes.body.metrics.contacts.current).to.equal(1);
+
+    var listRes = await getAsSuperAdmin('/sadmin/usage-metering/projects/' + project._id + '/snapshots', adminEmail, pwd);
+    expect(listRes).to.have.status(200);
+    expect(listRes.body.data).to.have.length(1);
+    expect(listRes.body.data[0].periodKey).to.equal('2026-05');
+
+    var csvRes = await getAsSuperAdmin('/sadmin/usage-metering/projects/' + project._id + '/report.csv', adminEmail, pwd);
+    expect(csvRes).to.have.status(200);
+    expect(csvRes.text).to.contain('period_key,project_name,plan');
+    expect(csvRes.text).to.contain('2026-05,Usage Metering Snapshot Project,Business');
   });
 
   after(async function() {

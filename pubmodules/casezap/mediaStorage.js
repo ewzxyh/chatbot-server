@@ -119,11 +119,12 @@ function originalFilename(mapped, sourceUrl, contentType) {
   return name;
 }
 
-function publicFileUrls(filename, baseFileUrl) {
+function publicFileUrls(filename, baseFileUrl, projectId) {
   var encodedPath = encodeURIComponent(filename);
+  var projectQuery = projectId ? '&id_project=' + encodeURIComponent(projectId) : '';
   return {
-    url: baseFileUrl + '/files?path=' + encodedPath,
-    downloadUrl: baseFileUrl + '/files/download?path=' + encodedPath
+    url: baseFileUrl + '/files?path=' + encodedPath + projectQuery,
+    downloadUrl: baseFileUrl + '/files/download?path=' + encodedPath + projectQuery
   };
 }
 
@@ -290,13 +291,14 @@ async function persistInboundMediaFromUrl(mapped, integration, options) {
       }
     });
 
-    var urls = publicFileUrls(filename, baseFileUrl);
+    var projectId = integration && integration.id_project ? String(integration.id_project) : undefined;
+    var urls = publicFileUrls(filename, baseFileUrl, projectId);
     return {
       filename: filename,
       url: urls.url,
       downloadUrl: urls.downloadUrl,
       thumbnail: thumbnail,
-      thumbnailUrl: thumbnail ? publicFileUrls(thumbnail, baseFileUrl).url : undefined,
+      thumbnailUrl: thumbnail ? publicFileUrls(thumbnail, baseFileUrl, projectId).url : undefined,
       sourceUrl: sourceUrl,
       contentType: contentType
     };

@@ -21,6 +21,7 @@ var operationalLogger = require('../services/operationalLogger');
 var operationalMetricsService = require('../services/operationalMetricsService');
 var sentryService = require('../services/sentryService');
 var usageMeteringService = require('../services/usageMeteringService');
+var usageMeteringSnapshotService = require('../services/usageMeteringSnapshotService');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
 
@@ -454,6 +455,65 @@ router.get('/operational-metrics', auth, async function (req, res) {
   } catch (err) {
     winston.error('sadmin operational metrics error', err);
     res.status(500).json({ error: 'Failed to fetch operational metrics' });
+  }
+});
+
+router.post('/usage-metering/projects/:id/snapshots', auth, async function (req, res) {
+  try {
+    var service = usageMeteringSnapshotService.createUsageMeteringSnapshotService({
+      quoteManager: req.app.get('quote_manager')
+    });
+
+    var snapshot = await service.saveProjectSnapshot(req.params.id, {
+      from: req.query.from,
+      to: req.query.to,
+      includeStorage: req.query.includeStorage !== 'false',
+      fileHeadLimit: parseLimit(req.query.fileHeadLimit, 500, 5000),
+      source: req.body && req.body.source ? req.body.source : 'manual',
+      quoteManager: req.app.get('quote_manager')
+    });
+
+    res.status(201).json(snapshot);
+  } catch (err) {
+    if (err && err.status === 404) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    winston.error('sadmin usage snapshot save error', err);
+    res.status(500).json({ error: 'Failed to save usage snapshot' });
+  }
+});
+
+router.get('/usage-metering/projects/:id/snapshots', auth, async function (req, res) {
+  try {
+    var service = usageMeteringSnapshotService.createUsageMeteringSnapshotService();
+    var snapshots = await service.listProjectSnapshots(req.params.id, {
+      from: req.query.from,
+      to: req.query.to,
+      limit: parseLimit(req.query.limit, 24, 60)
+    });
+
+    res.json({ data: snapshots, count: snapshots.length });
+  } catch (err) {
+    winston.error('sadmin usage snapshots list error', err);
+    res.status(500).json({ error: 'Failed to fetch usage snapshots' });
+  }
+});
+
+router.get('/usage-metering/projects/:id/report.csv', auth, async function (req, res) {
+  try {
+    var service = usageMeteringSnapshotService.createUsageMeteringSnapshotService();
+    var csv = await service.exportProjectSnapshotsCsv(req.params.id, {
+      from: req.query.from,
+      to: req.query.to,
+      limit: parseLimit(req.query.limit, 24, 60)
+    });
+
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', 'attachment; filename="usage-metering-' + req.params.id + '.csv"');
+    res.status(200).send(csv);
+  } catch (err) {
+    winston.error('sadmin usage snapshots export error', err);
+    res.status(500).json({ error: 'Failed to export usage snapshots' });
   }
 });
 
