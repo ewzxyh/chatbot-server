@@ -46,6 +46,35 @@ class RequestService {
     // this.sendMessageUpdateLead();
   }
 
+  shouldAutoAssignSoleAgent() {
+    return process.env.CHATCASE_AUTO_ASSIGN_SOLE_AGENT !== 'false';
+  }
+
+  resolveOperatorsForAssignment(result) {
+    if (!result) {
+      return [];
+    }
+
+    if (result.operators && result.operators.length > 0) {
+      return result.operators;
+    }
+
+    if (!this.shouldAutoAssignSoleAgent()) {
+      return result.operators || [];
+    }
+
+    var agents = Array.isArray(result.agents)
+      ? result.agents.filter(function(agent) { return agent && agent.id_user; })
+      : [];
+
+    if (agents.length === 1) {
+      winston.info('ChatCase auto assigning request to the only active project agent');
+      return [{ id_user: agents[0].id_user }];
+    }
+
+    return result.operators || [];
+  }
+
       // 12 marzo 2024 I disabled these two functions due to performance problems for a chatbot created by Sponziello "Community bots Sendinblue Hubspot Qapla)"
   // updateSnapshotLead() {
   //   leadEvent.on('lead.update', function (lead) {
@@ -181,8 +210,9 @@ class RequestService {
         var participantsBots = [];
         var hasBot = false;
 
-        if (result.operators && result.operators.length > 0) {
-          assigned_operator_id = result.operators[0].id_user;
+        var operators = that.resolveOperatorsForAssignment(result);
+        if (operators && operators.length > 0) {
+          assigned_operator_id = operators[0].id_user;
 
           status = RequestConstants.ASSIGNED;
 
@@ -581,8 +611,9 @@ class RequestService {
 
       // Assignment
       if (participants.length === 0) {
-        if (result.operators?.length > 0) {
-          participants.push(result.operators[0].id_user.toString());
+        const operators = this.resolveOperatorsForAssignment(result);
+        if (operators?.length > 0) {
+          participants.push(operators[0].id_user.toString());
         }
         dep_id = result.department._id;
       }
@@ -2515,6 +2546,11 @@ class RequestService {
 
 var requestService = new RequestService();
 
+if (process.env.NODE_ENV === 'test') {
+  requestService.__test = {
+    resolveOperatorsForAssignment: requestService.resolveOperatorsForAssignment.bind(requestService),
+    shouldAutoAssignSoleAgent: requestService.shouldAutoAssignSoleAgent.bind(requestService)
+  };
+}
 
 module.exports = requestService;
-
