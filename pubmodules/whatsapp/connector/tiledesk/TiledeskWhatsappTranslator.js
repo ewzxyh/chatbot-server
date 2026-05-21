@@ -78,7 +78,7 @@ const path = require('path');
       var messageType = tiledeskChannelMessage.type || '';
 
       if ((metadataType && metadataType.startsWith('image')) || messageType.startsWith('image')) {
-        var imgUrl = tiledeskChannelMessage.metadata.src;
+        var imgUrl = tiledeskChannelMessage.metadata.cdnUrl || tiledeskChannelMessage.metadata.src;
         whatsapp_message.type = 'image'
         whatsapp_message.image = {
           link: imgUrl,
@@ -87,7 +87,7 @@ const path = require('path');
       }
 
       else if ((metadataType && metadataType.startsWith('video')) || messageType.startsWith('video')) {
-        var videoUrl = tiledeskChannelMessage.metadata.src;
+        var videoUrl = tiledeskChannelMessage.metadata.cdnUrl || tiledeskChannelMessage.metadata.src;
         whatsapp_message.type = 'video'
         whatsapp_message.video = {
           link: videoUrl,
@@ -96,7 +96,12 @@ const path = require('path');
       }
 
       else if (metadataType.startsWith('application')) {
-        var doc = tiledeskChannelMessage.metadata.downloadURL || tiledeskChannelMessage.metadata.src || tiledeskChannelMessage.metadata.url;
+        var doc = tiledeskChannelMessage.metadata.downloadCdnUrl ||
+          tiledeskChannelMessage.metadata.cdnUrl ||
+          tiledeskChannelMessage.metadata.downloadUrl ||
+          tiledeskChannelMessage.metadata.downloadURL ||
+          tiledeskChannelMessage.metadata.src ||
+          tiledeskChannelMessage.metadata.url;
         if (!doc) {
           winston.verbose("(wab) [Translator] document url missing")
           return null
@@ -556,8 +561,14 @@ const path = require('path');
           src: mediaDownloadUrl
         }
       }
+      if (uploadedMedia.cdnUrl) {
+        tiledeskMessage.metadata.cdnUrl = uploadedMedia.cdnUrl;
+      }
       if (mediaThumbnailUrl) {
         tiledeskMessage.metadata.thumbnail = mediaThumbnailUrl;
+      }
+      if (uploadedMedia.thumbnailCdnUrl) {
+        tiledeskMessage.metadata.thumbnailCdnUrl = uploadedMedia.thumbnailCdnUrl;
       }
       return tiledeskMessage;
     }
@@ -580,6 +591,9 @@ const path = require('path');
           type: "video/mp4",
           src: mediaDownloadUrl,
         }
+      }
+      if (uploadedMedia.cdnUrl) {
+        tiledeskMessage.metadata.cdnUrl = uploadedMedia.cdnUrl;
       }
       return tiledeskMessage;
     }
@@ -612,6 +626,12 @@ const path = require('path');
       if (uploadedMedia.downloadUrl) {
         tiledeskMessage.metadata.downloadUrl = uploadedMedia.downloadUrl;
       }
+      if (uploadedMedia.cdnUrl) {
+        tiledeskMessage.metadata.cdnUrl = uploadedMedia.cdnUrl;
+      }
+      if (uploadedMedia.downloadCdnUrl) {
+        tiledeskMessage.metadata.downloadCdnUrl = uploadedMedia.downloadCdnUrl;
+      }
       return tiledeskMessage;
     }
 
@@ -633,6 +653,9 @@ const path = require('path');
           type: "audio/mpeg",
           src: mediaDownloadUrl
         }
+      }
+      if (uploadedMedia.cdnUrl) {
+        tiledeskMessage.metadata.cdnUrl = uploadedMedia.cdnUrl;
       }
       return tiledeskMessage;
     }

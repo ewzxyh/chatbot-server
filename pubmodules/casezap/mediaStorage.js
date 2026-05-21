@@ -13,6 +13,7 @@ var {
 var {
   createChatImageThumbnail
 } = require('../../services/chatAttachmentThumbnailService');
+var mediaCdnUrlService = require('../../services/mediaCdnUrlService');
 var verifyFileContent = require('../../middleware/file-type.js');
 var operationalLogger = require('../../services/operationalLogger');
 
@@ -119,13 +120,15 @@ function originalFilename(mapped, sourceUrl, contentType) {
   return name;
 }
 
-function publicFileUrls(filename, baseFileUrl, projectId) {
-  var encodedPath = encodeURIComponent(filename);
-  var projectQuery = projectId ? '&id_project=' + encodeURIComponent(projectId) : '';
-  return {
-    url: baseFileUrl + '/files?path=' + encodedPath + projectQuery,
-    downloadUrl: baseFileUrl + '/files/download?path=' + encodedPath + projectQuery
-  };
+function publicFileUrls(filename, baseFileUrl, projectId, options) {
+  var env = options && options.mediaCdnEnv ? options.mediaCdnEnv : process.env;
+  return mediaCdnUrlService.buildMediaUrls({
+    filename: filename,
+    baseFileUrl: baseFileUrl,
+    projectId: projectId,
+    env: env,
+    preferCdnUrl: mediaCdnUrlService.replaceSrcEnabled(env)
+  });
 }
 
 function maxMediaBytes(options) {
@@ -292,13 +295,21 @@ async function persistInboundMediaFromUrl(mapped, integration, options) {
     });
 
     var projectId = integration && integration.id_project ? String(integration.id_project) : undefined;
-    var urls = publicFileUrls(filename, baseFileUrl, projectId);
+    var urls = publicFileUrls(filename, baseFileUrl, projectId, options);
+    var thumbnailUrls = thumbnail ? publicFileUrls(thumbnail, baseFileUrl, projectId, options) : {};
     return {
       filename: filename,
       url: urls.url,
       downloadUrl: urls.downloadUrl,
+      cdnUrl: urls.cdnUrl,
+      downloadCdnUrl: urls.downloadCdnUrl,
+      proxyUrl: urls.proxyUrl,
+      proxyDownloadUrl: urls.proxyDownloadUrl,
       thumbnail: thumbnail,
-      thumbnailUrl: thumbnail ? publicFileUrls(thumbnail, baseFileUrl, projectId).url : undefined,
+      thumbnailUrl: thumbnail ? thumbnailUrls.url : undefined,
+      thumbnailCdnUrl: thumbnailUrls.cdnUrl,
+      thumbnailDownloadCdnUrl: thumbnailUrls.downloadCdnUrl,
+      thumbnailProxyUrl: thumbnailUrls.proxyUrl,
       sourceUrl: sourceUrl,
       contentType: contentType
     };
@@ -354,6 +365,18 @@ async function persistMappedMedia(mapped, integration, options) {
   mapped.metadata.externalSrc = stored.sourceUrl;
   mapped.metadata.src = stored.url;
   mapped.metadata.downloadUrl = stored.downloadUrl;
+  if (stored.cdnUrl) {
+    mapped.metadata.cdnUrl = stored.cdnUrl;
+  }
+  if (stored.downloadCdnUrl) {
+    mapped.metadata.downloadCdnUrl = stored.downloadCdnUrl;
+  }
+  if (stored.proxyUrl) {
+    mapped.metadata.proxySrc = stored.proxyUrl;
+  }
+  if (stored.proxyDownloadUrl) {
+    mapped.metadata.proxyDownloadUrl = stored.proxyDownloadUrl;
+  }
   if (stored.externalOnly) {
     mapped.metadata.externalOnly = true;
     mapped.metadata.rehostSkipped = true;
@@ -364,6 +387,9 @@ async function persistMappedMedia(mapped, integration, options) {
   }
   if (stored.thumbnailUrl) {
     mapped.metadata.thumbnail = stored.thumbnailUrl;
+  }
+  if (stored.thumbnailCdnUrl) {
+    mapped.metadata.thumbnailCdnUrl = stored.thumbnailCdnUrl;
   }
   if (stored.contentType && mapped.type !== 'image') {
     mapped.metadata.type = stored.contentType;

@@ -42,7 +42,13 @@ describe('CaseZap mediaStorage', function() {
     const result = await persistMappedMedia(mapped, { _id: '69f1115ecbfe61136b1535ea', id_project: 'project-1' }, {
       fileService,
       baseFileUrl: 'https://app.example/api',
-      expireAt: new Date('2026-05-08T00:00:00Z')
+      expireAt: new Date('2026-05-08T00:00:00Z'),
+      mediaCdnEnv: {
+        MEDIA_CDN_ENABLED: 'true',
+        MEDIA_CDN_BASE_URL: 'https://media.example',
+        MEDIA_CDN_SIGNING_SECRET: 'REDACTED_SECRET',
+        MEDIA_CDN_DEFAULT_TTL_SECONDS: '60'
+      }
     });
 
     assert.strictEqual(stored.length, 1);
@@ -54,6 +60,10 @@ describe('CaseZap mediaStorage', function() {
     assert.ok(result.metadata.downloadUrl.startsWith('https://app.example/api/files/download?path='));
     assert.ok(result.metadata.src.includes('&id_project=project-1'));
     assert.ok(result.metadata.downloadUrl.includes('&id_project=project-1'));
+    assert.ok(result.metadata.cdnUrl.startsWith('https://media.example/files/uploads/users/casezap-69f1115ecbfe61136b1535ea/files/'));
+    assert.ok(result.metadata.downloadCdnUrl.startsWith('https://media.example/files/uploads/users/casezap-69f1115ecbfe61136b1535ea/files/'));
+    assert.strictEqual(result.metadata.proxySrc, result.metadata.src);
+    assert.strictEqual(result.metadata.proxyDownloadUrl, result.metadata.downloadUrl);
     assert.strictEqual(result.text, '[' + result.metadata.name + '](' + result.metadata.src + ')');
   });
 

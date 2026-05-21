@@ -201,14 +201,16 @@ describe('CaseZap messageMapper', function() {
       assert.strictEqual(result.body.text, 'Hello!');
     });
     it('should map image to /send/media', function() {
-      var result = messageMapper.mapOutbound({ text: 'cap', type: 'image', metadata: { src: 'https://img.com/x.jpg', type: 'image' } }, '55');
+      var result = messageMapper.mapOutbound({ text: 'cap', type: 'image', metadata: { src: 'https://img.com/x.jpg', cdnUrl: 'https://media.example/x.jpg', type: 'image' } }, '55');
       assert.strictEqual(result.endpoint, '/send/media');
       assert.strictEqual(result.body.type, 'image');
+      assert.strictEqual(result.body.file, 'https://media.example/x.jpg');
     });
     it('should map document to /send/media with docName', function() {
-      var result = messageMapper.mapOutbound({ type: 'file', metadata: { src: 'https://x.com/f.pdf', name: 'report.pdf', type: 'file' } }, '55');
+      var result = messageMapper.mapOutbound({ type: 'file', metadata: { src: 'https://x.com/f.pdf', downloadCdnUrl: 'https://media.example/f.pdf', name: 'report.pdf', type: 'file' } }, '55');
       assert.strictEqual(result.body.type, 'document');
       assert.strictEqual(result.body.docName, 'report.pdf');
+      assert.strictEqual(result.body.file, 'https://media.example/f.pdf');
     });
     it('should map buttons to /send/menu', function() {
       var result = messageMapper.mapOutbound({ text: 'Choose:', type: 'text', attributes: { attachment: { buttons: [{ label: 'Yes' }, { label: 'No' }] } } }, '55');

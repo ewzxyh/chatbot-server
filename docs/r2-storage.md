@@ -49,3 +49,17 @@ If one bucket is used temporarily, keep distinct prefixes, for example `uploads/
 - Existing GridFS files keep working while new objects are stored externally.
 
 Keep the R2 bucket private. The application serves files through the API, so public bucket URLs are not required.
+
+## Optional signed CDN Worker
+
+For production media optimization, ChatCase can generate signed URLs for a Cloudflare Worker in front of the same private R2 bucket:
+
+```env
+MEDIA_CDN_ENABLED=true
+MEDIA_CDN_BASE_URL=https://media.chatcase.com.br
+MEDIA_CDN_SIGNING_SECRET=...
+MEDIA_CDN_DEFAULT_TTL_SECONDS=604800
+MEDIA_CDN_REPLACE_SRC=false
+```
+
+When enabled, new WABA and CaseZap media metadata receives `cdnUrl` and `downloadCdnUrl` while keeping `/api/files` in `metadata.src`/`downloadUrl` as a fallback. Outbound channel translators prefer CDN URLs when present. Use `MEDIA_CDN_REPLACE_SRC=true` only after validating expiration behavior in the chat UI, because `metadata.src` is persisted on old messages.

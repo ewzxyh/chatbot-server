@@ -26,6 +26,7 @@ const {
   buildThumbnailPath,
 } = require('../services/fileUploadPathBuilder');
 const { createChatImageThumbnail } = require('../services/chatAttachmentThumbnailService');
+const mediaCdnUrlService = require('../services/mediaCdnUrlService');
 const roleConstants = require('../models/roleConstants.js');
 const faq_kb = require('../models/faq_kb');
 const project_user = require('../models/project_user');
@@ -260,6 +261,23 @@ function recordMediaTraffic(req, file, endpoint) {
   });
 }
 
+function mediaCdnResponseFields(filename, thumbnail) {
+  const fields = {};
+  const cdnUrl = mediaCdnUrlService.buildSignedMediaUrl(filename, { disposition: 'inline' });
+  const downloadCdnUrl = mediaCdnUrlService.buildSignedMediaUrl(filename, { disposition: 'attachment' });
+  if (cdnUrl) fields.cdnUrl = cdnUrl;
+  if (downloadCdnUrl) fields.downloadCdnUrl = downloadCdnUrl;
+
+  if (thumbnail) {
+    const thumbnailCdnUrl = mediaCdnUrlService.buildSignedMediaUrl(thumbnail, { disposition: 'inline' });
+    const thumbnailDownloadCdnUrl = mediaCdnUrlService.buildSignedMediaUrl(thumbnail, { disposition: 'attachment' });
+    if (thumbnailCdnUrl) fields.thumbnailCdnUrl = thumbnailCdnUrl;
+    if (thumbnailDownloadCdnUrl) fields.thumbnailDownloadCdnUrl = thumbnailDownloadCdnUrl;
+  }
+
+  return fields;
+}
+
 
 // *********************** //
 // ****** Endpoints ****** //
@@ -314,7 +332,10 @@ router.post('/chat', [
           winston.error("Error generating chat thumbnail", thumbErr);
         }
 
-        return res.status(201).send({ message: "File uploaded successfully", filename, thumbnail });
+        return res.status(201).send(Object.assign(
+          { message: "File uploaded successfully", filename, thumbnail },
+          mediaCdnResponseFields(filename, thumbnail)
+        ));
       }
 
       const buffer = await fileService.getFileDataAsBuffer(req.file.filename);
@@ -403,11 +424,11 @@ router.post('/assets', [
           await createObjectStorageFile(thumbnail, resized, req.file.mimetype, metadata);
         }
 
-        return res.status(201).send({
+        return res.status(201).send(Object.assign({
           message: 'File uploaded successfully',
           filename: encodeURIComponent(filename),
           thumbnail: thumbnail ? encodeURIComponent(thumbnail) : undefined
-        });
+        }, mediaCdnResponseFields(filename, thumbnail)));
       }
 
       const buffer = await fileService.getFileDataAsBuffer(req.file.filename);
@@ -540,18 +561,18 @@ router.post('/users/photo', [
           const resizeImage = await sharp(req.file.buffer).resize(200, 200).toBuffer();
           await createObjectStorageFile(thumFilename, resizeImage, req.file.mimetype);
 
-          return res.status(201).json({
+          return res.status(201).json(Object.assign({
             message: 'Image uploaded successfully',
             filename: encodeURIComponent(targetFilename),
             thumbnail: encodeURIComponent(thumFilename)
-          });
+          }, mediaCdnResponseFields(targetFilename, thumFilename)));
         } catch (thumbErr) {
           winston.error("Error generating or creating thumbnail", thumbErr);
-          return res.status(201).json({
+          return res.status(201).json(Object.assign({
             message: 'Image uploaded successfully',
             filename: encodeURIComponent(targetFilename),
             thumbnail: undefined
-          });
+          }, mediaCdnResponseFields(targetFilename)));
         }
       }
   

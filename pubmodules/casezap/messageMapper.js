@@ -144,6 +144,10 @@ function mapOutbound(tiledeskMessage, recipientPhone) {
     metadata = attributes.attachment;
   }
 
+  function outboundMediaUrl() {
+    return metadata.downloadCdnUrl || metadata.cdnUrl || metadata.downloadUrl || metadata.src || metadata.url;
+  }
+
   if (type === 'text' && !metadata.src) {
     if (attributes.attachment && attributes.attachment.buttons && attributes.attachment.buttons.length > 0) {
       return {
@@ -167,7 +171,7 @@ function mapOutbound(tiledeskMessage, recipientPhone) {
       endpoint: '/send/media',
       body: {
         number: number,
-        file: metadata.src || metadata.url,
+        file: outboundMediaUrl(),
         type: 'image',
         text: text || undefined
       }
@@ -179,7 +183,7 @@ function mapOutbound(tiledeskMessage, recipientPhone) {
       endpoint: '/send/media',
       body: {
         number: number,
-        file: metadata.src || metadata.url,
+        file: outboundMediaUrl(),
         type: 'video',
         text: text || undefined
       }
@@ -192,7 +196,7 @@ function mapOutbound(tiledeskMessage, recipientPhone) {
         endpoint: '/send/media',
         body: {
           number: number,
-          file: metadata.src || metadata.url,
+          file: outboundMediaUrl(),
           type: 'audio'
         }
       };
@@ -201,7 +205,7 @@ function mapOutbound(tiledeskMessage, recipientPhone) {
       endpoint: '/send/media',
       body: {
         number: number,
-        file: metadata.src || metadata.url,
+        file: outboundMediaUrl(),
         type: 'document',
         docName: metadata.name || 'document'
       }
