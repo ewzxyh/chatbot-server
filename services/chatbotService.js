@@ -52,9 +52,10 @@ class ChatbotService {
 
     // public bot
     } else {
+      const templatesBaseUrl = (chatbot_templates_api_url || api_url + "/modules/templates/public/templates").replace(/\/$/, "");
 
       return await axios({
-        url: chatbot_templates_api_url + "/" + id_faq_kb,
+        url: templatesBaseUrl + "/" + id_faq_kb,
         headers: {
           'Content-Type': 'application/json'
         },
