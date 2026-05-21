@@ -22,6 +22,7 @@ var operationalMetricsService = require('../services/operationalMetricsService')
 var sentryService = require('../services/sentryService');
 var usageMeteringService = require('../services/usageMeteringService');
 var usageMeteringSnapshotService = require('../services/usageMeteringSnapshotService');
+var billingLifecycleService = require('../services/billingLifecycleService');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
 
@@ -540,6 +541,53 @@ router.get('/usage-metering/projects/:id', auth, async function (req, res) {
   }
 });
 
+router.get('/projects/:id/billing-lifecycle', auth, async function (req, res) {
+  try {
+    var service = billingLifecycleService.createBillingLifecycleService();
+    var lifecycle = await service.getProjectLifecycle(req.params.id, {
+      limit: parseLimit(req.query.limit, 50, 200)
+    });
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      summary: lifecycle.summary,
+      events: lifecycle.events
+    });
+  } catch (err) {
+    if (err && err.status === 404) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    winston.error('sadmin billing lifecycle error', err);
+    res.status(500).json({ error: 'Failed to fetch billing lifecycle' });
+  }
+});
+
+router.post('/projects/:id/billing-lifecycle/actions', auth, async function (req, res) {
+  try {
+    var service = billingLifecycleService.createBillingLifecycleService();
+    var result = await service.applyAction(req.params.id, {
+      action: req.body && req.body.action,
+      reason: req.body && req.body.reason,
+      userId: getRequestUserEmail(req)
+    });
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      summary: result.summary,
+      updated: result.updated
+    });
+  } catch (err) {
+    if (err && err.status === 400) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err && err.status === 404) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    winston.error('sadmin billing lifecycle action error', err);
+    res.status(500).json({ error: 'Failed to apply billing lifecycle action' });
+  }
+});
+
 router.put('/projects/:id/plan', auth, async function (req, res) {
   try {
     var planKey = req.body.planKey;
@@ -565,12 +613,24 @@ router.put('/projects/:id/plan', auth, async function (req, res) {
       update['profile.billingPeriod'] = null;
       update['profile.subEnd'] = null;
       update['profile.subStart'] = null;
+      update['profile.currentPeriodStart'] = null;
+      update['profile.currentPeriodEnd'] = null;
+      update['profile.billingStatus'] = 'free';
+      update['profile.paymentFailureCount'] = 0;
+      update['profile.suspendedAt'] = null;
     } else if (plan.type === 'payment') {
       if (!project.profile.subEnd) {
         update['profile.subEnd'] = new Date('2099-12-31T23:59:59.999Z');
         update['profile.subStart'] = new Date();
       }
+      update['profile.billingStatus'] = 'active';
+      update['profile.suspendedAt'] = null;
     }
+
+    update['profile.billingStatusReason'] = 'superadmin_plan_change';
+    update['profile.billingStatusChangedAt'] = new Date();
+    update['profile.billingStatusChangedBy'] = getRequestUserEmail(req);
+    update['profile.lastBillingEventAt'] = new Date();
 
     await Project.findByIdAndUpdate(req.params.id, { $set: update });
 

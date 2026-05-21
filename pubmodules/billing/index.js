@@ -15,6 +15,7 @@ var LeadConstants = require('../../models/leadConstants');
 var Project_user = require('../../models/project_user');
 var emailService = require('../../services/emailService');
 var platformUsageService = require('../../services/platformUsageService');
+var billingLifecycleService = require('../../services/billingLifecycleService');
 
 const WEBHOOK_SECRET = process.env.CASEPAY_WEBHOOK_SECRET;
 
@@ -34,6 +35,21 @@ function verifyWebhookSignature(req) {
   return signature === expected;
 }
 var { getPlan, getAllPlans } = require('./plans');
+
+function buildBillingPeriodDates(startDate, billingPeriod) {
+  var periodStart = startDate || new Date();
+  var periodEnd = new Date(periodStart);
+  var isAnnual = billingPeriod === 'annual';
+  periodEnd.setMonth(periodEnd.getMonth() + (isAnnual ? 12 : 1));
+  var accessEnd = new Date(periodEnd);
+  accessEnd.setDate(accessEnd.getDate() + 3);
+
+  return {
+    periodStart: periodStart,
+    periodEnd: periodEnd,
+    accessEnd: accessEnd
+  };
+}
 
 // GET /modules/payments/casepay/plans
 router.get('/plans', function (req, res) {
@@ -120,7 +136,13 @@ router.post('/subscribe',
         'profile.pendingPlan': planKey.toLowerCase(),
         'profile.paymentProvider': 'casepay',
         'profile.billingPeriod': billingPeriod,
-        'profile.type': 'payment'
+        'profile.type': 'payment',
+        'profile.billingStatus': 'pending_authorization',
+        'profile.billingStatusReason': 'casepay_mandate_created',
+        'profile.billingStatusChangedAt': new Date(),
+        'profile.billingStatusChangedBy': String(req.user._id || req.user.id),
+        'profile.paymentFailureCount': 0,
+        'profile.lastBillingEventAt': new Date()
       });
 
       await SubscriptionPayment.create({
@@ -130,7 +152,10 @@ router.post('/subscribe',
         plan_name: planKey,
         event_type: 'mandate_created',
         status: 'created',
-        amount
+        amount,
+        provider: 'casepay',
+        external_status: mandate.status,
+        payment_url: authorizeUrl
       });
 
       winston.info(`CasePay mandate created for project ${projectId}: ${mandateId} (${billingPeriod})`);
@@ -177,7 +202,18 @@ router.post('/cancel',
         'profile.customization': freePlan.customization,
         'profile.mandateId': null,
         'profile.pendingPlan': null,
-        'profile.billingPeriod': null
+        'profile.billingPeriod': null,
+        'profile.subStart': null,
+        'profile.subEnd': null,
+        'profile.currentPeriodStart': null,
+        'profile.currentPeriodEnd': null,
+        'profile.billingStatus': 'free',
+        'profile.billingStatusReason': 'casepay_cancel',
+        'profile.billingStatusChangedAt': new Date(),
+        'profile.billingStatusChangedBy': String(req.user._id || req.user.id),
+        'profile.suspendedAt': null,
+        'profile.paymentFailureCount': 0,
+        'profile.lastBillingEventAt': new Date()
       });
 
       await SubscriptionPayment.create({
@@ -186,7 +222,8 @@ router.post('/cancel',
         user_id: req.user._id,
         plan_name: 'free',
         event_type: 'mandate_canceled',
-        status: 'canceled'
+        status: 'canceled',
+        provider: 'casepay'
       });
 
       var ownerPU = await Project_user.findOne({ id_project: projectId, role: 'owner', status: 'active' });
@@ -234,12 +271,20 @@ router.get('/status/:projectId',
       const contactsLimit = (project.profile.quotes && project.profile.quotes.contacts) || plan.quotes.contacts || 200;
       const platformsLimit = (project.profile.quotes && project.profile.quotes.platforms) || plan.quotes.platforms || 1;
       const agentsLimit = project.profile.agents || plan.agents || 1;
+      const lifecycle = billingLifecycleService.createBillingLifecycleService().summarizeProject(project);
 
       const response = {
         plan: project.profile.name,
         displayName: plan.displayName || project.profile.name,
         type: project.profile.type,
+        lifecycleStatus: lifecycle.status,
+        canUsePaidFeatures: lifecycle.canUsePaidFeatures,
         billingPeriod: project.profile.billingPeriod || null,
+        currentPeriodStart: lifecycle.subStart,
+        currentPeriodEnd: lifecycle.subEnd,
+        accessEndsAt: lifecycle.accessEndsAt,
+        paymentFailureCount: lifecycle.paymentFailureCount,
+        billingStatusReason: lifecycle.billingStatusReason,
         usage: {
           contacts: { current: contactsCount, limit: contactsLimit },
           platforms: { current: platformsCount, limit: platformsLimit },
@@ -305,6 +350,8 @@ router.post('/webhook', async function (req, res) {
       event_id: eventId,
       status,
       amount,
+      provider: 'casepay',
+      external_status: status,
       object: req.body
     });
 
@@ -313,10 +360,7 @@ router.post('/webhook', async function (req, res) {
         const planKey = project.profile.pendingPlan || 'starter';
         const plan = getPlan(planKey);
         const now = new Date();
-        const subEnd = new Date(now);
-        const isAnnual = project.profile.billingPeriod === 'annual';
-        subEnd.setMonth(subEnd.getMonth() + (isAnnual ? 12 : 1));
-        subEnd.setDate(subEnd.getDate() + 3);
+        const period = buildBillingPeriodDates(now, project.profile.billingPeriod || 'monthly');
 
         await Project.findByIdAndUpdate(project._id, {
           'profile.name': plan.name,
@@ -324,10 +368,17 @@ router.post('/webhook', async function (req, res) {
           'profile.agents': plan.agents,
           'profile.quotes': plan.quotes,
           'profile.customization': plan.customization,
-          'profile.subStart': now,
-          'profile.subEnd': subEnd,
+          'profile.subStart': period.periodStart,
+          'profile.subEnd': period.accessEnd,
+          'profile.currentPeriodStart': period.periodStart,
+          'profile.currentPeriodEnd': period.periodEnd,
           'profile.pendingPlan': null,
-          'profile.billingPeriod': project.profile.billingPeriod || 'monthly'
+          'profile.billingPeriod': project.profile.billingPeriod || 'monthly',
+          'profile.billingStatus': 'active',
+          'profile.billingStatusReason': 'casepay_authorized',
+          'profile.billingStatusChangedAt': now,
+          'profile.paymentFailureCount': 0,
+          'profile.lastBillingEventAt': now
         });
 
         winston.info(`CasePay: project ${project._id} upgraded to ${plan.name}`);
@@ -350,7 +401,18 @@ router.post('/webhook', async function (req, res) {
           'profile.quotes': freePlan.quotes,
           'profile.customization': freePlan.customization,
           'profile.mandateId': null,
-          'profile.pendingPlan': null
+          'profile.pendingPlan': null,
+          'profile.billingPeriod': null,
+          'profile.subStart': null,
+          'profile.subEnd': null,
+          'profile.currentPeriodStart': null,
+          'profile.currentPeriodEnd': null,
+          'profile.billingStatus': 'free',
+          'profile.billingStatusReason': 'casepay_' + status,
+          'profile.billingStatusChangedAt': new Date(),
+          'profile.suspendedAt': null,
+          'profile.paymentFailureCount': 0,
+          'profile.lastBillingEventAt': new Date()
         });
 
         winston.info(`CasePay: project ${project._id} downgraded to Free`);
@@ -358,20 +420,35 @@ router.post('/webhook', async function (req, res) {
     }
 
     if (event === 'automatic_pix_payment/completed') {
-      const subEnd = new Date();
-      const isAnnual = project.profile.billingPeriod === 'annual';
-      subEnd.setMonth(subEnd.getMonth() + (isAnnual ? 12 : 1));
-      subEnd.setDate(subEnd.getDate() + 3);
+      const now = new Date();
+      const period = buildBillingPeriodDates(now, project.profile.billingPeriod || 'monthly');
 
       await Project.findByIdAndUpdate(project._id, {
-        'profile.subEnd': subEnd,
-        'profile.last_payment_at': new Date()
+        'profile.subStart': period.periodStart,
+        'profile.subEnd': period.accessEnd,
+        'profile.currentPeriodStart': period.periodStart,
+        'profile.currentPeriodEnd': period.periodEnd,
+        'profile.last_payment_at': now,
+        'profile.billingStatus': 'active',
+        'profile.billingStatusReason': 'casepay_payment_completed',
+        'profile.billingStatusChangedAt': now,
+        'profile.paymentFailureCount': 0,
+        'profile.lastBillingEventAt': now
       });
 
-      winston.info(`CasePay: payment confirmed for project ${project._id}, extended to ${subEnd}`);
+      winston.info(`CasePay: payment confirmed for project ${project._id}, extended to ${period.accessEnd}`);
     }
 
     if (event === 'automatic_pix_payment/error') {
+      await Project.findByIdAndUpdate(project._id, {
+        $set: {
+          'profile.billingStatus': 'past_due',
+          'profile.billingStatusReason': status || 'casepay_payment_error',
+          'profile.billingStatusChangedAt': new Date(),
+          'profile.lastBillingEventAt': new Date()
+        },
+        $inc: { 'profile.paymentFailureCount': 1 }
+      });
       winston.warn(`CasePay: payment FAILED for project ${project._id}`);
     }
 

@@ -13,6 +13,13 @@ var schema = new Schema({
   amount: { type: Number },
   agents: { type: Number },
   status: { type: String },
+  period_start: { type: Date },
+  period_end: { type: Date },
+  paid_at: { type: Date },
+  failure_reason: { type: String },
+  external_status: { type: String },
+  invoice_url: { type: String },
+  payment_url: { type: String },
   provider: { type: String, default: 'casepay' },
   object: { type: Object }
 }, {

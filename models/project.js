@@ -197,28 +197,18 @@ ProjectSchema.virtual('isActiveSubscription').get(function () {
   // winston.debug("isActiveSubscription  - PROJECT profile type: " + this.profile.type);
   // winston.debug("isActiveSubscription  - PROJECT profile subscription end date: " + this.profile.subEnd);
   // winston.debug("isActiveSubscription  -  this.activeOperatingHours: " + this.activeOperatingHours);
-  var isActiveSubscription = '';
+  var isActiveSubscription = false;
   if (this.profile && this.profile.type === 'payment') {
-
-    if (this.profile.subEnd) {
-      // winston.debug("isActiveSubscription  - PROJECT profile subscription end date getTime(): " + this.profile.subEnd.getTime());
-
-      var subEndPlus3gg = this.profile.subEnd.getTime() + 259200000
-      // winston.debug("isActiveSubscription  - PROJECT profile subscription end date getTime() + 3gg: " + subEndPlus3gg);
-
-      // FOR DEBUG 
-      var subEndMinus3gg = this.profile.subEnd.getTime() - 259200000
-      // winston.debug("isActiveSubscription  - PROJECT profile subscription end date getTime() - 3gg: " + subEndMinus3gg);
-
-      // + 259200000 
-      if (now.getTime() > (this.profile.subEnd.getTime() + 259200000)) {
-        isActiveSubscription = false;
-      } else {
-        isActiveSubscription = true;
-      }
+    if (this.profile.billingStatus === 'suspended' || this.profile.billingStatus === 'canceled') {
+      return false;
     }
-  } else {
-    isActiveSubscription = false;
+
+    var accessEnd = this.profile.subEnd || this.profile.currentPeriodEnd;
+    if (accessEnd) {
+      isActiveSubscription = now.getTime() <= accessEnd.getTime();
+    } else if (this.profile.billingStatus === 'active') {
+      isActiveSubscription = true;
+    }
   }
 
   // winston.debug("isActiveSubscription  - isActiveSubscription " + isActiveSubscription);

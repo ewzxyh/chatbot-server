@@ -115,6 +115,42 @@ var ProfileSchema = new Schema({
     type: String,
     enum: ['monthly', 'annual'],
   },
+  billingStatus: {
+    type: String,
+    enum: ['free', 'trialing', 'pending_authorization', 'active', 'grace_period', 'past_due', 'suspended', 'canceled'],
+    index: true,
+  },
+  billingStatusReason: {
+    type: String,
+  },
+  billingStatusChangedAt: {
+    type: Date,
+  },
+  billingStatusChangedBy: {
+    type: String,
+  },
+  currentPeriodStart: {
+    type: Date,
+  },
+  currentPeriodEnd: {
+    type: Date,
+  },
+  suspendedAt: {
+    type: Date,
+  },
+  cancelAtPeriodEnd: {
+    type: Boolean,
+  },
+  downgradeScheduledTo: {
+    type: String,
+  },
+  paymentFailureCount: {
+    type: Number,
+    default: 0,
+  },
+  lastBillingEventAt: {
+    type: Date,
+  },
   trialExpiringNotified: {
     type: Boolean,
   },
