@@ -1,6 +1,7 @@
 var axios = require('axios');
 var pathlib = require('path');
 var mime = require('mime-types');
+var FileType = require('file-type');
 var configGlobal = require('../../config/global');
 var winston = require('../../config/winston');
 
@@ -94,6 +95,25 @@ function extensionFromType(contentType, mapped) {
   return '';
 }
 
+function filenameMatchesContentType(name, contentType) {
+  if (!name || !contentType) {
+    return true;
+  }
+  return validMime(mime.lookup(name)) === contentType;
+}
+
+function normalizeFilenameExtension(name, contentType, mapped) {
+  if (!name || filenameMatchesContentType(name, contentType)) {
+    return name;
+  }
+
+  var ext = extensionFromType(contentType, mapped);
+  if (!ext) {
+    return name;
+  }
+  return name.replace(/\.[^/.]+$/, '') + ext;
+}
+
 function sanitizeFilename(name) {
   var safe = pathlib.basename(String(name || 'media').replace(/\\/g, '/'));
   safe = safe.replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').trim();
@@ -117,7 +137,29 @@ function originalFilename(mapped, sourceUrl, contentType) {
   if (!pathlib.extname(name)) {
     name += extensionFromType(contentType, mapped);
   }
-  return name;
+  return normalizeFilenameExtension(name, contentType, mapped);
+}
+
+async function detectContentType(buffer) {
+  try {
+    var detected = await FileType.fromBuffer(buffer);
+    return detected && detected.mime ? cleanContentType(detected.mime) : undefined;
+  } catch (err) {
+    return undefined;
+  }
+}
+
+function canTrustDetectedContentType(mapped, detectedContentType) {
+  if (!detectedContentType) {
+    return false;
+  }
+  if (mapped.type === 'image') {
+    return detectedContentType.indexOf('image/') === 0;
+  }
+  if (mapped.type === 'frame') {
+    return detectedContentType.indexOf('video/') === 0;
+  }
+  return true;
 }
 
 function publicFileUrls(filename, baseFileUrl, projectId, options) {
@@ -137,6 +179,23 @@ function maxMediaBytes(options) {
     value = process.env.CASEZAP_MEDIA_MAX_BYTES || 25 * 1024 * 1024;
   }
   return parseInt(value, 10);
+}
+
+function refreshAudioMarker(text, metadata) {
+  if (typeof text !== 'string' || text.indexOf('[casezap-audio:') !== 0) {
+    return text;
+  }
+  return text.replace(/^\[casezap-audio:([A-Za-z0-9+/=]+)\]/, function(full, encoded) {
+    try {
+      var payload = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
+      payload.src = metadata.src || payload.src;
+      payload.downloadUrl = metadata.downloadUrl || payload.downloadUrl;
+      payload.mimeType = metadata.type || payload.mimeType;
+      return '[casezap-audio:' + Buffer.from(JSON.stringify(payload), 'utf8').toString('base64') + ']';
+    } catch (err) {
+      return full;
+    }
+  });
 }
 
 function headerValue(headers, name) {
@@ -245,12 +304,19 @@ async function persistInboundMediaFromUrl(mapped, integration, options) {
     var inferredFromMetadata = validMime(mapped.metadata.type);
     var inferredFromName = validMime(mime.lookup(mapped.metadata.name || filenameFromUrl(sourceUrl)));
     var contentType = validMime(downloaded.contentType) || inferredFromMetadata || inferredFromName || 'application/octet-stream';
-    var originalname = originalFilename(mapped, sourceUrl, contentType);
+    var detectedContentType = await detectContentType(downloaded.buffer);
 
     if (contentType === 'application/octet-stream') {
-      contentType = validMime(mime.lookup(originalname)) || contentType;
+      contentType = detectedContentType || validMime(mime.lookup(filenameFromUrl(sourceUrl))) || contentType;
+    } else if (
+      detectedContentType &&
+      detectedContentType !== contentType &&
+      canTrustDetectedContentType(mapped, detectedContentType)
+    ) {
+      contentType = detectedContentType;
     }
 
+    var originalname = originalFilename(mapped, sourceUrl, contentType);
     await verifyFileContent(downloaded.buffer, contentType);
 
     var filename = buildChatFilePath({
@@ -394,6 +460,7 @@ async function persistMappedMedia(mapped, integration, options) {
   if (stored.contentType && mapped.type !== 'image') {
     mapped.metadata.type = stored.contentType;
   }
+  mapped.text = refreshAudioMarker(mapped.text, mapped.metadata);
   if (mapped.type === 'file' && mapped.metadata.name) {
     var href = stored.externalOnly ? (stored.downloadUrl || stored.url) : stored.url;
     mapped.text = '[' + mapped.metadata.name + '](' + href + ')';

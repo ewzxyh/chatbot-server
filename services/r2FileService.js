@@ -130,7 +130,7 @@ class R2HttpClient {
           : 'DELETE';
 
     const body = method === 'PUT' ? toBuffer(input.Body) : Buffer.alloc(0);
-    const response = await this.request(method, input.Bucket, input.Key, body, input.ContentType, input.Metadata);
+    const response = await this.request(method, input.Bucket, input.Key, body, input.ContentType, input.Metadata, input.Range);
 
     if (command instanceof HeadObjectCommand) {
       return {
@@ -147,7 +147,7 @@ class R2HttpClient {
     return {};
   }
 
-  request(method, bucket, key, body, contentType, metadata) {
+  request(method, bucket, key, body, contentType, metadata, rangeHeader) {
     const endpoint = new URL(this.endpoint);
     const encodedKey = encodeKey(key);
     const pathname = `/${encodeURIComponent(bucket)}/${encodedKey}`;
@@ -170,6 +170,10 @@ class R2HttpClient {
 
     if (contentType) {
       headers['content-type'] = contentType;
+    }
+
+    if (method === 'GET' && rangeHeader) {
+      headers.range = rangeHeader;
     }
 
     Object.keys(metadata || {}).forEach((key) => {
@@ -377,14 +381,19 @@ class R2FileService extends FileService {
     }
   }
 
-  getFileDataAsStream(filename) {
+  getFileDataAsStream(filename, options) {
     const stream = new PassThrough();
     const normalizedFilename = normalizeFilename(filename);
-
-    this.client.send(new GetObjectCommand({
+    const input = {
       Bucket: this.bucket,
       Key: this.keyFor(normalizedFilename),
-    })).then((result) => {
+    };
+
+    if (options && options.start !== undefined && options.end !== undefined) {
+      input.Range = `bytes=${options.start}-${options.end - 1}`;
+    }
+
+    this.client.send(new GetObjectCommand(input)).then((result) => {
       const body = result.Body;
       if (body instanceof Readable || typeof body.pipe === 'function') {
         body.on('error', (error) => stream.emit('error', error));

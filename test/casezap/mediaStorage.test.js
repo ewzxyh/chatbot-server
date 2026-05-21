@@ -67,6 +67,42 @@ describe('CaseZap mediaStorage', function() {
     assert.strictEqual(result.text, '[' + result.metadata.name + '](' + result.metadata.src + ')');
   });
 
+  it('uses detected image mime type when UazApi reports a wrong sticker content type', async function() {
+    const webp = Buffer.from('UklGRiAAAABXRUJQVlA4IAAAAAAwAQCdASoBAAEAAQAcJaQAA3AA/vuUAAA=', 'base64');
+    const sourceUrl = 'https://chatcase.uazapi.com/files/sticker.jpg';
+    const stored = [];
+    const fileService = {
+      createFile: async function(filename, buffer, path, contentType) {
+        stored.push({ filename, buffer, contentType });
+      }
+    };
+
+    nock('https://chatcase.uazapi.com')
+      .get('/files/sticker.jpg')
+      .reply(200, webp, { 'Content-Type': 'image/jpeg' });
+
+    const mapped = {
+      messageId: 'sticker-1',
+      type: 'image',
+      text: '',
+      metadata: {
+        src: sourceUrl,
+        type: 'image/jpeg'
+      }
+    };
+
+    const result = await persistMappedMedia(mapped, { _id: '69f1115ecbfe61136b1535ea', id_project: 'project-1' }, {
+      fileService,
+      baseFileUrl: 'https://app.example/api',
+      expireAt: new Date('2026-05-08T00:00:00Z')
+    });
+
+    assert.strictEqual(stored.length, 1);
+    assert.strictEqual(stored[0].contentType, 'image/webp');
+    assert.ok(stored[0].filename.endsWith('/sticker.webp'));
+    assert.ok(result.metadata.src.startsWith('https://app.example/api/files?path='));
+  });
+
   it('does not rehost media that already points to the local ChatCase file endpoint', async function() {
     const mapped = {
       type: 'file',
@@ -76,6 +112,43 @@ describe('CaseZap mediaStorage', function() {
     };
 
     assert.strictEqual(shouldPersistExternalMedia(mapped, 'https://app.example/api'), false);
+  });
+
+  it('adds the local file URL to CaseZap audio cards after rehosting', async function() {
+    const mp3 = Buffer.concat([Buffer.from('ID3'), Buffer.alloc(32)]);
+    const sourceUrl = 'https://chatcase.uazapi.com/files/audio.mp3';
+    const fileService = {
+      createFile: async function() {}
+    };
+
+    nock('https://chatcase.uazapi.com')
+      .get('/files/audio.mp3')
+      .reply(200, mp3, { 'Content-Type': 'audio/mpeg' });
+
+    const markerPayload = Buffer.from(JSON.stringify({ duration: '0:07', preview: 'Audio - 0:07' }), 'utf8').toString('base64');
+    const mapped = {
+      messageId: 'audio-1',
+      type: 'file',
+      text: '[casezap-audio:' + markerPayload + ']\nAudio - 0:07',
+      metadata: {
+        src: sourceUrl,
+        type: 'audio/mpeg',
+        duration: '0:07'
+      }
+    };
+
+    const result = await persistMappedMedia(mapped, { _id: '69f1115ecbfe61136b1535ea', id_project: 'project-1' }, {
+      fileService,
+      baseFileUrl: 'https://app.example/api',
+      expireAt: new Date('2026-05-08T00:00:00Z')
+    });
+
+    const encoded = result.text.match(/^\[casezap-audio:([A-Za-z0-9+/=]+)\]/)[1];
+    const payload = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
+    assert.ok(payload.src.startsWith('https://app.example/api/files?path='));
+    assert.ok(payload.downloadUrl.startsWith('https://app.example/api/files/download?path='));
+    assert.strictEqual(payload.mimeType, 'audio/mpeg');
+    assert.ok(result.text.endsWith('Audio - 0:07'));
   });
 
   it('keeps an external attachment link when the CaseZap file is too large to rehost', async function() {

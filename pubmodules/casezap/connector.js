@@ -3,6 +3,7 @@ var router = express.Router();
 var winston = require('../../config/winston');
 var axios = require('axios');
 var LRU = require('lru-cache');
+var mongoose = require('mongoose');
 var { v4: uuidv4 } = require('uuid');
 var passport = require('passport');
 var validtoken = require('../../middleware/valid-token');
@@ -10,8 +11,10 @@ var messageMapper = require('./messageMapper');
 var Integration = require('../../models/integrations');
 var ChannelConstants = require('../../models/channelConstants');
 var MessageConstants = require('../../models/messageConstants');
+var Message = require('../../models/message');
 var Request = require('../../models/request');
 var Department = require('../../models/department');
+var User = require('../../models/user');
 var leadService = require('../../services/leadService');
 var requestService = require('../../services/requestService');
 var messageService = require('../../services/messageService');
@@ -19,11 +22,16 @@ var messageEvent = require('../../event/messageEvent');
 var integrationEvent = require('../../event/integrationEvent');
 var mediaStorage = require('./mediaStorage');
 var operationalLogger = require('../../services/operationalLogger');
+var chat21 = require('../../channels/chat21/chat21Client');
+var chat21Config = require('../../channels/chat21/chat21Config');
 
 var DEDUP_TTL = 3600;
 var DEDUP_PREFIX = 'czdedup:';
 var localCache = new LRU({ max: 10000, maxAge: 1000 * 60 * 60 });
 var tdCache = null;
+var chat21AdminToken = process.env.CHAT21_ADMIN_TOKEN || chat21Config.adminToken;
+var chat21MessagesConnection = null;
+var Chat21Message = null;
 
 function setRedisClient(redisClient) {
   tdCache = redisClient;
@@ -51,6 +59,169 @@ function recordOperation(event) {
     area: 'webhook',
     channel: 'casezap'
   }, event));
+}
+
+function firstParticipantId(request) {
+  if (!request || !request.participants || !request.participants.length) {
+    return null;
+  }
+  return request.participants[0] ? String(request.participants[0]) : null;
+}
+
+function userFullname(user) {
+  if (!user) return '';
+  var fullname = [user.firstname, user.lastname].filter(Boolean).join(' ').trim();
+  return fullname || user.fullname || user.email || '';
+}
+
+async function resolveExternalFromMeSender(integration, request) {
+  var participantId = firstParticipantId(request);
+  if (participantId) {
+    try {
+      var user = await User.findById(participantId);
+      return {
+        sender: participantId,
+        fullname: userFullname(user) || (integration.value && integration.value.instanceName) || 'CaseZap'
+      };
+    } catch (err) {
+      winston.warn('CaseZap fromMe sender lookup failed: ' + err.message);
+      return {
+        sender: participantId,
+        fullname: (integration.value && integration.value.instanceName) || 'CaseZap'
+      };
+    }
+  }
+
+  return {
+    sender: 'casezap-' + integration._id.toString() + '-fromme',
+    fullname: (integration.value && (integration.value.instanceName || integration.value.number)) || 'CaseZap'
+  };
+}
+
+function isTypingPresence(presence) {
+  var value = presence ? String(presence).toLowerCase() : '';
+  return value === 'composing' || value === 'recording';
+}
+
+async function emitPresenceTyping(integration, body) {
+  if (!isTypingPresence(body && body.presence)) {
+    return false;
+  }
+
+  var chatid = body.chatid || body.chatId || body.jid || '';
+  var phone = messageMapper.extractPhone(chatid);
+  if (!phone) {
+    return false;
+  }
+
+  var integrationId = integration._id.toString();
+  var leadId = 'casezap-' + integrationId + '-' + phone;
+  try {
+    var request = await Request.findOne({
+      id_project: integration.id_project,
+      'channel.name': ChannelConstants.CASEZAP,
+      status: { $lt: 1000 },
+      $or: [
+        { 'attributes.casezapPhone': phone },
+        { createdBy: leadId }
+      ]
+    }).sort({ createdAt: -1 });
+
+    if (!request) {
+      return false;
+    }
+
+    chat21.auth.setAdminToken(chat21AdminToken);
+    await chat21.conversations.typing(request.request_id, leadId, body.presence, new Date());
+    return true;
+  } catch (err) {
+    winston.warn('CaseZap presence typing forward failed: ' + err.message);
+    return false;
+  }
+}
+
+function chat21MongoUri() {
+  if (process.env.CHAT21_MONGODB_URI || process.env.CHAT21_MONGODB_URL || process.env.CHAT21_DATABASE_URI) {
+    return process.env.CHAT21_MONGODB_URI || process.env.CHAT21_MONGODB_URL || process.env.CHAT21_DATABASE_URI;
+  }
+  var tiledeskUri = process.env.DATABASE_URI || process.env.MONGODB_URI;
+  if (!tiledeskUri) {
+    return null;
+  }
+  return tiledeskUri.replace(/\/[^/?]+(\?|$)/, '/chat21$1');
+}
+
+function getChat21MessageModel() {
+  if (Chat21Message) {
+    return Chat21Message;
+  }
+  var uri = chat21MongoUri();
+  if (!uri) {
+    return null;
+  }
+  chat21MessagesConnection = mongoose.createConnection(uri, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+  });
+  Chat21Message = chat21MessagesConnection.model('chat21_message', new mongoose.Schema({}, {
+    strict: false,
+    collection: 'messages'
+  }));
+  return Chat21Message;
+}
+
+async function syncChat21PollMessage(message) {
+  var Chat21MessageModel = getChat21MessageModel();
+  if (!Chat21MessageModel) {
+    return 0;
+  }
+  var result = await Chat21MessageModel.updateMany(
+    { 'attributes.tiledesk_message_id': String(message._id) },
+    {
+      $set: {
+        text: message.text,
+        metadata: message.metadata,
+        'attributes.casezapPollVotes': message.attributes && message.attributes.casezapPollVotes,
+        'attributes.casezapLastPollUpdateId': message.attributes && message.attributes.casezapLastPollUpdateId
+      }
+    }
+  );
+  return result.modifiedCount || result.nModified || 0;
+}
+
+async function applyPollUpdate(projectId, integration, mapped) {
+  var pollUpdate = mapped.metadata && mapped.metadata.pollUpdate;
+  if (!pollUpdate || !pollUpdate.pollMessageId || !pollUpdate.vote) {
+    return null;
+  }
+
+  var originalMessage = await Message.findOne({
+    id_project: projectId,
+    'attributes.casezapMessageId': pollUpdate.pollMessageId,
+    'metadata.type': 'casezap/poll'
+  }).sort({ createdAt: -1 });
+
+  if (!originalMessage || !originalMessage.metadata || !originalMessage.metadata.poll) {
+    return null;
+  }
+
+  var voterId = pollUpdate.voterId || mapped.phone || mapped.messageId;
+  var poll = messageMapper.applyPollVoteToPayload(originalMessage.metadata.poll, voterId, pollUpdate.vote);
+  var metadata = Object.assign({}, originalMessage.metadata, { poll: poll });
+  var attributes = Object.assign({}, originalMessage.attributes || {});
+  attributes.casezapPollVotes = poll.votes || {};
+  attributes.casezapLastPollUpdateId = mapped.messageId;
+
+  originalMessage.metadata = metadata;
+  originalMessage.attributes = attributes;
+  originalMessage.text = messageMapper.applyStructuredMarker('poll', poll);
+  originalMessage.markModified('metadata');
+  originalMessage.markModified('attributes');
+  originalMessage.markModified('text');
+  var savedMessage = await originalMessage.save();
+  await syncChat21PollMessage(savedMessage);
+  messageEvent.emit('message.update.simple', savedMessage);
+  return savedMessage;
 }
 
 function extractConnectionStatus(body) {
@@ -138,6 +309,24 @@ async function handleWebhook(integration, req, res) {
       return res.status(200).json({ success: true });
     }
 
+    if (body.EventType === 'presence') {
+      var typingForwarded = await emitPresenceTyping(integration, body);
+      recordOperation({
+        id_project: projectId,
+        integrationId: integrationId,
+        event: 'webhook.presence',
+        status: 'success',
+        latencyMs: Date.now() - startedAt,
+        details: {
+          chatid: body.chatid,
+          presence: body.presence,
+          lastSeen: body.lastSeen,
+          typingForwarded: typingForwarded
+        }
+      });
+      return res.status(200).json({ success: true });
+    }
+
     if (body.EventType !== 'messages') {
       recordOperation({
         id_project: projectId,
@@ -163,18 +352,6 @@ async function handleWebhook(integration, req, res) {
       return res.status(200).json({ success: true, skipped: 'unmappable message type' });
     }
 
-    if (mapped.fromMe) {
-      recordOperation({
-        id_project: projectId,
-        integrationId: integrationId,
-        messageId: mapped.messageId,
-        event: 'webhook.skipped',
-        status: 'skipped',
-        latencyMs: Date.now() - startedAt,
-        details: { reason: 'fromMe' }
-      });
-      return res.status(200).json({ success: true, skipped: 'fromMe' });
-    }
     if (mapped.isGroup) {
       recordOperation({
         id_project: projectId,
@@ -199,6 +376,24 @@ async function handleWebhook(integration, req, res) {
         details: { reason: 'deduplicated' }
       });
       return res.status(200).json({ success: true, deduplicated: true });
+    }
+
+    if (mapped.type === 'casezap_poll_update') {
+      var updatedPollMessage = await applyPollUpdate(projectId, integration, mapped);
+      recordOperation({
+        id_project: projectId,
+        integrationId: integrationId,
+        messageId: mapped.messageId,
+        event: updatedPollMessage ? 'webhook.poll_update' : 'webhook.skipped',
+        status: updatedPollMessage ? 'success' : 'skipped',
+        latencyMs: Date.now() - startedAt,
+        details: {
+          reason: updatedPollMessage ? undefined : 'poll_message_not_found',
+          pollMessageId: mapped.metadata && mapped.metadata.pollUpdate && mapped.metadata.pollUpdate.pollMessageId,
+          vote: mapped.metadata && mapped.metadata.pollUpdate && mapped.metadata.pollUpdate.vote
+        }
+      });
+      return res.status(200).json({ success: true, pollUpdate: Boolean(updatedPollMessage) });
     }
 
     mapped = await resolveInboundMedia(integration, mapped);
@@ -238,7 +433,7 @@ async function handleWebhook(integration, req, res) {
         id_project: projectId,
         lead_id: lead._id,
         lead: lead,
-        first_text: mapped.text || '',
+        first_text: messageMapper.stripQuoteMarker(mapped.text) || '',
         departmentid: defaultDept ? defaultDept._id : undefined,
         integrationId: integration._id,
         channel: { name: ChannelConstants.CASEZAP },
@@ -251,15 +446,30 @@ async function handleWebhook(integration, req, res) {
       await requestService.create(newRequest);
     }
 
+    var sender = leadId;
+    var createdBy = leadId;
     var senderFullname = mapped.fullname || mapped.phone;
+    var messageAttributes = { casezapMessageId: mapped.messageId };
+    if (mapped.quote) {
+      messageAttributes.casezapQuote = mapped.quote;
+    }
+    if (mapped.fromMe) {
+      var fromMeSender = await resolveExternalFromMeSender(integration, existingRequest || newRequest);
+      sender = fromMeSender.sender;
+      createdBy = fromMeSender.sender;
+      senderFullname = fromMeSender.fullname;
+      messageAttributes.casezapFromMe = true;
+      messageAttributes.casezapExternalFromMe = true;
+    }
+
     await messageService.send(
-      leadId,
+      sender,
       senderFullname,
       requestId,
       mapped.text,
       projectId,
-      leadId,
-      { casezapMessageId: mapped.messageId },
+      createdBy,
+      messageAttributes,
       mapped.type,
       mapped.metadata,
       null
@@ -273,7 +483,7 @@ async function handleWebhook(integration, req, res) {
       event: 'webhook.processed',
       status: 'success',
       latencyMs: Date.now() - startedAt,
-      details: { messageType: mapped.type }
+      details: { messageType: mapped.type, fromMe: Boolean(mapped.fromMe) }
     });
 
     res.status(200).json({ success: true });
@@ -420,6 +630,7 @@ async function resolveInboundMedia(integration, mapped) {
     }
     if (mapped.type === 'file' && mapped.metadata.name) {
       mapped.text = '[' + mapped.metadata.name + '](' + downloaded.fileURL + ')';
+      mapped.text = messageMapper.applyQuoteMarker(mapped.text, mapped.quote);
     }
   } catch (err) {
     winston.warn('CaseZap media download failed for message ' + mapped.messageId + ': ' + err.message);
@@ -492,6 +703,7 @@ function isInternalOutboundMessage(message) {
 
   if (message.sender === 'system' || message.createdBy === 'system') return true;
   if (subtype === 'info' || subtype.indexOf('info/') === 0) return true;
+  if (attributes.casezapExternalFromMe) return true;
 
   return false;
 }
@@ -512,7 +724,7 @@ async function registerWebhook(integration, baseUrl) {
   var body = {
     url: webhookUrl,
     enabled: true,
-    events: ['messages', 'messages_update', 'connection'],
+    events: ['messages', 'messages_update', 'connection', 'presence'],
     excludeMessages: ['wasSentByApi', 'isGroupYes']
   };
 
@@ -648,6 +860,7 @@ module.exports = {
   registerWebhook: registerWebhook,
   buildRegisterWebhookUpdate: buildRegisterWebhookUpdate,
   isInternalOutboundMessage: isInternalOutboundMessage,
+  isTypingPresence: isTypingPresence,
   extractConnectionStatus: extractConnectionStatus,
   mapConnectionHealth: mapConnectionHealth,
   mapConnectionStatus: mapConnectionStatus,

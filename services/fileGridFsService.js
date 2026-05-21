@@ -141,9 +141,16 @@ class FileGridFsService extends FileService {
         });
     }
 
-    getFileDataAsStream (filename) {
+    getFileDataAsStream (filename, options) {
         // try {
-        var stream = this.gfs.openDownloadStreamByName(filename);
+        var streamOptions = {};
+        if (options && options.start !== undefined) {
+            streamOptions.start = options.start;
+        }
+        if (options && options.end !== undefined) {
+            streamOptions.end = options.end;
+        }
+        var stream = this.gfs.openDownloadStreamByName(filename, streamOptions);
 
         // stream.on('error', function(e) {
         //     console.error("TTTTT",e);

@@ -6,6 +6,7 @@ const assert = require('assert');
 const {
   buildRegisterWebhookUpdate,
   isInternalOutboundMessage,
+  isTypingPresence,
   mapConnectionHealth,
   mapConnectionStatus
 } = require('../../pubmodules/casezap/connector');
@@ -67,6 +68,18 @@ describe('CaseZap connector', function() {
     }), true);
   });
 
+  it('does not resend messages mirrored from WhatsApp Web back to CaseZap', function() {
+    assert.strictEqual(isInternalOutboundMessage({
+      sender: '69ed37fb4c5c780013165040',
+      createdBy: '69ed37fb4c5c780013165040',
+      text: 'Oi',
+      attributes: {
+        casezapFromMe: true,
+        casezapExternalFromMe: true
+      }
+    }), true);
+  });
+
   it('allows normal agent outbound messages', function() {
     assert.strictEqual(isInternalOutboundMessage({
       sender: '69ed37fb4c5c780013165040',
@@ -74,5 +87,13 @@ describe('CaseZap connector', function() {
       text: 'Ola',
       attributes: {}
     }), false);
+  });
+
+  it('detects only live composing presences as typing indicators', function() {
+    assert.strictEqual(isTypingPresence('composing'), true);
+    assert.strictEqual(isTypingPresence('recording'), true);
+    assert.strictEqual(isTypingPresence('available'), false);
+    assert.strictEqual(isTypingPresence('unavailable'), false);
+    assert.strictEqual(isTypingPresence(null), false);
   });
 });

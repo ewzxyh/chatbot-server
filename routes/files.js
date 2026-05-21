@@ -73,6 +73,77 @@ function recordMediaTraffic(req, file, endpoint) {
   });
 }
 
+function parseRangeHeader(rangeHeader, fileLength) {
+  if (!rangeHeader || !fileLength) {
+    return null;
+  }
+
+  var match = String(rangeHeader).match(/^bytes=(\d*)-(\d*)$/);
+  if (!match) {
+    return { invalid: true };
+  }
+
+  var start = match[1] ? parseInt(match[1], 10) : null;
+  var end = match[2] ? parseInt(match[2], 10) : null;
+
+  if (start === null && end === null) {
+    return { invalid: true };
+  }
+
+  if (start === null) {
+    if (!end) {
+      return { invalid: true };
+    }
+    start = Math.max(fileLength - end, 0);
+    end = fileLength - 1;
+  } else if (end === null || end >= fileLength) {
+    end = fileLength - 1;
+  }
+
+  if (start < 0 || end < start || start >= fileLength) {
+    return { invalid: true };
+  }
+
+  return {
+    start: start,
+    end: end,
+    length: end - start + 1
+  };
+}
+
+function streamFileResponse(req, res, service, file, filePath, endpoint) {
+  var range = parseRangeHeader(req.headers.range, file && file.length);
+  res.set({ "Accept-Ranges": "bytes" });
+
+  if (range && range.invalid) {
+    res.set({ "Content-Range": "bytes */" + file.length });
+    return res.status(416).send({ success: false, error: "Requested range not satisfiable" });
+  }
+
+  if (range) {
+    res.status(206);
+    res.set({
+      "Content-Length": range.length,
+      "Content-Type": file.contentType,
+      "Content-Range": "bytes " + range.start + "-" + range.end + "/" + file.length
+    });
+  } else {
+    res.set({ "Content-Length": file.length });
+    res.set({ "Content-Type": file.contentType });
+  }
+
+  recordMediaTraffic(req, file, endpoint);
+  var streamOptions = range ? { start: range.start, end: range.end + 1 } : undefined;
+  return service.getFileDataAsStream(filePath, streamOptions).on('error', (e)=> {
+    if (isFileNotFound(e)) {
+      winston.debug('File not found: '+filePath);
+      return res.status(404).send({success: false, error: 'File not found.'});
+    }
+    winston.error('Error getting file', e);
+    return res.status(500).send({success: false, error: 'Error getting file.'});
+  }).pipe(res);
+}
+
 /*
 curl -u redacted@example.invalid:123456 \
   -F "file=@/Users/andrealeo/dev/chat21/tiledesk-server-dev-org/README.md" \
@@ -117,17 +188,7 @@ router.get("/", async (req, res) => {
   
   try {
     const { service, file } = await findFileServiceForPath(req.query.path);
-    res.set({ "Content-Length": file.length});
-    res.set({ "Content-Type": file.contentType});
-    recordMediaTraffic(req, file, 'files.inline');
-    return service.getFileDataAsStream(req.query.path).on('error', (e)=> {
-      if (isFileNotFound(e)) {
-        winston.debug('File not found: '+req.query.path);
-        return res.status(404).send({success: false, error: 'File not found.'});
-      }
-      winston.error('Error getting file', e);
-      return res.status(500).send({success: false, error: 'Error getting file.'});
-    }).pipe(res);
+    return streamFileResponse(req, res, service, file, req.query.path, 'files.inline');
   } catch (e) {
     if (isFileNotFound(e)) {
       winston.debug(`File ${req.query.path} not found on any configured file service.`)
