@@ -2086,6 +2086,69 @@ class EmailService {
   }
 
 
+  async sendBillingLifecycleEmail(to, user, projectName, notice) {
+
+    var that = this;
+
+    if (user && user.toJSON) {
+      user = user.toJSON();
+    }
+
+    notice = notice || {};
+    var firstname = user && user.firstname ? user.firstname : 'cliente';
+    var brand = this.brand_name;
+    var title = 'Atualizacao de cobranca';
+    var subject = '[' + brand + '] Atualizacao de cobranca';
+    var message = 'Ha uma atualizacao no billing do projeto ' + projectName + '.';
+    var cta = 'Acessar billing';
+
+    if (notice.type === 'payment_failed') {
+      title = 'Pagamento pendente';
+      subject = '[' + brand + '] Pagamento pendente - ' + projectName;
+      message = 'Nao conseguimos confirmar o pagamento do projeto ' + projectName + '. Regularize para evitar suspensao.';
+    } else if (notice.type === 'subscription_expiring') {
+      title = 'Assinatura perto do vencimento';
+      subject = '[' + brand + '] Assinatura perto do vencimento - ' + projectName;
+      message = 'A assinatura do projeto ' + projectName + ' vence em ' + notice.daysUntilPeriodEnd + ' dia(s).';
+    } else if (notice.type === 'suspended') {
+      title = 'Projeto suspenso por billing';
+      subject = '[' + brand + '] Projeto suspenso - ' + projectName;
+      message = 'O projeto ' + projectName + ' foi suspenso automaticamente por pendencia de pagamento.';
+    } else if (notice.type === 'downgraded_to_free') {
+      title = 'Projeto alterado para o plano Iniciante';
+      subject = '[' + brand + '] Downgrade automatico - ' + projectName;
+      message = 'O projeto ' + projectName + ' foi alterado para o plano Iniciante por pendencia prolongada de pagamento.';
+      cta = 'Ver planos';
+    }
+
+    var details = [
+      ['Projeto', projectName],
+      ['Plano', notice.planName || 'N/D'],
+      ['Status', notice.status || 'N/D'],
+      ['Dias em atraso', notice.daysPastDue === null || notice.daysPastDue === undefined ? 'N/D' : notice.daysPastDue],
+      ['Acesso ate', notice.accessEndsAt ? new Date(notice.accessEndsAt).toLocaleString('pt-BR') : 'N/D']
+    ];
+
+    var rows = details.map(function(row) {
+      return '<tr><td style="padding:6px 0;color:#555;"><strong>' + encode(String(row[0])) + ':</strong></td><td style="padding:6px 0;color:#555;">' + encode(String(row[1])) + '</td></tr>';
+    }).join('');
+
+    var html = '' +
+      '<div style="font-family:Arial,sans-serif;background:#f6f6f6;padding:20px;">' +
+      '<div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #e9e9e9;border-radius:4px;padding:24px;">' +
+      '<h2 style="margin:0 0 16px;color:#333;font-size:20px;">' + encode(title) + '</h2>' +
+      '<p style="margin:0 0 12px;color:#555;">Ola ' + encode(firstname) + ',</p>' +
+      '<p style="margin:0 0 16px;color:#555;">' + encode(message) + '</p>' +
+      '<table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">' + rows + '</table>' +
+      '<a href="' + encode(notice.projectUrl || that.baseUrl) + '" style="background:#1e88e5;color:#fff;text-decoration:none;padding:10px 18px;border-radius:5px;display:inline-block;font-weight:bold;">' + encode(cta) + '</a>' +
+      '<p style="margin:24px 0 0;color:#777;">The ' + encode(brand) + ' Team</p>' +
+      '</div>' +
+      '</div>';
+
+    that.send({ to: to, subject: subject, html: html });
+  }
+
+
   getTemplate(templateName, settings) {
 
     var that = this;

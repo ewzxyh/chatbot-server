@@ -52,8 +52,24 @@ function fakePaymentModel(events) {
   events = events || [];
   return {
     create: async function(event) {
+      event.createdAt = event.createdAt || new Date();
       events.push(event);
       return event;
+    },
+    findOne: function(query) {
+      return {
+        sort: function() { return this; },
+        lean: function() { return this; },
+        exec: async function() {
+          return events
+            .filter(function(event) {
+              return event.project_id === query.project_id && event.event_type === query.event_type;
+            })
+            .sort(function(a, b) {
+              return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+            })[0] || null;
+        }
+      };
     },
     find: function() {
       return {
@@ -72,6 +88,58 @@ function fakePaymentModel(events) {
     },
     events: events
   };
+}
+
+function fakeProjectCollection(projects) {
+  return {
+    find: function() {
+      return {
+        sort: function() { return this; },
+        limit: function() { return this; },
+        exec: async function() { return projects; }
+      };
+    },
+    findById: async function(id) {
+      return projects.find(function(project) { return String(project._id) === String(id); }) || projects[0];
+    },
+    findByIdAndUpdate: async function(id, update) {
+      var project = projects.find(function(item) { return String(item._id) === String(id); }) || projects[0];
+      project.lastUpdate = update;
+      Object.keys(update.$set || {}).forEach(function(key) {
+        var parts = key.split('.');
+        var target = project;
+        for (var i = 0; i < parts.length - 1; i++) {
+          target[parts[i]] = target[parts[i]] || {};
+          target = target[parts[i]];
+        }
+        target[parts[parts.length - 1]] = update.$set[key];
+      });
+      return project;
+    }
+  };
+}
+
+function fakeOwnerModels() {
+  return {
+    ProjectUser: {
+      findOne: async function() { return { id_user: 'owner-1' }; }
+    },
+    User: {
+      findById: async function() { return { email: 'redacted@example.invalid', firstname: 'Owner' }; }
+    }
+  };
+}
+
+function fakeEmailService() {
+  var service = {
+    enabled: true,
+    baseUrl: 'http://localhost:8081/dashboard',
+    sent: [],
+    sendBillingLifecycleEmail: async function(to, user, projectName, notice) {
+      service.sent.push({ to: to, user: user, projectName: projectName, notice: notice });
+    }
+  };
+  return service;
 }
 
 describe('billingLifecycleService', function() {
@@ -223,5 +291,108 @@ describe('billingLifecycleService', function() {
     assert.strictEqual(project.profile.billingStatus, 'active');
     assert.strictEqual(project.profile.suspendedAt, null);
     assert.strictEqual(payments.events[0].event_type, 'billing.lifecycle.reactivated');
+  });
+
+  it('dry-runs the automatic sweep without mutating overdue projects', async function() {
+    var project = createProject({
+      _id: 'project-sweep-dry-run',
+      status: 100,
+      profile: Object.assign({}, createProject().profile, {
+        subEnd: new Date('2026-05-01T00:00:00.000Z'),
+        currentPeriodEnd: new Date('2026-05-01T00:00:00.000Z'),
+        billingStatus: 'past_due'
+      })
+    });
+    var payments = fakePaymentModel();
+    var service = billingLifecycleService.createBillingLifecycleService({
+      Project: fakeProjectCollection([project]),
+      SubscriptionPayment: payments,
+      now: function() { return new Date('2026-05-10T12:00:00.000Z'); }
+    });
+
+    var result = await service.runLifecycleSweep({
+      dryRun: true,
+      suspendAfterDays: 7,
+      downgradeAfterDays: 30
+    });
+
+    assert.strictEqual(result.scanned, 1);
+    assert.strictEqual(result.plannedActions, 1);
+    assert.strictEqual(result.actions, 0);
+    assert.strictEqual(project.profile.billingStatus, 'past_due');
+    assert.strictEqual(payments.events.length, 0);
+    assert.strictEqual(result.items[0].planned.action, 'suspend');
+  });
+
+  it('suspends overdue projects during an automatic sweep and notifies the owner', async function() {
+    var project = createProject({
+      _id: 'project-sweep-suspend',
+      status: 100,
+      profile: Object.assign({}, createProject().profile, {
+        subEnd: new Date('2026-05-01T00:00:00.000Z'),
+        currentPeriodEnd: new Date('2026-05-01T00:00:00.000Z'),
+        billingStatus: 'past_due'
+      })
+    });
+    var payments = fakePaymentModel();
+    var ownerModels = fakeOwnerModels();
+    var mailer = fakeEmailService();
+    var service = billingLifecycleService.createBillingLifecycleService({
+      Project: fakeProjectCollection([project]),
+      ProjectUser: ownerModels.ProjectUser,
+      User: ownerModels.User,
+      SubscriptionPayment: payments,
+      emailService: mailer,
+      now: function() { return new Date('2026-05-10T12:00:00.000Z'); }
+    });
+
+    var result = await service.runLifecycleSweep({
+      dryRun: false,
+      suspendAfterDays: 7,
+      downgradeAfterDays: 30
+    });
+
+    assert.strictEqual(result.actions, 1);
+    assert.strictEqual(project.profile.billingStatus, 'suspended');
+    assert.strictEqual(payments.events[0].event_type, 'billing.lifecycle.suspended');
+    assert.strictEqual(mailer.sent.length, 1);
+    assert.strictEqual(mailer.sent[0].notice.type, 'suspended');
+  });
+
+  it('downgrades long overdue suspended projects to the free plan', async function() {
+    var project = createProject({
+      _id: 'project-sweep-downgrade',
+      status: 100,
+      profile: Object.assign({}, createProject().profile, {
+        subEnd: new Date('2026-05-01T00:00:00.000Z'),
+        currentPeriodEnd: new Date('2026-05-01T00:00:00.000Z'),
+        billingStatus: 'suspended',
+        suspendedAt: new Date('2026-05-09T00:00:00.000Z')
+      })
+    });
+    var payments = fakePaymentModel();
+    var ownerModels = fakeOwnerModels();
+    var mailer = fakeEmailService();
+    var service = billingLifecycleService.createBillingLifecycleService({
+      Project: fakeProjectCollection([project]),
+      ProjectUser: ownerModels.ProjectUser,
+      User: ownerModels.User,
+      SubscriptionPayment: payments,
+      emailService: mailer,
+      now: function() { return new Date('2026-06-05T12:00:00.000Z'); }
+    });
+
+    var result = await service.runLifecycleSweep({
+      dryRun: false,
+      suspendAfterDays: 7,
+      downgradeAfterDays: 30
+    });
+
+    assert.strictEqual(result.actions, 1);
+    assert.strictEqual(project.profile.name, 'Free');
+    assert.strictEqual(project.profile.type, 'free');
+    assert.strictEqual(project.profile.billingStatus, 'free');
+    assert.strictEqual(payments.events[0].event_type, 'billing.lifecycle.downgraded_to_free');
+    assert.strictEqual(mailer.sent[0].notice.type, 'downgraded_to_free');
   });
 });

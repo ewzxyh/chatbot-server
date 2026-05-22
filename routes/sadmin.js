@@ -977,6 +977,93 @@ router.post('/projects/:id/billing-lifecycle/actions', auth, async function (req
   }
 });
 
+router.get('/billing-lifecycle/job/status', auth, async function (req, res) {
+  try {
+    var job = req.app && req.app.get ? req.app.get('billing_lifecycle_job') : null;
+    res.json({
+      generatedAt: new Date().toISOString(),
+      job: job && job.status ? job.status() : null,
+      config: billingLifecycleService.getLifecycleConfig()
+    });
+  } catch (err) {
+    winston.error('sadmin billing lifecycle job status error', err);
+    res.status(500).json({ error: 'Failed to fetch billing lifecycle job status' });
+  }
+});
+
+router.post('/billing-lifecycle/job/run', auth, async function (req, res) {
+  var dryRun = !(req.body && req.body.dryRun === false);
+  try {
+    if (!dryRun && (!req.body || req.body.confirm !== true)) {
+      return res.status(400).json({ error: 'confirm must be true to execute billing lifecycle changes' });
+    }
+
+    var job = req.app && req.app.get ? req.app.get('billing_lifecycle_job') : null;
+    var runOptions = {
+      force: true,
+      dryRun: dryRun,
+      userId: getRequestUserEmail(req),
+      limit: req.body && req.body.limit ? parseLimit(req.body.limit, 100, 1000) : undefined,
+      suspendAfterDays: req.body && req.body.suspendAfterDays,
+      downgradeAfterDays: req.body && req.body.downgradeAfterDays,
+      noticeIntervalHours: req.body && req.body.noticeIntervalHours,
+      expiringNoticeDays: req.body && req.body.expiringNoticeDays,
+      emailEnabled: req.body && req.body.emailEnabled !== undefined ? req.body.emailEnabled : undefined
+    };
+
+    var output = job && job.runOnce
+      ? await job.runOnce(runOptions)
+      : { ok: true, result: await billingLifecycleService.createBillingLifecycleService().runLifecycleSweep(runOptions) };
+    var result = output.result || output;
+
+    await auditService.record({
+      action: dryRun ? 'admin.billing_lifecycle_simulate' : 'admin.billing_lifecycle_run',
+      method: 'POST',
+      path: req.originalUrl || req.url,
+      statusCode: 200,
+      success: true,
+      entityType: 'billing_lifecycle',
+      entityId: 'global',
+      resource: 'sadmin/billing-lifecycle',
+      actor: auditService.getActor(req),
+      ip: req.ip,
+      userAgent: req.get ? req.get('user-agent') : undefined,
+      summary: dryRun ? 'Superadmin simulated billing lifecycle sweep' : 'Superadmin executed billing lifecycle sweep',
+      changes: {
+        dryRun: dryRun,
+        scanned: result.scanned,
+        actions: result.actions,
+        notices: result.notices,
+        skipped: result.skipped,
+        errors: result.errors
+      }
+    });
+
+    res.json(Object.assign({
+      generatedAt: new Date().toISOString(),
+      job: job && job.status ? job.status() : null
+    }, output));
+  } catch (err) {
+    winston.error('sadmin billing lifecycle job run error', err);
+    await auditService.record({
+      action: dryRun ? 'admin.billing_lifecycle_simulate' : 'admin.billing_lifecycle_run',
+      method: 'POST',
+      path: req.originalUrl || req.url,
+      statusCode: err.statusCode || 500,
+      success: false,
+      entityType: 'billing_lifecycle',
+      entityId: 'global',
+      resource: 'sadmin/billing-lifecycle',
+      actor: auditService.getActor(req),
+      ip: req.ip,
+      userAgent: req.get ? req.get('user-agent') : undefined,
+      summary: 'Superadmin billing lifecycle sweep failed',
+      metadata: { dryRun: dryRun, error: err.message }
+    });
+    res.status(500).json({ error: 'Failed to run billing lifecycle job' });
+  }
+});
+
 router.put('/projects/:id/plan', auth, async function (req, res) {
   try {
     var planKey = req.body.planKey;

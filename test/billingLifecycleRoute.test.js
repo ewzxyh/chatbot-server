@@ -104,6 +104,50 @@ describe('BillingLifecycleRoute', function() {
     expect(events[0].provider).to.equal('chatcase');
   });
 
+  it('runs a dry-run billing lifecycle sweep from superadmin', async function() {
+    var projectId = new mongoose.Types.ObjectId();
+    var project = await Project.create({
+      _id: projectId,
+      name: 'Billing Lifecycle Sweep API',
+      createdBy: 'billing-lifecycle-test',
+      status: 100,
+      profile: {
+        name: 'Business',
+        type: 'payment',
+        agents: 10,
+        quotes: {
+          contacts: 50000,
+          platforms: 5,
+          members: 10,
+          tokens: 10000000,
+          email: 200
+        },
+        currentPeriodStart: new Date('2026-04-01T00:00:00.000Z'),
+        currentPeriodEnd: new Date('2026-04-01T00:00:00.000Z'),
+        subStart: new Date('2026-04-01T00:00:00.000Z'),
+        subEnd: new Date('2026-04-04T00:00:00.000Z'),
+        billingStatus: 'past_due'
+      }
+    });
+
+    var res = await postAsSuperAdmin('/sadmin/billing-lifecycle/job/run', adminEmail, pwd, {
+      dryRun: true,
+      suspendAfterDays: 1,
+      downgradeAfterDays: 90,
+      limit: 20
+    });
+
+    expect(res).to.have.status(200);
+    expect(res.body.result.dryRun).to.equal(true);
+    expect(res.body.result.scanned).to.be.greaterThan(0);
+    expect(res.body.result.items.some(function(item) {
+      return item.projectId === String(project._id) && item.status === 'planned' && item.planned.action === 'suspend';
+    })).to.equal(true);
+
+    var saved = await Project.findById(project._id).lean();
+    expect(saved.profile.billingStatus).to.equal('past_due');
+  });
+
   after(async function() {
     await User.deleteOne({ email: adminEmail });
     await Project.deleteMany({ createdBy: 'billing-lifecycle-test' });

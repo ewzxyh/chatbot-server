@@ -191,6 +191,7 @@ var settingDataLoader = require('./services/settingDataLoader');
 var schemaMigrationService = require('./services/schemaMigrationService');
 var operationalMonitorService = require('./services/operationalMonitorService');
 var privacyRetentionJobService = require('./services/privacyRetentionJobService');
+var billingLifecycleJobService = require('./services/billingLifecycleJobService');
 var auditService = require('./services/auditService');
 var RouterLogger = require('./models/routerLogger');
 var cacheEnabler = require("./services/cacheEnabler");
@@ -315,6 +316,8 @@ app.set('operational_monitor', operationalMonitorService);
 operationalMonitorService.start({ app: app });
 app.set('privacy_retention_job', privacyRetentionJobService);
 privacyRetentionJobService.start();
+app.set('billing_lifecycle_job', billingLifecycleJobService);
+billingLifecycleJobService.start();
 
 // TODO DELETE IT IN THE NEXT RELEASE
 if (process.env.ENABLE_ALTERNATIVE_CORS_MIDDLEWARE === "true") {  
