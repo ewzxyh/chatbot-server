@@ -190,6 +190,7 @@ var bootDataLoader = require('./services/bootDataLoader');
 var settingDataLoader = require('./services/settingDataLoader');
 var schemaMigrationService = require('./services/schemaMigrationService');
 var operationalMonitorService = require('./services/operationalMonitorService');
+var auditService = require('./services/auditService');
 var RouterLogger = require('./models/routerLogger');
 var cacheEnabler = require("./services/cacheEnabler");
 const session = require('express-session');
@@ -495,6 +496,8 @@ if (process.env.ROUTELOGGER_ENABLED==="true") {
 } else {
   winston.info("RouterLogger disabled ");
 }
+
+app.use(auditService.middleware());
 
 app.get('/', function (req, res) {
   res.send('Hello from Tiledesk server. It\'s UP. See the documentation here http://developer.tiledesk.com');

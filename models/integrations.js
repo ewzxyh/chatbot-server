@@ -17,7 +17,7 @@ var IntegrationsSchema = new Schema({
         required: true,
         default: {}
     }
-})
+}, { timestamps: true })
 
 
 module.exports = mongoose.model('integration', IntegrationsSchema);

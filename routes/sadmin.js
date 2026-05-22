@@ -14,6 +14,7 @@ var Integration = require('../models/integrations');
 var SubscriptionPayment = require('../pubmodules/billing/models/subscription-payment');
 var { getPlan, getAllPlans } = require('../pubmodules/billing/plans');
 var OperationalEvent = require('../models/operationalEvent');
+var AuditEvent = require('../models/auditEvent');
 var operationalHealthService = require('../services/operationalHealthService');
 var operationalAlertService = require('../services/operationalAlertService');
 var operationalAlertNotifier = require('../services/operationalAlertNotifier');
@@ -23,6 +24,7 @@ var sentryService = require('../services/sentryService');
 var usageMeteringService = require('../services/usageMeteringService');
 var usageMeteringSnapshotService = require('../services/usageMeteringSnapshotService');
 var billingLifecycleService = require('../services/billingLifecycleService');
+var auditService = require('../services/auditService');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
 
@@ -41,10 +43,42 @@ function parseLimit(value, fallback, max) {
   return Math.min(parsed, max);
 }
 
+function parsePage(value) {
+  var parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed < 0) return 0;
+  return parsed;
+}
+
+function parseDateFilter(value) {
+  if (!value) return null;
+  var parsed = new Date(value);
+  if (isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function getRequestUserEmail(req) {
   if (req && req.user && req.user.email) return req.user.email;
   if (req && req.user && req.user._json && req.user._json.email) return req.user._json.email;
   return 'superadmin';
+}
+
+function getProjectProfileSnapshot(project) {
+  if (!project || !project.profile) return {};
+  return {
+    name: project.profile.name,
+    type: project.profile.type,
+    agents: project.profile.agents,
+    quotes: project.profile.quotes,
+    trialDays: project.profile.trialDays,
+    billingStatus: project.profile.billingStatus,
+    subStart: project.profile.subStart,
+    subEnd: project.profile.subEnd,
+    billingPeriod: project.profile.billingPeriod
+  };
 }
 
 function getNotificationResultStatus(result) {
@@ -356,6 +390,127 @@ router.get('/operational-events', auth, async function (req, res) {
   }
 });
 
+router.get('/audit-events', auth, async function (req, res) {
+  try {
+    var query = {};
+    var and = [];
+
+    if (req.query.project_id) query.id_project = req.query.project_id;
+    if (req.query.action) query.action = req.query.action;
+    if (req.query.method) query.method = String(req.query.method).toUpperCase();
+    if (req.query.entityType) query.entityType = req.query.entityType;
+    if (req.query.entityId) query.entityId = req.query.entityId;
+    if (req.query.resource) query.resource = req.query.resource;
+    if (req.query.success === 'true') query.success = true;
+    if (req.query.success === 'false') query.success = false;
+    if (req.query.actor) query['actor.email'] = new RegExp(escapeRegex(req.query.actor), 'i');
+
+    var from = parseDateFilter(req.query.from);
+    var to = parseDateFilter(req.query.to);
+    if (from || to) {
+      query.timestamp = {};
+      if (from) query.timestamp.$gte = from;
+      if (to) query.timestamp.$lte = to;
+    }
+
+    if (req.query.search) {
+      var search = new RegExp(escapeRegex(req.query.search), 'i');
+      and.push({
+        $or: [
+          { summary: search },
+          { path: search },
+          { action: search },
+          { entityType: search },
+          { entityId: search },
+          { id_project: search },
+          { 'actor.email': search }
+        ]
+      });
+    }
+
+    if (and.length > 0) query.$and = and;
+
+    var limit = parseLimit(req.query.limit, 50, 200);
+    var page = parsePage(req.query.page);
+    var count = await AuditEvent.countDocuments(query);
+    var events = await AuditEvent.find(query)
+      .sort({ timestamp: -1 })
+      .skip(page * limit)
+      .limit(limit)
+      .lean();
+
+    res.json({ data: events, count: count, page: page, limit: limit });
+  } catch (err) {
+    winston.error('sadmin audit events error', err);
+    res.status(500).json({ error: 'Failed to fetch audit events' });
+  }
+});
+
+router.get('/audit-events/summary', auth, async function (req, res) {
+  try {
+    var now = new Date();
+    var from = parseDateFilter(req.query.from);
+    var to = parseDateFilter(req.query.to) || now;
+    if (!from) {
+      var range = req.query.range || '24h';
+      var hours = range === '7d' ? 24 * 7 : (range === '30d' ? 24 * 30 : 24);
+      from = new Date(now.getTime() - hours * 60 * 60 * 1000);
+    }
+
+    var match = { timestamp: { $gte: from, $lte: to } };
+    if (req.query.project_id) match.id_project = req.query.project_id;
+
+    var totals = await AuditEvent.aggregate([
+      { $match: match },
+      {
+        $facet: {
+          byAction: [
+            { $group: { _id: '$action', count: { $sum: 1 } } },
+            { $sort: { count: -1 } }
+          ],
+          byEntity: [
+            { $group: { _id: '$entityType', count: { $sum: 1 } } },
+            { $sort: { count: -1 } }
+          ],
+          byActor: [
+            { $group: { _id: '$actor.email', count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 10 }
+          ],
+          bySuccess: [
+            { $group: { _id: '$success', count: { $sum: 1 } } }
+          ],
+          total: [
+            { $count: 'count' }
+          ]
+        }
+      }
+    ]);
+
+    var summary = totals && totals[0] ? totals[0] : {};
+    var total = summary.total && summary.total[0] ? summary.total[0].count : 0;
+    var failures = 0;
+    if (summary.bySuccess) {
+      for (var i = 0; i < summary.bySuccess.length; i++) {
+        if (summary.bySuccess[i]._id === false) failures = summary.bySuccess[i].count;
+      }
+    }
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      range: { from: from, to: to },
+      total: total,
+      failures: failures,
+      byAction: summary.byAction || [],
+      byEntity: summary.byEntity || [],
+      byActor: summary.byActor || []
+    });
+  } catch (err) {
+    winston.error('sadmin audit summary error', err);
+    res.status(500).json({ error: 'Failed to fetch audit summary' });
+  }
+});
+
 router.get('/operational-alerts', auth, async function (req, res) {
   try {
     var limit = parseLimit(req.query.limit, 100, 200);
@@ -564,11 +719,30 @@ router.get('/projects/:id/billing-lifecycle', auth, async function (req, res) {
 
 router.post('/projects/:id/billing-lifecycle/actions', auth, async function (req, res) {
   try {
+    var projectBefore = await Project.findById(req.params.id).lean();
     var service = billingLifecycleService.createBillingLifecycleService();
     var result = await service.applyAction(req.params.id, {
       action: req.body && req.body.action,
       reason: req.body && req.body.reason,
       userId: getRequestUserEmail(req)
+    });
+    var projectAfter = await Project.findById(req.params.id).lean();
+
+    await auditService.record({
+      action: 'admin.billing_lifecycle_action',
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: 200,
+      success: true,
+      id_project: String(req.params.id),
+      entityType: 'project',
+      entityId: String(req.params.id),
+      resource: 'sadmin/projects',
+      actor: auditService.getActor(req),
+      summary: 'Superadmin applied billing lifecycle action ' + (req.body && req.body.action),
+      before: { profile: getProjectProfileSnapshot(projectBefore) },
+      after: { profile: getProjectProfileSnapshot(projectAfter) },
+      changes: { action: req.body && req.body.action, reason: req.body && req.body.reason }
     });
 
     res.json({
@@ -633,11 +807,29 @@ router.put('/projects/:id/plan', auth, async function (req, res) {
     update['profile.lastBillingEventAt'] = new Date();
 
     await Project.findByIdAndUpdate(req.params.id, { $set: update });
+    var projectAfter = await Project.findById(req.params.id).lean();
 
     var response = { success: true, plan: plan.name };
     if (project.profile.mandateId && planKey !== 'free') {
       response.warning = 'Project has active CasePay mandate. The mandate will continue billing at the previous amount. Consider canceling the mandate.';
     }
+
+    await auditService.record({
+      action: 'admin.project_plan_update',
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: 200,
+      success: true,
+      id_project: String(req.params.id),
+      entityType: 'project',
+      entityId: String(req.params.id),
+      resource: 'sadmin/projects',
+      actor: auditService.getActor(req),
+      summary: 'Superadmin changed project plan to ' + plan.name,
+      before: { profile: getProjectProfileSnapshot(project) },
+      after: { profile: getProjectProfileSnapshot(projectAfter) },
+      changes: update
+    });
 
     winston.info('sadmin: project ' + req.params.id + ' plan changed to ' + plan.name);
     res.json(response);
@@ -658,11 +850,29 @@ router.put('/projects/:id/trial', auth, async function (req, res) {
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     await Project.findByIdAndUpdate(req.params.id, { $set: { 'profile.trialDays': trialDays } });
+    var projectAfter = await Project.findById(req.params.id).lean();
 
     var response = { success: true, trialDays: trialDays };
     if (project.profile.type === 'payment') {
       response.warning = 'Project has active payment. Trial extension has no effect on paid plans.';
     }
+
+    await auditService.record({
+      action: 'admin.project_trial_update',
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: 200,
+      success: true,
+      id_project: String(req.params.id),
+      entityType: 'project',
+      entityId: String(req.params.id),
+      resource: 'sadmin/projects',
+      actor: auditService.getActor(req),
+      summary: 'Superadmin changed project trial to ' + trialDays + ' days',
+      before: { profile: getProjectProfileSnapshot(project) },
+      after: { profile: getProjectProfileSnapshot(projectAfter) },
+      changes: { 'profile.trialDays': trialDays }
+    });
 
     winston.info('sadmin: project ' + req.params.id + ' trial extended to ' + trialDays + ' days');
     res.json(response);
@@ -698,6 +908,24 @@ router.put('/projects/:id/quotas', auth, async function (req, res) {
     }
 
     await Project.findByIdAndUpdate(req.params.id, { $set: update });
+    var projectAfter = await Project.findById(req.params.id).lean();
+
+    await auditService.record({
+      action: 'admin.project_quotas_update',
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: 200,
+      success: true,
+      id_project: String(req.params.id),
+      entityType: 'project',
+      entityId: String(req.params.id),
+      resource: 'sadmin/projects',
+      actor: auditService.getActor(req),
+      summary: 'Superadmin updated project quotas',
+      before: { profile: getProjectProfileSnapshot(project) },
+      after: { profile: getProjectProfileSnapshot(projectAfter) },
+      changes: update
+    });
 
     winston.info('sadmin: project ' + req.params.id + ' quotas updated: ' + JSON.stringify(update));
     res.json({ success: true, updated: update });
