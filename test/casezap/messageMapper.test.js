@@ -424,9 +424,22 @@ describe('CaseZap messageMapper', function() {
       assert.strictEqual(result.body.file, 'https://media.example/f.pdf');
     });
     it('should map buttons to /send/menu', function() {
-      var result = messageMapper.mapOutbound({ text: 'Choose:', type: 'text', attributes: { attachment: { buttons: [{ label: 'Yes' }, { label: 'No' }] } } }, '55');
+      var result = messageMapper.mapOutbound({
+        text: 'Choose:',
+        type: 'text',
+        attributes: {
+          attachment: {
+            buttons: [
+              { value: 'Ver planos', label: 'Plans' },
+              { value: 'Falar atendente', label: 'Support' }
+            ]
+          }
+        }
+      }, '55');
       assert.strictEqual(result.endpoint, '/send/menu');
-      assert.deepStrictEqual(result.body.choices, ['Yes', 'No']);
+      assert.strictEqual(result.body.type, 'button');
+      assert.strictEqual(result.body.text, 'Choose:');
+      assert.deepStrictEqual(result.body.choices, ['Ver planos', 'Falar atendente']);
     });
   });
 });

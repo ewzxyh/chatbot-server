@@ -66,6 +66,32 @@ describe('TiledeskWhatsappTranslator', function() {
       assert.strictEqual(image.image.link, 'https://media.example/files/uploads/photo.jpg?exp=1&sig=a');
       assert.strictEqual(document.document.link, 'https://media.example/files/uploads/report.pdf?exp=1&sig=b');
     });
+
+    it('maps ChatCase template buttons to WhatsApp interactive buttons', async function() {
+      const translator = new TiledeskWhatsappTranslator();
+
+      const result = await translator.toWhatsapp({
+        text: 'Menu ChatCase',
+        type: 'text',
+        attributes: {
+          attachment: {
+            type: 'text',
+            buttons: [
+              { type: 'text', value: 'Ver planos', label: 'Ver planos' },
+              { type: 'text', value: 'Falar atendente', label: 'Falar atendente' }
+            ]
+          }
+        }
+      }, '5511999999999');
+
+      assert.strictEqual(result.type, 'interactive');
+      assert.strictEqual(result.interactive.type, 'button');
+      assert.strictEqual(result.interactive.body.text, 'Menu ChatCase');
+      assert.strictEqual(result.interactive.action.buttons.length, 2);
+      assert.strictEqual(result.interactive.action.buttons[0].reply.title, 'Ver planos');
+      assert.strictEqual(result.interactive.action.buttons[1].reply.title, 'Falar atendente');
+      assert(result.interactive.action.buttons[0].reply.id.startsWith('quick'));
+    });
   });
 
   describe('toTiledesk', function() {

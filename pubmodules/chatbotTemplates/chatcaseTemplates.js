@@ -8,7 +8,29 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function messageAction(text) {
+function textButton(value) {
+  return {
+    type: 'text',
+    value,
+    label: value
+  };
+}
+
+function messageAction(text, buttons) {
+  const message = {
+    type: 'text',
+    text
+  };
+
+  if (buttons && buttons.length) {
+    message.attributes = {
+      attachment: {
+        type: 'text',
+        buttons: buttons.map(textButton)
+      }
+    };
+  }
+
   return {
     _tdActionType: 'reply',
     text,
@@ -18,26 +40,24 @@ function messageAction(text) {
         { type: 'wait', time: 300 },
         {
           type: 'message',
-          message: {
-            type: 'text',
-            text
-          }
+          message
         }
       ]
     }
   };
 }
 
-function intent({ id, name, question, answer, x, y }) {
+function intent({ id, name, question, answer, buttons, aliases, x, y }) {
   const item = {
     webhook_enabled: false,
     enabled: true,
     intent_id: id,
     intent_display_name: name,
     answer,
-    actions: [messageAction(answer)],
+    actions: [messageAction(answer, buttons)],
     attributes: {
-      position: { x, y }
+      position: { x, y },
+      aliases: aliases || []
     }
   };
 
@@ -85,6 +105,10 @@ const WHATSAPP_MENU_BASIC = createTemplate({
   attributes: {
     source: 'chatcase-static-template',
     channels: ['whatsapp', 'casezap', 'telegram'],
+    nativeInteractions: {
+      whatsapp: 'buttons',
+      casezap: 'menu'
+    },
     rules: []
   },
   intents: [
@@ -100,6 +124,7 @@ const WHATSAPP_MENU_BASIC = createTemplate({
       name: 'start',
       question: '\\start',
       answer: 'Ola! Sou o assistente ChatCase.\n\n1 - Ver planos\n2 - Falar com atendente\n\nResponda com 1 ou 2.',
+      buttons: ['Ver planos', 'Falar atendente'],
       x: 150,
       y: 160
     }),
@@ -108,6 +133,7 @@ const WHATSAPP_MENU_BASIC = createTemplate({
       name: 'menu',
       question: 'menu',
       answer: 'Menu ChatCase:\n\n1 - Ver planos\n2 - Falar com atendente\n\nResponda com 1 ou 2.',
+      buttons: ['Ver planos', 'Falar atendente'],
       x: 460,
       y: 160
     }),
@@ -115,7 +141,9 @@ const WHATSAPP_MENU_BASIC = createTemplate({
       id: 'cc-plans',
       name: 'plans',
       question: '1',
+      aliases: ['Ver planos'],
       answer: 'Planos ChatCase:\n\n- Starter: atendimento basico e canais essenciais.\n- Business: automacoes, equipe e integracoes avancadas.\n\nDigite 2 para falar com uma atendente ou menu para voltar.',
+      buttons: ['Falar atendente', 'Menu'],
       x: 460,
       y: 360
     }),
@@ -123,6 +151,7 @@ const WHATSAPP_MENU_BASIC = createTemplate({
       id: 'cc-human-handoff',
       name: 'human_handoff',
       question: '2',
+      aliases: ['Falar atendente', 'Atendente'],
       answer: 'Certo, vou chamar uma atendente. Enquanto isso, descreva em uma mensagem o que voce precisa.',
       x: 760,
       y: 360
@@ -152,6 +181,10 @@ const ECOMMERCE_ORDERS = createTemplate({
     source: 'chatcase-static-template',
     channels: ['whatsapp', 'casezap'],
     segment: 'ecommerce',
+    nativeInteractions: {
+      whatsapp: 'buttons',
+      casezap: 'menu'
+    },
     rules: []
   },
   intents: [
@@ -167,6 +200,7 @@ const ECOMMERCE_ORDERS = createTemplate({
       name: 'start',
       question: '\\start',
       answer: 'Ola! Sou o assistente da loja.\n\n1 - Status do pedido\n2 - Trocas ou devolucoes\n3 - Falar com atendente\n\nResponda com o numero da opcao.',
+      buttons: ['Status pedido', 'Trocas', 'Atendente'],
       x: 150,
       y: 160
     }),
@@ -175,6 +209,7 @@ const ECOMMERCE_ORDERS = createTemplate({
       name: 'menu',
       question: 'menu',
       answer: 'Menu da loja:\n\n1 - Status do pedido\n2 - Trocas ou devolucoes\n3 - Falar com atendente',
+      buttons: ['Status pedido', 'Trocas', 'Atendente'],
       x: 460,
       y: 160
     }),
@@ -182,6 +217,7 @@ const ECOMMERCE_ORDERS = createTemplate({
       id: 'cc-ecommerce-order-status',
       name: 'order_status',
       question: '1',
+      aliases: ['Status pedido', 'Pedido', 'Entrega'],
       answer: 'Para consultar seu pedido, envie o numero do pedido ou CPF usado na compra. Uma atendente confirma o status em seguida.',
       x: 420,
       y: 360
@@ -190,6 +226,7 @@ const ECOMMERCE_ORDERS = createTemplate({
       id: 'cc-ecommerce-exchange-return',
       name: 'exchange_return',
       question: '2',
+      aliases: ['Trocas', 'Devolucao', 'Trocas ou devolucoes'],
       answer: 'Para troca ou devolucao, envie o numero do pedido, o item e o motivo. Vamos conferir a politica e te orientar.',
       x: 680,
       y: 360
@@ -198,6 +235,7 @@ const ECOMMERCE_ORDERS = createTemplate({
       id: 'cc-ecommerce-human-handoff',
       name: 'human_handoff',
       question: '3',
+      aliases: ['Atendente', 'Falar com atendente'],
       answer: 'Certo, vou chamar uma atendente. Descreva sua duvida em uma mensagem para agilizar o atendimento.',
       x: 940,
       y: 360
@@ -227,6 +265,10 @@ const CLINIC_SCHEDULING = createTemplate({
     source: 'chatcase-static-template',
     channels: ['whatsapp', 'casezap'],
     segment: 'clinic',
+    nativeInteractions: {
+      whatsapp: 'buttons',
+      casezap: 'menu'
+    },
     rules: []
   },
   intents: [
@@ -242,6 +284,7 @@ const CLINIC_SCHEDULING = createTemplate({
       name: 'start',
       question: '\\start',
       answer: 'Ola! Sou o assistente da recepcao.\n\n1 - Agendar horario\n2 - Valores e convenios\n3 - Falar com recepcao\n\nResponda com o numero da opcao.',
+      buttons: ['Agendar', 'Valores', 'Recepcao'],
       x: 150,
       y: 160
     }),
@@ -250,6 +293,7 @@ const CLINIC_SCHEDULING = createTemplate({
       name: 'menu',
       question: 'menu',
       answer: 'Menu da recepcao:\n\n1 - Agendar horario\n2 - Valores e convenios\n3 - Falar com recepcao',
+      buttons: ['Agendar', 'Valores', 'Recepcao'],
       x: 460,
       y: 160
     }),
@@ -257,6 +301,7 @@ const CLINIC_SCHEDULING = createTemplate({
       id: 'cc-clinic-schedule',
       name: 'schedule',
       question: '1',
+      aliases: ['Agendar', 'Agendar horario'],
       answer: 'Para agendar, envie seu nome completo, especialidade desejada e os melhores dias/horarios para atendimento.',
       x: 420,
       y: 360
@@ -265,6 +310,7 @@ const CLINIC_SCHEDULING = createTemplate({
       id: 'cc-clinic-prices',
       name: 'prices',
       question: '2',
+      aliases: ['Valores', 'Convenios', 'Valores e convenios'],
       answer: 'Para valores e convenios, envie a especialidade ou procedimento. A recepcao confirma as opcoes disponiveis.',
       x: 680,
       y: 360
@@ -273,6 +319,7 @@ const CLINIC_SCHEDULING = createTemplate({
       id: 'cc-clinic-human-handoff',
       name: 'human_handoff',
       question: '3',
+      aliases: ['Recepcao', 'Falar com recepcao'],
       answer: 'Certo, vou chamar a recepcao. Descreva em uma mensagem o que voce precisa.',
       x: 940,
       y: 360
