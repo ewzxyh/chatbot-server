@@ -26,6 +26,7 @@ var usageMeteringSnapshotService = require('../services/usageMeteringSnapshotSer
 var billingLifecycleService = require('../services/billingLifecycleService');
 var auditService = require('../services/auditService');
 var privacyService = require('../services/privacyService');
+var privacyRetentionService = require('../services/privacyRetentionService');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
 
@@ -521,6 +522,88 @@ router.get('/privacy/config', auth, async function (req, res) {
   } catch (err) {
     winston.error('sadmin privacy config error', err);
     res.status(500).json({ error: 'Failed to fetch privacy config' });
+  }
+});
+
+router.get('/privacy/retention/status', auth, async function (req, res) {
+  try {
+    var job = req.app && req.app.get ? req.app.get('privacy_retention_job') : null;
+    var status = await privacyRetentionService.getStatus({
+      projectId: req.query.project_id,
+      jobStatus: job && job.status ? job.status() : null
+    });
+    res.json(status);
+  } catch (err) {
+    winston.error('sadmin privacy retention status error', err);
+    res.status(500).json({ error: 'Failed to fetch privacy retention status' });
+  }
+});
+
+router.post('/privacy/retention/run', auth, async function (req, res) {
+  var projectId = req.body && (req.body.project_id || req.body.projectId);
+  var dryRun = !(req.body && req.body.dryRun === false);
+  try {
+    if (!dryRun && (!req.body || req.body.confirm !== true)) {
+      return res.status(400).json({ error: 'confirm must be true to run destructive privacy retention' });
+    }
+
+    var result = await privacyRetentionService.runRetention({
+      dryRun: dryRun,
+      projectId: projectId,
+      limit: req.body && req.body.limit ? parseLimit(req.body.limit, 500, 5000) : undefined,
+      attachmentLimit: req.body && req.body.attachmentLimit ? parseLimit(req.body.attachmentLimit, 500, 5000) : undefined,
+      scopes: req.body && req.body.scopes ? req.body.scopes : undefined,
+      source: 'manual'
+    });
+
+    await auditService.record({
+      action: dryRun ? 'admin.privacy_retention_simulate' : 'admin.privacy_retention_run',
+      method: 'POST',
+      path: req.originalUrl || req.url,
+      statusCode: 200,
+      success: true,
+      id_project: projectId ? String(projectId) : undefined,
+      entityType: 'privacy_retention',
+      entityId: projectId ? String(projectId) : 'global',
+      resource: 'sadmin/privacy',
+      actor: auditService.getActor(req),
+      ip: req.ip,
+      userAgent: req.get ? req.get('user-agent') : undefined,
+      summary: dryRun ? 'Superadmin simulated LGPD retention policy' : 'Superadmin executed LGPD retention policy',
+      changes: result.counts,
+      metadata: {
+        dryRun: dryRun,
+        project_id: projectId ? String(projectId) : null,
+        cutoffs: result.cutoffs,
+        scopes: result.scopes
+      }
+    });
+
+    res.json(result);
+  } catch (err) {
+    winston.error('sadmin privacy retention run error', err);
+    var statusCode = err.statusCode || 500;
+    await auditService.record({
+      action: dryRun ? 'admin.privacy_retention_simulate' : 'admin.privacy_retention_run',
+      method: 'POST',
+      path: req.originalUrl || req.url,
+      statusCode: statusCode,
+      success: false,
+      id_project: projectId ? String(projectId) : undefined,
+      entityType: 'privacy_retention',
+      entityId: projectId ? String(projectId) : 'global',
+      resource: 'sadmin/privacy',
+      actor: auditService.getActor(req),
+      ip: req.ip,
+      userAgent: req.get ? req.get('user-agent') : undefined,
+      summary: 'Superadmin LGPD retention policy failed',
+      metadata: {
+        dryRun: dryRun,
+        project_id: projectId ? String(projectId) : null,
+        error: err.message
+      }
+    });
+    res.status(statusCode).json({ error: err.message || 'Failed to run privacy retention' });
   }
 });
 

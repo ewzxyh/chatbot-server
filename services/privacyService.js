@@ -68,6 +68,13 @@ function getRetentionConfig() {
     conversationRetentionDays: parsePositiveInt(process.env.PRIVACY_CONVERSATION_RETENTION_DAYS, 1095),
     attachmentRetentionDays: parsePositiveInt(process.env.PRIVACY_ATTACHMENT_RETENTION_DAYS, 1095),
     leadRetentionDays: parsePositiveInt(process.env.PRIVACY_LEAD_RETENTION_DAYS, 1095),
+    retentionBatchLimit: parsePositiveInt(process.env.PRIVACY_RETENTION_BATCH_LIMIT, 500, 5000),
+    retentionAttachmentBatchLimit: parsePositiveInt(process.env.PRIVACY_RETENTION_ATTACHMENT_BATCH_LIMIT, 500, 5000),
+    retentionDeleteAttachments: parseBoolean(process.env.PRIVACY_RETENTION_DELETE_ATTACHMENTS, true),
+    retentionJobEnabled: parseBoolean(process.env.PRIVACY_RETENTION_JOB_ENABLED, false),
+    retentionJobDryRun: parseBoolean(process.env.PRIVACY_RETENTION_JOB_DRY_RUN, true),
+    retentionJobIntervalHours: parsePositiveInt(process.env.PRIVACY_RETENTION_JOB_INTERVAL_HOURS, 24, 168),
+    retentionJobStartDelaySeconds: parsePositiveInt(process.env.PRIVACY_RETENTION_JOB_START_DELAY_SECONDS, 300, 86400),
     exportMaxRequests: parsePositiveInt(process.env.PRIVACY_EXPORT_MAX_REQUESTS, 100, 500),
     exportMaxMessages: parsePositiveInt(process.env.PRIVACY_EXPORT_MAX_MESSAGES, 500, 5000),
     anonymizeMessageText: parseBoolean(process.env.PRIVACY_ANONYMIZE_MESSAGE_TEXT, true)

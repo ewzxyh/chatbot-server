@@ -190,6 +190,7 @@ var bootDataLoader = require('./services/bootDataLoader');
 var settingDataLoader = require('./services/settingDataLoader');
 var schemaMigrationService = require('./services/schemaMigrationService');
 var operationalMonitorService = require('./services/operationalMonitorService');
+var privacyRetentionJobService = require('./services/privacyRetentionJobService');
 var auditService = require('./services/auditService');
 var RouterLogger = require('./models/routerLogger');
 var cacheEnabler = require("./services/cacheEnabler");
@@ -312,6 +313,8 @@ app.set('quote_manager', qm);
 app.set('rate_manager', rm);
 app.set('operational_monitor', operationalMonitorService);
 operationalMonitorService.start({ app: app });
+app.set('privacy_retention_job', privacyRetentionJobService);
+privacyRetentionJobService.start();
 
 // TODO DELETE IT IN THE NEXT RELEASE
 if (process.env.ENABLE_ALTERNATIVE_CORS_MIDDLEWARE === "true") {  

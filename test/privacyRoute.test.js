@@ -4,6 +4,13 @@ process.env.DISABLE_BACKGROUND_WORKERS = 'true';
 process.env.CREATE_INITIAL_DATA = 'false';
 process.env.AUDIT_ENABLED = 'true';
 process.env.PRIVACY_ANONYMIZE_MESSAGE_TEXT = 'true';
+process.env.PRIVACY_CONVERSATION_RETENTION_DAYS = '30';
+process.env.PRIVACY_ATTACHMENT_RETENTION_DAYS = '30';
+process.env.PRIVACY_LEAD_RETENTION_DAYS = '30';
+process.env.PRIVACY_RETENTION_BATCH_LIMIT = '50';
+process.env.PRIVACY_RETENTION_ATTACHMENT_BATCH_LIMIT = '50';
+process.env.PRIVACY_RETENTION_DELETE_ATTACHMENTS = 'false';
+process.env.PRIVACY_RETENTION_JOB_ENABLED = 'false';
 process.env.MONGODB_URL = process.env.MONGODB_URL || 'mongodb://localhost:27017/tiledesk-test';
 process.env.MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/tiledesk-test';
 
@@ -21,6 +28,8 @@ var Lead = require('../models/lead');
 var Request = require('../models/request');
 var Message = require('../models/message');
 var AuditEvent = require('../models/auditEvent');
+var RequestConstants = require('../models/requestConstants');
+var privacyRetentionService = require('../services/privacyRetentionService');
 var privacyService = require('../services/privacyService');
 var userService = require('../services/userService');
 
@@ -167,6 +176,133 @@ describe('PrivacyRoute', function() {
     expect(res.body.config).to.have.property('conversationRetentionDays');
     expect(res.body.config).to.have.property('attachmentRetentionDays');
     expect(res.body.config).to.have.property('leadRetentionDays');
+    expect(res.body.config).to.have.property('retentionJobEnabled');
+    expect(res.body.config).to.have.property('retentionBatchLimit');
+  });
+
+  it('simulates and executes retention only with explicit destructive confirmation', async function() {
+    var now = Date.now();
+    var oldDate = new Date(now - 40 * 24 * 60 * 60 * 1000);
+    var project = await Project.create({
+      name: 'Privacy Retention Route Project',
+      createdBy: 'privacy-route-test',
+      profile: { name: 'Free', type: 'free' }
+    });
+
+    var request = await Request.create({
+      request_id: 'privacy-retention-request-' + now,
+      id_project: String(project._id),
+      first_text: 'Old closed request',
+      subject: 'Old closed request',
+      status: RequestConstants.CLOSED,
+      closed_at: oldDate,
+      createdBy: 'privacy-route-test'
+    });
+
+    await Message.create({
+      sender: 'lead-retention-' + now,
+      recipient: request.request_id,
+      text: 'Old message with [file](/api/files?path=uploads/dev/privacy-retention.txt)',
+      metadata: {
+        src: '/api/files?path=uploads/dev/privacy-retention.txt'
+      },
+      id_project: String(project._id),
+      createdBy: 'privacy-route-test'
+    });
+
+    var statusRes = await getAsSuperAdmin('/sadmin/privacy/retention/status?project_id=' + project._id, adminEmail, pwd);
+    expect(statusRes).to.have.status(200);
+    expect(statusRes.body.counts.requestsMatched).to.equal(1);
+
+    var simulateRes = await postAsSuperAdmin('/sadmin/privacy/retention/run', adminEmail, pwd, {
+      project_id: project._id,
+      dryRun: true
+    });
+    expect(simulateRes).to.have.status(200);
+    expect(simulateRes.body.dryRun).to.equal(true);
+    expect(simulateRes.body.counts.requestsMatched).to.equal(1);
+    expect(await Request.countDocuments({ request_id: request.request_id })).to.equal(1);
+
+    var rejectedRun = await postAsSuperAdmin('/sadmin/privacy/retention/run', adminEmail, pwd, {
+      project_id: project._id,
+      dryRun: false
+    });
+    expect(rejectedRun).to.have.status(400);
+    expect(await Request.countDocuments({ request_id: request.request_id })).to.equal(1);
+
+    var runRes = await postAsSuperAdmin('/sadmin/privacy/retention/run', adminEmail, pwd, {
+      project_id: project._id,
+      dryRun: false,
+      confirm: true
+    });
+    expect(runRes).to.have.status(200);
+    expect(runRes.body.dryRun).to.equal(false);
+    expect(runRes.body.counts.requestsDeleted).to.equal(1);
+    expect(runRes.body.counts.messagesDeleted).to.equal(1);
+    expect(await Request.countDocuments({ request_id: request.request_id })).to.equal(0);
+    expect(await Message.countDocuments({ recipient: request.request_id })).to.equal(0);
+
+    var auditEvent = await AuditEvent.findOne({
+      action: 'admin.privacy_retention_run',
+      id_project: String(project._id)
+    }).lean();
+    expect(auditEvent).to.exist;
+    expect(auditEvent.changes.requestsDeleted).to.equal(1);
+  });
+
+  it('removes stale attachment references without deleting the message body history', async function() {
+    var now = new Date();
+    var oldDate = new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000);
+    var project = await Project.create({
+      name: 'Privacy Attachment Retention Project',
+      createdBy: 'privacy-route-test',
+      profile: { name: 'Free', type: 'free' }
+    });
+
+    var message = await Message.create({
+      sender: 'lead-attachment-retention',
+      recipient: 'privacy-attachment-retention-request',
+      text: 'Anexo antigo /api/files?path=uploads/dev/privacy-attachment.pdf',
+      metadata: {
+        src: '/api/files?path=uploads/dev/privacy-attachment.pdf',
+        downloadUrl: '/api/files/download?path=uploads/dev/privacy-attachment.pdf'
+      },
+      id_project: String(project._id),
+      createdBy: 'privacy-route-test'
+    });
+    await Message.collection.updateOne({ _id: message._id }, { $set: { createdAt: oldDate, updatedAt: oldDate } });
+
+    var deleted = [];
+    var fakeFileService = {
+      deleteFile: function(filename) {
+        deleted.push(filename);
+        return Promise.resolve({ filename: filename });
+      }
+    };
+
+    var previousDeleteAttachments = process.env.PRIVACY_RETENTION_DELETE_ATTACHMENTS;
+    process.env.PRIVACY_RETENTION_DELETE_ATTACHMENTS = 'true';
+    try {
+      var result = await privacyRetentionService.runRetention({
+        dryRun: false,
+        projectId: project._id,
+        now: now,
+        fileServices: [fakeFileService],
+        scopes: { audit: false, conversations: false, attachments: true, leads: false }
+      });
+
+      expect(result.counts.messagesUpdated).to.equal(1);
+      expect(result.counts.attachmentsDeleted).to.equal(1);
+      expect(deleted).to.deep.equal(['uploads/dev/privacy-attachment.pdf']);
+
+      var updated = await Message.findById(message._id).lean();
+      expect(updated.text).to.equal(privacyRetentionService.REMOVED_ATTACHMENT_TEXT);
+      expect(updated.metadata.src).to.equal(undefined);
+      expect(updated.metadata.downloadUrl).to.equal(undefined);
+      expect(updated.metadata.privacy.attachmentRetained).to.equal(true);
+    } finally {
+      process.env.PRIVACY_RETENTION_DELETE_ATTACHMENTS = previousDeleteAttachments;
+    }
   });
 
   after(async function() {
