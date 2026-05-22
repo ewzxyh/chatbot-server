@@ -17,6 +17,18 @@ templatesRoute.get('/public/templates/windows/:botid', (req, res, next) => {
   return res.send(template);
 });
 
+templatesRoute.get('/public/templates/:botid/export', (req, res, next) => {
+  const template = chatcaseTemplates.getTemplateExportById(req.params.botid);
+
+  if (!template) {
+    return next();
+  }
+
+  const safeFilename = String(req.params.botid || 'chatcase-template').replace(/[^a-z0-9._-]/gi, '-');
+  res.set('Content-Disposition', `attachment; filename="${safeFilename}.json"`);
+  return res.type('json').send(template);
+});
+
 templatesRoute.get('/public/templates/:botid', (req, res, next) => {
   const template = chatcaseTemplates.getTemplatePayloadById(req.params.botid);
 
