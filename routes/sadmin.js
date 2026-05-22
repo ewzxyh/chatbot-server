@@ -25,6 +25,7 @@ var usageMeteringService = require('../services/usageMeteringService');
 var usageMeteringSnapshotService = require('../services/usageMeteringSnapshotService');
 var billingLifecycleService = require('../services/billingLifecycleService');
 var auditService = require('../services/auditService');
+var privacyService = require('../services/privacyService');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
 
@@ -508,6 +509,137 @@ router.get('/audit-events/summary', auth, async function (req, res) {
   } catch (err) {
     winston.error('sadmin audit summary error', err);
     res.status(500).json({ error: 'Failed to fetch audit summary' });
+  }
+});
+
+router.get('/privacy/config', auth, async function (req, res) {
+  try {
+    res.json({
+      generatedAt: new Date().toISOString(),
+      config: privacyService.getRetentionConfig()
+    });
+  } catch (err) {
+    winston.error('sadmin privacy config error', err);
+    res.status(500).json({ error: 'Failed to fetch privacy config' });
+  }
+});
+
+router.post('/privacy/contact-export', auth, async function (req, res) {
+  var projectId = req.body && (req.body.project_id || req.body.projectId);
+  var identifier = req.body && req.body.identifier;
+  try {
+    if (!projectId || !identifier) {
+      return res.status(400).json({ error: 'project_id and identifier are required' });
+    }
+
+    var result = await privacyService.exportContact(projectId, identifier);
+    await auditService.record({
+      action: 'admin.privacy_contact_export',
+      method: 'POST',
+      path: req.originalUrl || req.url,
+      statusCode: 200,
+      success: true,
+      id_project: String(projectId),
+      entityType: 'privacy_contact',
+      entityId: result.identifier,
+      resource: 'sadmin/privacy',
+      actor: auditService.getActor(req),
+      ip: req.ip,
+      userAgent: req.get ? req.get('user-agent') : undefined,
+      summary: 'Superadmin exported LGPD contact data',
+      metadata: {
+        identifier: result.identifier,
+        matched: result.matched
+      }
+    });
+    res.json(result);
+  } catch (err) {
+    winston.error('sadmin privacy contact export error', err);
+    var status = err.statusCode || 500;
+    await auditService.record({
+      action: 'admin.privacy_contact_export',
+      method: 'POST',
+      path: req.originalUrl || req.url,
+      statusCode: status,
+      success: false,
+      id_project: projectId ? String(projectId) : undefined,
+      entityType: 'privacy_contact',
+      entityId: identifier ? privacyService.maskIdentifier(identifier) : undefined,
+      resource: 'sadmin/privacy',
+      actor: auditService.getActor(req),
+      ip: req.ip,
+      userAgent: req.get ? req.get('user-agent') : undefined,
+      summary: 'Superadmin LGPD contact export failed',
+      metadata: {
+        identifier: identifier ? privacyService.maskIdentifier(identifier) : undefined,
+        error: err.message
+      }
+    });
+    res.status(status).json({ error: err.message || 'Failed to export contact data' });
+  }
+});
+
+router.post('/privacy/contact-anonymize', auth, async function (req, res) {
+  var projectId = req.body && (req.body.project_id || req.body.projectId);
+  var identifier = req.body && req.body.identifier;
+  try {
+    if (!projectId || !identifier) {
+      return res.status(400).json({ error: 'project_id and identifier are required' });
+    }
+    if (req.body.confirm !== true) {
+      return res.status(400).json({ error: 'confirm must be true to anonymize contact data' });
+    }
+
+    var result = await privacyService.anonymizeContact(projectId, identifier, {
+      actorEmail: getRequestUserEmail(req),
+      reason: req.body.reason
+    });
+
+    await auditService.record({
+      action: 'admin.privacy_contact_anonymize',
+      method: 'POST',
+      path: req.originalUrl || req.url,
+      statusCode: 200,
+      success: true,
+      id_project: String(projectId),
+      entityType: 'privacy_contact',
+      entityId: result.identifier,
+      resource: 'sadmin/privacy',
+      actor: auditService.getActor(req),
+      ip: req.ip,
+      userAgent: req.get ? req.get('user-agent') : undefined,
+      summary: 'Superadmin anonymized contact data for LGPD',
+      changes: result.counts,
+      metadata: {
+        identifier: result.identifier,
+        reason: req.body.reason || null
+      }
+    });
+    res.json(result);
+  } catch (err) {
+    winston.error('sadmin privacy contact anonymize error', err);
+    var status = err.statusCode || 500;
+    await auditService.record({
+      action: 'admin.privacy_contact_anonymize',
+      method: 'POST',
+      path: req.originalUrl || req.url,
+      statusCode: status,
+      success: false,
+      id_project: projectId ? String(projectId) : undefined,
+      entityType: 'privacy_contact',
+      entityId: identifier ? privacyService.maskIdentifier(identifier) : undefined,
+      resource: 'sadmin/privacy',
+      actor: auditService.getActor(req),
+      ip: req.ip,
+      userAgent: req.get ? req.get('user-agent') : undefined,
+      summary: 'Superadmin LGPD contact anonymization failed',
+      metadata: {
+        identifier: identifier ? privacyService.maskIdentifier(identifier) : undefined,
+        reason: req.body && req.body.reason ? req.body.reason : null,
+        error: err.message
+      }
+    });
+    res.status(status).json({ error: err.message || 'Failed to anonymize contact data' });
   }
 });
 

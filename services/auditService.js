@@ -190,6 +190,7 @@ function shouldAuditRequest(req) {
   var path = req.originalUrl || req.url || '';
 
   if (path.indexOf('/sadmin/audit-events') === 0) return false;
+  if (path.indexOf('/sadmin/privacy/contact-') === 0) return false;
   if (path.indexOf('/images') === 0 || path.indexOf('/files') === 0 || path.indexOf('/public') === 0) return false;
   if (path.indexOf('/webhook') === 0 && process.env.AUDIT_WEBHOOK_PAYLOADS !== 'true') return false;
 
