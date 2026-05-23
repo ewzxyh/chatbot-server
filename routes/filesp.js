@@ -37,6 +37,10 @@ const fallbackFileServices = isObjectStorageEnabled()
   : createLegacyFallbackFileServices(["images"]);
 const usageMediaTraffic = usageMediaTrafficService.createUsageMediaTrafficService();
 
+const EMPTY_PROFILE_PHOTO_SVG = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1"></svg>'
+);
+
 
 let MAX_UPLOAD_FILE_SIZE = process.env.MAX_UPLOAD_FILE_SIZE || 1024000; // 1MB
 let uploadlimits = undefined;
@@ -201,6 +205,24 @@ function shouldUseObjectStorage() {
 
 function isFileNotFound(error) {
   return error?.code === "ENOENT" || error?.msg === "File not found";
+}
+
+function normalizeStoragePath(filePath) {
+  return String(filePath || '').replace(/\\/g, '/');
+}
+
+function isNativeProfilePhotoPath(filePath) {
+  return /^uploads\/users\/[^/]+\/images\/(?:thumbnails_200_200-)?photo\.jpg$/i.test(normalizeStoragePath(filePath));
+}
+
+function sendMissingProfilePhotoPlaceholder(res) {
+  res.set({
+    "Cache-Control": "no-store",
+    "Content-Length": EMPTY_PROFILE_PHOTO_SVG.length,
+    "Content-Type": "image/svg+xml",
+    "X-File-Exists": "false"
+  });
+  return res.status(200).send(EMPTY_PROFILE_PHOTO_SVG);
 }
 
 async function findFileServiceForPath(filePath) {
@@ -702,6 +724,9 @@ router.get("/", [
   } catch (e) {
     if (isFileNotFound(e)) {
       winston.debug(`File ${req.query.path} not found on any configured file service.`)
+      if (isNativeProfilePhotoPath(req.query.path)) {
+        return sendMissingProfilePhotoPlaceholder(res);
+      }
       return res.status(404).send({ success: false, error: 'File not found.' });
     }
     winston.error('Error getting file', e);
@@ -832,6 +857,7 @@ router.delete("/", [
 router.__test = {
   allowsEveryExtension,
   getAllowedExtensions,
+  isNativeProfilePhotoPath,
   shouldVerifyUploadedContent,
   verifyUploadedContent
 };

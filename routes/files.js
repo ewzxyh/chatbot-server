@@ -26,6 +26,10 @@ const fallbackFileServices = isObjectStorageEnabled()
 
 const usageMediaTraffic = usageMediaTrafficService.createUsageMediaTrafficService();
 
+const EMPTY_PROFILE_PHOTO_SVG = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1"></svg>'
+);
+
 
 
 
@@ -75,6 +79,24 @@ function recordMediaTraffic(req, file, endpoint) {
 
 function isSilentExistenceCheck(req) {
   return req.query.silent === 'true' || req.query.silent === '1';
+}
+
+function normalizeStoragePath(filePath) {
+  return String(filePath || '').replace(/\\/g, '/');
+}
+
+function isNativeProfilePhotoPath(filePath) {
+  return /^uploads\/users\/[^/]+\/images\/(?:thumbnails_200_200-)?photo\.jpg$/i.test(normalizeStoragePath(filePath));
+}
+
+function sendMissingProfilePhotoPlaceholder(res) {
+  res.set({
+    "Cache-Control": "no-store",
+    "Content-Length": EMPTY_PROFILE_PHOTO_SVG.length,
+    "Content-Type": "image/svg+xml",
+    "X-File-Exists": "false"
+  });
+  return res.status(200).send(EMPTY_PROFILE_PHOTO_SVG);
 }
 
 function parseRangeHeader(rangeHeader, fileLength) {
@@ -203,7 +225,7 @@ router.head("/", async (req, res) => {
     if (isFileNotFound(e)) {
       winston.debug(`File ${req.query.path} not found on any configured file service.`)
       res.set({ "X-File-Exists": "false" });
-      if (isSilentExistenceCheck(req)) {
+      if (isSilentExistenceCheck(req) || isNativeProfilePhotoPath(req.query.path)) {
         return res.status(204).end();
       }
       return res.status(404).end();
@@ -223,6 +245,9 @@ router.get("/", async (req, res) => {
   } catch (e) {
     if (isFileNotFound(e)) {
       winston.debug(`File ${req.query.path} not found on any configured file service.`)
+      if (isNativeProfilePhotoPath(req.query.path)) {
+        return sendMissingProfilePhotoPlaceholder(res);
+      }
       return res.status(404).send({ success: false, error: 'File not found.' });
     }
     winston.error('Error getting file', e);
@@ -258,6 +283,8 @@ router.get("/download", async (req, res) => {
   }
 });
 
-
+router.__test = {
+  isNativeProfilePhotoPath
+};
 
 module.exports = router;
