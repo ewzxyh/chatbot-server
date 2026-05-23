@@ -73,6 +73,10 @@ function recordMediaTraffic(req, file, endpoint) {
   });
 }
 
+function isSilentExistenceCheck(req) {
+  return req.query.silent === 'true' || req.query.silent === '1';
+}
+
 function parseRangeHeader(rangeHeader, fileLength) {
   if (!rangeHeader || !fileLength) {
     return null;
@@ -181,6 +185,33 @@ curl \
 // });
 
 
+
+
+router.head("/", async (req, res) => {
+  winston.debug('path', req.query.path);
+
+  try {
+    const { file } = await findFileServiceForPath(req.query.path);
+    res.set({
+      "Accept-Ranges": "bytes",
+      "Content-Length": file.length,
+      "Content-Type": file.contentType,
+      "X-File-Exists": "true"
+    });
+    return res.status(200).end();
+  } catch (e) {
+    if (isFileNotFound(e)) {
+      winston.debug(`File ${req.query.path} not found on any configured file service.`)
+      res.set({ "X-File-Exists": "false" });
+      if (isSilentExistenceCheck(req)) {
+        return res.status(204).end();
+      }
+      return res.status(404).end();
+    }
+    winston.error('Error checking file', e);
+    return res.status(500).end();
+  }
+});
 
 
 router.get("/", async (req, res) => {

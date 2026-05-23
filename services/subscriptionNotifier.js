@@ -38,6 +38,22 @@ var request = require('retry-request', {
   request: require('request')
 });
 
+function projectToSubscriptionPayload(project) {
+  if (!project) {
+    return {};
+  }
+
+  var projectJson = typeof project.toJSON === 'function'
+    ? project.toJSON()
+    : Object.assign({}, project);
+
+  if (projectJson._id && !projectJson.id_project) {
+    projectJson.id_project = projectJson._id;
+  }
+
+  return projectJson;
+}
+
 class SubscriptionNotifier {
   // var SubscriptionNotifier = {
 
@@ -485,32 +501,28 @@ class SubscriptionNotifier {
 
     projectEvent.on('project.create',  function(project) {              //notqueued
       setImmediate(() => {
-        var projectJson = project.toJSON();
-        projectJson.id_project = projectJson._id;
+        var projectJson = projectToSubscriptionPayload(project);
         subscriptionNotifier.subscribe('project.create', projectJson);         
       });
     });
 
     projectEvent.on('project.update',  function(project) {              //notqueued
       setImmediate(() => {
-        var projectJson = project.toJSON();
-        projectJson.id_project = projectJson._id;
+        var projectJson = projectToSubscriptionPayload(project);
         subscriptionNotifier.subscribe('project.update', projectJson);         
       });
     });
 
     projectEvent.on('project.downgrade',  function(project) {           //notqueued
       setImmediate(() => {
-        var projectJson = project.toJSON();
-        projectJson.id_project = projectJson._id;
+        var projectJson = projectToSubscriptionPayload(project);
         subscriptionNotifier.subscribe('project.downgrade', projectJson);         
       });
     });
 
     projectEvent.on('project.delete',  function(project) {              //notqueued
       setImmediate(() => {
-        var projectJson = project.toJSON();
-        projectJson.id_project = projectJson._id;
+        var projectJson = projectToSubscriptionPayload(project);
         subscriptionNotifier.subscribe('project.delete', projectJson);         
       });
     });
@@ -550,6 +562,7 @@ class SubscriptionNotifier {
 };
 
 var subscriptionNotifier = new SubscriptionNotifier();
+subscriptionNotifier._projectToSubscriptionPayload = projectToSubscriptionPayload;
 
 // winston.debug('messageEvent', messageEvent);
 
