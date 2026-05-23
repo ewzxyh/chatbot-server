@@ -132,6 +132,7 @@ const WHATSAPP_MENU_BASIC = createTemplate({
       id: 'cc-menu',
       name: 'menu',
       question: 'menu',
+      aliases: ['Menu'],
       answer: 'Menu ChatCase:\n\n1 - Ver planos\n2 - Falar com atendente\n\nResponda com 1 ou 2.',
       buttons: ['Ver planos', 'Falar atendente'],
       x: 460,

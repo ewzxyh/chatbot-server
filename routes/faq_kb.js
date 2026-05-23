@@ -711,6 +711,79 @@ router.post('/fork/:id_faq_kb', roleChecker.hasRole('admin'), async (req, res) =
 
 })
 
+function normalizeImportAlias(alias) {
+  if (typeof alias !== 'string') {
+    return null;
+  }
+
+  const value = alias.trim();
+  return value || null;
+}
+
+function aliasIntentName(intent, alias, aliasIndex, usedNames) {
+  const slug = alias
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || String(aliasIndex + 1);
+  const baseName = `${intent.intent_display_name}_alias_${slug}`;
+  let candidate = baseName;
+  let suffix = 2;
+
+  while (usedNames.has(candidate)) {
+    candidate = `${baseName}_${suffix}`;
+    suffix += 1;
+  }
+
+  usedNames.add(candidate);
+  return candidate;
+}
+
+function expandImportedIntents(intents) {
+  if (!Array.isArray(intents)) {
+    return [];
+  }
+
+  const usedNames = new Set();
+  const usedQuestions = new Set();
+
+  intents.forEach((intent) => {
+    if (intent && intent.intent_display_name) {
+      usedNames.add(intent.intent_display_name);
+    }
+    if (intent && typeof intent.question === 'string') {
+      usedQuestions.add(intent.question.trim());
+    }
+  });
+
+  return intents.flatMap((intent) => {
+    const expanded = [intent];
+    const aliases = intent && intent.attributes && Array.isArray(intent.attributes.aliases)
+      ? intent.attributes.aliases.map(normalizeImportAlias).filter(Boolean)
+      : [];
+
+    aliases.forEach((alias, aliasIndex) => {
+      const normalizedQuestion = alias;
+      if (usedQuestions.has(normalizedQuestion)) {
+        return;
+      }
+
+      usedQuestions.add(normalizedQuestion);
+      expanded.push(Object.assign({}, intent, {
+        intent_display_name: aliasIntentName(intent, alias, aliasIndex, usedNames),
+        intent_id: `${intent.intent_id || intent.intent_display_name}-alias-${aliasIndex + 1}`,
+        question: alias,
+        attributes: Object.assign({}, intent.attributes || {}, {
+          aliases: [],
+          generatedAlias: true,
+          aliasOf: intent.intent_display_name
+        })
+      }));
+    });
+
+    return expanded;
+  });
+}
+
 router.post('/importjson/:id_faq_kb', roleChecker.hasRole('admin'), upload.single('uploadFile'), async (req, res) => {
 
   let chatbot_id = req.params.id_faq_kb;
@@ -732,6 +805,7 @@ router.post('/importjson/:id_faq_kb', roleChecker.hasRole('admin'), upload.singl
   }
 
   winston.debug("json source " + json_string)
+  const import_intents = expandImportedIntents(json.intents);
 
   // ****************************
   // **** CREATE TRUE option ****
@@ -775,9 +849,9 @@ router.post('/importjson/:id_faq_kb', roleChecker.hasRole('admin'), upload.singl
 
     botEvent.emit('faqbot.create', savedChatbot);
 
-    if (json.intents) {
+    if (import_intents.length) {
 
-      json.intents.forEach(async (intent) => {
+      for (const intent of import_intents) {
 
         let new_faq = {
           id_faq_kb: savedChatbot._id,
@@ -791,7 +865,7 @@ router.post('/importjson/:id_faq_kb', roleChecker.hasRole('admin'), upload.singl
           form: intent.form,
           enabled: intent.enabled,
           webhook_enabled: intent.webhook_enabled,
-          language: intent.language,
+          language: typeof intent.language === 'string' ? intent.language : (json.language || savedChatbot.language || 'pt'),
           actions: intent.actions,
           attributes: intent.attributes
         }
@@ -809,7 +883,7 @@ router.post('/importjson/:id_faq_kb', roleChecker.hasRole('admin'), upload.singl
           winston.debug("new intent created")
           faqBotEvent.emit('faq.create', faq);
         }
-      })
+      }
     }
 
     if (updatedChatbot) {
@@ -867,8 +941,8 @@ router.post('/importjson/:id_faq_kb', roleChecker.hasRole('admin'), upload.singl
             winston.debug("attributes rule new participant: " + rule.do[0].message.participants[0])
           }
         })
-        chatbot.attributes = json.attributes;
       }
+      chatbot.attributes = attributes;
     }
 
     let updatedChatbot = await Faq_kb.findByIdAndUpdate(chatbot._id, chatbot, { new: true }).catch((err) => {
@@ -890,8 +964,8 @@ router.post('/importjson/:id_faq_kb', roleChecker.hasRole('admin'), upload.singl
       winston.debug("DeleteMany faqs result ", result);
     }
 
-    if (json.intents) {
-      await json.intents.forEach(async (intent) => {
+    if (import_intents.length) {
+      for (const intent of import_intents) {
 
         let new_faq = {
           id_faq_kb: updatedChatbot._id,
@@ -905,7 +979,7 @@ router.post('/importjson/:id_faq_kb', roleChecker.hasRole('admin'), upload.singl
           form: intent.form,
           enabled: intent.enabled,
           webhook_enabled: intent.webhook_enabled,
-          language: intent.language,
+          language: typeof intent.language === 'string' ? intent.language : (json.language || updatedChatbot.language || 'pt'),
           actions: intent.actions,
           attributes: intent.attributes
         }
@@ -948,7 +1022,7 @@ router.post('/importjson/:id_faq_kb', roleChecker.hasRole('admin'), upload.singl
             faqBotEvent.emit('faq.create', faq);
           }
         }
-      })
+      }
     }
 
     if (updatedChatbot) {
