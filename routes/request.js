@@ -36,6 +36,7 @@ const faq_kb = require('../models/faq_kb');
 var backgroundWorkers = require('../utils/backgroundWorkers');
 
 const datesUtil = require('../utils/datesUtil');
+const chatcaseLocale = require('../utils/chatcaseLocale');
 //const JobManager = require('../utils/jobs-worker-queue-manager-v2/JobManagerV2');
 
 // var messageService = require('../services/messageService');
@@ -1301,7 +1302,7 @@ router.get('/', function (req, res, next) {
   //   query.request_id = req.query.request_id;
   // }
 
-  let timezone = req.query.timezone || 'Europe/Rome';
+  let timezone = req.query.timezone || chatcaseLocale.DEFAULT_TIMEZONE;
   let queryDateRange = false;
   let queryStartDate;
   let queryEndDate;
@@ -2002,7 +2003,7 @@ router.get('/csv', function (req, res, next) {
     delete query.preflight;
   }
 
-  let timezone = req.query.timezone || 'Europe/Rome';
+  let timezone = req.query.timezone || chatcaseLocale.DEFAULT_TIMEZONE;
   let queryDateRange = false;
   let queryStartDate;
   let queryEndDate;

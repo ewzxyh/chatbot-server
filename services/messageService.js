@@ -11,6 +11,7 @@ var cacheEnabler = require("../services/cacheEnabler");
 const fileUtils = require("../utils/fileUtils");
 const Integration = require("../models/integrations");
 const aiService = require("./aiService");
+const chatcaseLocale = require("../utils/chatcaseLocale");
 
 class MessageService {
 
@@ -271,7 +272,7 @@ class MessageService {
 
 
                     transcript = transcript +
-                        message.createdAt.toLocaleString('it', { timeZone: 'UTC' }) +
+                        chatcaseLocale.formatDateTime(message.createdAt) +
                         ' ' + message.senderFullname +
                         ': ' + message.text;
 
@@ -287,7 +288,7 @@ class MessageService {
                 // winston.debug("final transcript", transcript);
 
                 // each message in messages
-                // p [#{message.createdAt.toLocaleString('it', { timeZone: 'UTC' })}] #{message.senderFullname}: #{message.text}
+                // p [#{chatcaseLocale.formatDateTime(message.createdAt)}] #{message.senderFullname}: #{message.text}
                 resolve(transcript);
 
             });

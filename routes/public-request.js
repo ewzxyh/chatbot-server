@@ -4,6 +4,7 @@ var Message = require("../models/message");
 var Request = require("../models/request");
 var User = require("../models/user");
 var winston = require('../config/winston');
+var chatcaseLocale = require('../utils/chatcaseLocale');
 
 var fonts = {
 	Roboto: {
@@ -114,10 +115,10 @@ var printer = new PdfPrinter(fonts);
       }
       
 
-      var text = "Chat transcript:\n" //+ req.project.name;
+      var text = "Transcricao do chat:\n" //+ req.project.name;
       
       messages.forEach(function(element) {
-        text = text + "[ " + element.createdAt.toLocaleString('en', { timeZone: 'UTC' })+ "] " + element.senderFullname + ": " + element.text + "\n";
+        text = text + "[ " + chatcaseLocale.formatDateTime(element.createdAt)+ "] " + element.senderFullname + ": " + element.text + "\n";
       });
     
 
@@ -147,7 +148,7 @@ var printer = new PdfPrinter(fonts);
 
       var docDefinition = {
         content: [
-          { text: 'Chat Transcript', style: 'header' },
+          { text: 'Transcricao do chat', style: 'header' },
           {
             ul: [
               // 'item 1',
@@ -171,7 +172,7 @@ var printer = new PdfPrinter(fonts);
       
 
       messages.forEach(function(element) {
-        docDefinition.content[1].ul.push("[ " + element.createdAt.toLocaleString('en', { timeZone: 'UTC' })+ "] " + element.senderFullname + ": " + element.text );
+        docDefinition.content[1].ul.push("[ " + chatcaseLocale.formatDateTime(element.createdAt)+ "] " + element.senderFullname + ": " + element.text );
       });
 
       console.log(docDefinition);
@@ -234,10 +235,10 @@ var printer = new PdfPrinter(fonts);
 
       var messages = messages.filter(m => m.sender != "system" );
 
-      var text = "Chat transcript:\n" //+ req.project.name;
+      var text = "Transcricao do chat:\n" //+ req.project.name;
 
       messages.forEach(function(element) {
-        text = text + "[ " + element.createdAt.toLocaleString('en', { timeZone: 'UTC' })+ "] " + element.senderFullname + ": " + element.text + "\n";
+        text = text + "[ " + chatcaseLocale.formatDateTime(element.createdAt)+ "] " + element.senderFullname + ": " + element.text + "\n";
       });
     
 
@@ -269,7 +270,7 @@ var printer = new PdfPrinter(fonts);
 
       var docDefinition = {
         content: [
-          { text: 'Chat Transcript', style: 'header' },
+          { text: 'Transcricao do chat', style: 'header' },
           {
             ul: [
               // 'item 1',
@@ -293,7 +294,7 @@ var printer = new PdfPrinter(fonts);
       
 
       messages.forEach(function(element) {
-        docDefinition.content[1].ul.push("[ " + element.createdAt.toLocaleString('en', { timeZone: 'UTC' })+ "] " + element.senderFullname + ": " + element.text );
+        docDefinition.content[1].ul.push("[ " + chatcaseLocale.formatDateTime(element.createdAt)+ "] " + element.senderFullname + ": " + element.text );
       });
 
       console.log(docDefinition);

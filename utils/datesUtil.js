@@ -1,4 +1,5 @@
 const moment = require('moment-timezone');
+const { DEFAULT_TIMEZONE } = require('./chatcaseLocale');
 
 class DatesUtil {
 
@@ -16,12 +17,12 @@ class DatesUtil {
     }
 
     if (!timezone || typeof timezone !== 'string') {
-      throw new Error(`The timezone must be a string: ${timezone}`);
+      timezone = DEFAULT_TIMEZONE;
     }
 
     // Validate timezone: check if it's a valid IANA timezone
     if (!moment.tz.zone(timezone)) {
-      throw new Error(`Invalid timezone: ${timezone}. Please use a valid IANA timezone (e.g., "Europe/Rome", "America/New_York")`);
+      throw new Error(`Invalid timezone: ${timezone}. Please use a valid IANA timezone (e.g., "America/Sao_Paulo", "America/New_York")`);
     }
 
     const trimmedDate = dateString.trim();
@@ -77,17 +78,17 @@ class DatesUtil {
    * 
    * @param {string|null|undefined} startDate - Start date in the format DD/MM/YYYY or DD/MM/YYYY HH:mm:ss (e.g. "20/01/2026" or "20/01/2026 14:30:00"). Optional.
    * @param {string|null|undefined} endDate - End date in the format DD/MM/YYYY or DD/MM/YYYY HH:mm:ss (e.g. "20/01/2026" or "20/01/2026 23:59:59"). Optional.
-   * @param {string} timezone - User timezone (e.g. "Europe/Rome", "America/New_York", "Asia/Tokyo")
+   * @param {string} timezone - User timezone (e.g. "America/Sao_Paulo", "America/New_York", "Asia/Tokyo")
    * @returns {Object} Object with startDateUTC and/or endDateUTC in ISO string format for MongoDB
    */
   convertLocalDatesToUTC(startDate, endDate, timezone) {
     if (!timezone || typeof timezone !== 'string') {
-      throw new Error(`The timezone must be a string: ${timezone}`);
+      timezone = DEFAULT_TIMEZONE;
     }
 
     // Validate timezone: check if it's a valid IANA timezone
     if (!moment.tz.zone(timezone)) {
-      throw new Error(`Invalid timezone: ${timezone}. Please use a valid IANA timezone (e.g., "Europe/Rome", "America/New_York")`);
+      throw new Error(`Invalid timezone: ${timezone}. Please use a valid IANA timezone (e.g., "America/Sao_Paulo", "America/New_York")`);
     }
 
     const result = {

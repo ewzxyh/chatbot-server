@@ -8,6 +8,7 @@ var marked = require('marked');
 var handlebars = require('handlebars');
 var encode = require('html-entities').encode;
 const emailEvent = require('../event/emailEvent');
+const chatcaseLocale = require('../utils/chatcaseLocale');
 
 const createDOMPurify = require('dompurify');
 const { JSDOM } = require('jsdom');
@@ -1746,7 +1747,7 @@ class EmailService {
 
     var transcriptAsHtml = ""; //https://handlebarsjs.com/guide/expressions.html#html-escaping
     messages.forEach(message => {
-      transcriptAsHtml = transcriptAsHtml + '[' + message.createdAt.toLocaleTimeString('en', { timeZone: 'UTC' }) + '] ' + message.senderFullname + ': ' + message.text + '<br>';
+      transcriptAsHtml = transcriptAsHtml + '[' + chatcaseLocale.formatTime(message.createdAt) + '] ' + message.senderFullname + ': ' + message.text + '<br>';
     });
     winston.debug("transcriptAsHtml: " + transcriptAsHtml);
 
@@ -1767,7 +1768,7 @@ class EmailService {
     var replacements = {
       messages: messages,
       request: request,
-      formattedCreatedAt: request.createdAt.toLocaleString('en', { timeZone: 'UTC' }),
+      formattedCreatedAt: chatcaseLocale.formatDateTime(request.createdAt),
       transcriptAsHtml: transcriptAsHtml,
       baseScope: baseScope
     };
@@ -2126,7 +2127,7 @@ class EmailService {
       ['Plano', notice.planName || 'N/D'],
       ['Status', notice.status || 'N/D'],
       ['Dias em atraso', notice.daysPastDue === null || notice.daysPastDue === undefined ? 'N/D' : notice.daysPastDue],
-      ['Acesso ate', notice.accessEndsAt ? new Date(notice.accessEndsAt).toLocaleString('pt-BR') : 'N/D']
+      ['Acesso ate', notice.accessEndsAt ? chatcaseLocale.formatDateTime(notice.accessEndsAt) : 'N/D']
     ];
 
     var rows = details.map(function(row) {
@@ -2141,7 +2142,7 @@ class EmailService {
       '<p style="margin:0 0 16px;color:#555;">' + encode(message) + '</p>' +
       '<table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">' + rows + '</table>' +
       '<a href="' + encode(notice.projectUrl || that.baseUrl) + '" style="background:#1e88e5;color:#fff;text-decoration:none;padding:10px 18px;border-radius:5px;display:inline-block;font-weight:bold;">' + encode(cta) + '</a>' +
-      '<p style="margin:24px 0 0;color:#777;">The ' + encode(brand) + ' Team</p>' +
+      '<p style="margin:24px 0 0;color:#777;">Equipe ' + encode(brand) + '</p>' +
       '</div>' +
       '</div>';
 
