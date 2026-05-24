@@ -68,7 +68,7 @@ describe('CaseZap messageMapper', function() {
             contextInfo: {
               participant: '38732652634220@lid',
               quotedMessage: {
-                conversation: 'A new support request has been assigned to you: I'
+                conversation: 'Uma nova solicitação de suporte foi atribuída a você: I'
               },
               quotedType: 0
             }
@@ -82,7 +82,7 @@ describe('CaseZap messageMapper', function() {
 
       assert.ok(markerMatch);
       assert.strictEqual(result.quote.id, '3EB05EABF3EF9677182E43');
-      assert.strictEqual(result.quote.text, 'A new support request has been assigned to you: I');
+      assert.strictEqual(result.quote.text, 'Uma nova solicitação de suporte foi atribuída a você: I');
       assert.strictEqual(result.quote.participant, '38732652634220@lid');
       assert.strictEqual(result.quote.senderLabel, 'Você');
       assert.strictEqual(result.quote.type, '0');

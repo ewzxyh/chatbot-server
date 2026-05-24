@@ -72,7 +72,7 @@
             "INFO_SUPPORT_LEAD_UPDATED":"Lead updated",
             "INFO_SUPPORT_MEMBER_LEFT_GROUP":"removed from group",
             "INFO_SUPPORT_MEMBER_ABANDONED_GROUP":"has left the conversation",
-            "INFO_A_NEW_SUPPORT_REQUEST_HAS_BEEN_ASSIGNED_TO_YOU": "A new support request has been assigned to you",
+            "INFO_A_NEW_SUPPORT_REQUEST_HAS_BEEN_ASSIGNED_TO_YOU": "Uma nova solicitação de suporte foi atribuída a você",
 
             "LABEL_PRECHAT_USER_FULLNAME": "Full name",
             "LABEL_PRECHAT_USER_EMAIL": "Email", 

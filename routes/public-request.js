@@ -115,7 +115,7 @@ var printer = new PdfPrinter(fonts);
       }
       
 
-      var text = "Transcricao do chat:\n" //+ req.project.name;
+      var text = "Transcrição do chat:\n" //+ req.project.name;
       
       messages.forEach(function(element) {
         text = text + "[ " + chatcaseLocale.formatDateTime(element.createdAt)+ "] " + element.senderFullname + ": " + element.text + "\n";
@@ -148,7 +148,7 @@ var printer = new PdfPrinter(fonts);
 
       var docDefinition = {
         content: [
-          { text: 'Transcricao do chat', style: 'header' },
+          { text: 'Transcrição do chat', style: 'header' },
           {
             ul: [
               // 'item 1',
@@ -235,7 +235,7 @@ var printer = new PdfPrinter(fonts);
 
       var messages = messages.filter(m => m.sender != "system" );
 
-      var text = "Transcricao do chat:\n" //+ req.project.name;
+      var text = "Transcrição do chat:\n" //+ req.project.name;
 
       messages.forEach(function(element) {
         text = text + "[ " + chatcaseLocale.formatDateTime(element.createdAt)+ "] " + element.senderFullname + ": " + element.text + "\n";
@@ -270,7 +270,7 @@ var printer = new PdfPrinter(fonts);
 
       var docDefinition = {
         content: [
-          { text: 'Transcricao do chat', style: 'header' },
+          { text: 'Transcrição do chat', style: 'header' },
           {
             ul: [
               // 'item 1',

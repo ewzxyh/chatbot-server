@@ -24,9 +24,9 @@ module.exports = {
     LABELS : {
         EN : {
             // JOIN_OPERATOR_MESSAGE : "We are putting you in touch with an operator..",
-            NO_AVAILABLE_OPERATOR_MESSAGE : "Hello, no operators are available at the moment. Please leave a chat message, we will reply to you soon.",
+            NO_AVAILABLE_OPERATOR_MESSAGE : "Olá, nenhum atendente está disponível no momento. Deixe uma mensagem no chat e responderemos em breve.",
             // TOUCHING_OPERATOR: "We are putting you in touch with an operator. Please wait..",
-            TOUCHING_OPERATOR: "A new support request has been assigned to you"
+            TOUCHING_OPERATOR: "Uma nova solicitação de suporte foi atribuída a você"
             // THANKS_MESSAGE: "Thank you for using our support system",
             // REOPEN_MESSAGE : "Chat re-opened"
         },
@@ -45,7 +45,14 @@ module.exports = {
             // TOUCHING_OPERATOR :"La stiamo mettendo in contatto con un operatore. Attenda...",
             // THANKS_MESSAGE: "Grazie per aver utilizzato il nostro sistema di supporto",
             // REOPEN_MESSAGE : "Chat riaperta"
+        },
+        PT : {
+            NO_AVAILABLE_OPERATOR_MESSAGE : "Olá, nenhum atendente está disponível no momento. Deixe uma mensagem no chat e responderemos em breve.",
+            TOUCHING_OPERATOR: "Uma nova solicitação de suporte foi atribuída a você"
+        },
+        "PT-BR" : {
+            NO_AVAILABLE_OPERATOR_MESSAGE : "Olá, nenhum atendente está disponível no momento. Deixe uma mensagem no chat e responderemos em breve.",
+            TOUCHING_OPERATOR: "Uma nova solicitação de suporte foi atribuída a você"
         }
     }
 }
-    

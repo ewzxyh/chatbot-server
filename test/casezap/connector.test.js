@@ -59,7 +59,7 @@ describe('CaseZap connector', function() {
     assert.strictEqual(isInternalOutboundMessage({
       sender: 'system',
       createdBy: 'system',
-      text: 'A new support request has been assigned to you: I',
+      text: 'Uma nova solicitação de suporte foi atribuída a você: I',
       attributes: {
         subtype: 'info',
         updateconversation: true,
