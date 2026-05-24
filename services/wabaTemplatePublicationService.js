@@ -137,7 +137,7 @@ function getSuggestion(template, suggestionName) {
 
 async function findWabaIntegration(projectId, integrationId, deps) {
   deps = deps || {};
-  if (deps.integration) return deps.integration;
+  if (Object.prototype.hasOwnProperty.call(deps, 'integration')) return deps.integration;
 
   var query = {
     id_project: projectId,
@@ -154,7 +154,7 @@ async function findWabaIntegration(projectId, integrationId, deps) {
 
 async function findWhatsappSettings(integration, deps) {
   deps = deps || {};
-  if (deps.settings) return deps.settings;
+  if (Object.prototype.hasOwnProperty.call(deps, 'settings')) return deps.settings;
   if (!integration) return null;
 
   var value = integration.value || {};
@@ -205,6 +205,107 @@ function publicationResponse(template, suggestion, payload, integration, credent
   }, extra);
 }
 
+function normalizeMetaStatus(status) {
+  var normalized = String(status || '').trim().toUpperCase();
+  if (normalized === 'APPROVED') return 'approved';
+  if (normalized === 'PENDING' || normalized === 'IN_REVIEW' || normalized === 'PAUSED') return 'pending';
+  if (normalized === 'REJECTED' || normalized === 'DISABLED' || normalized === 'DELETED') return 'rejected';
+  return normalized ? normalized.toLowerCase() : 'unknown';
+}
+
+function templateSyncState(metaTemplate) {
+  if (!metaTemplate) return 'not_found';
+  return normalizeMetaStatus(metaTemplate.status);
+}
+
+function findMatchingMetaTemplate(metaTemplates, suggestion) {
+  var expectedName = normalizeTemplateName(suggestion.name);
+  var expectedLanguage = String(suggestion.language || 'pt_BR').toLowerCase();
+
+  return (metaTemplates || []).find(function(item) {
+    return normalizeTemplateName(item.name) === expectedName &&
+      String(item.language || '').toLowerCase() === expectedLanguage;
+  }) || (metaTemplates || []).find(function(item) {
+    return normalizeTemplateName(item.name) === expectedName;
+  }) || null;
+}
+
+async function fetchMetaTemplates(credentials, deps) {
+  var httpClient = deps.httpClient || axios;
+  var url = graphUrl() + credentials.wabaId + '/message_templates';
+  var templates = [];
+  var pageUrl = url;
+  var page = 0;
+
+  while (pageUrl && page < 10) {
+    var response = await httpClient.get(pageUrl, {
+      headers: {
+        Authorization: 'Bearer ' + credentials.token
+      },
+      params: page === 0 ? {
+        fields: 'id,name,status,category,language,quality_score,rejected_reason,components',
+        limit: 200
+      } : undefined,
+      timeout: DEFAULT_TIMEOUT_MS
+    });
+
+    templates = templates.concat(response.data && response.data.data || []);
+    pageUrl = response.data && response.data.paging && response.data.paging.next;
+    page += 1;
+  }
+
+  return templates;
+}
+
+function buildSyncResponse(template, suggestions, integration, credentials, metaTemplates, extra) {
+  extra = extra || {};
+  var items = suggestions.map(function(suggestion) {
+    var metaTemplate = findMatchingMetaTemplate(metaTemplates, suggestion);
+    return {
+      name: suggestion.name,
+      language: suggestion.language || 'pt_BR',
+      category: suggestion.category || 'UTILITY',
+      expectedBody: suggestion.body,
+      expectedButtons: suggestion.buttons || [],
+      state: templateSyncState(metaTemplate),
+      found: !!metaTemplate,
+      meta: metaTemplate ? {
+        id: metaTemplate.id,
+        name: metaTemplate.name,
+        language: metaTemplate.language,
+        category: metaTemplate.category,
+        status: metaTemplate.status,
+        qualityScore: metaTemplate.quality_score,
+        rejectedReason: metaTemplate.rejected_reason
+      } : null
+    };
+  });
+
+  var summary = items.reduce(function(acc, item) {
+    if (item.state === 'approved') acc.approved += 1;
+    else if (item.state === 'pending') acc.pending += 1;
+    else if (item.state === 'rejected') acc.rejected += 1;
+    else if (item.state === 'not_found') acc.notFound += 1;
+    else acc.unknown += 1;
+    return acc;
+  }, { approved: 0, pending: 0, rejected: 0, notFound: 0, unknown: 0 });
+
+  return Object.assign({
+    templateId: template._id,
+    templateName: template.name,
+    channel: 'waba',
+    canSync: !!(credentials && credentials.token && credentials.wabaId),
+    syncedAt: new Date().toISOString(),
+    waba: {
+      integrationId: integration && integration._id ? String(integration._id) : null,
+      wabaId: credentials && credentials.wabaId ? String(credentials.wabaId) : null,
+      configured: !!(credentials && credentials.token && credentials.wabaId)
+    },
+    templates: items,
+    summary: summary
+  }, extra);
+}
+
 async function updateIntegrationPublication(integration, status, details, deps) {
   deps = deps || {};
   if (deps.updateIntegration === false || !integration || !integration._id) return;
@@ -223,6 +324,20 @@ async function updateIntegrationPublication(integration, status, details, deps) 
   }
 
   await (deps.Integration || Integration).findByIdAndUpdate(integration._id, { $set: set });
+}
+
+async function updateIntegrationSync(integration, result, deps) {
+  deps = deps || {};
+  if (deps.updateIntegration === false || !integration || !integration._id) return;
+
+  await (deps.Integration || Integration).findByIdAndUpdate(integration._id, {
+    $set: {
+      'value.operational.lastWabaTemplateSyncAt': result.syncedAt,
+      'value.operational.lastWabaTemplateSyncStatus': result.status,
+      'value.operational.lastWabaTemplateSyncSummary': result.summary,
+      'value.operational.lastWabaTemplateSyncError': result.error || null
+    }
+  });
 }
 
 async function recordPublicationLog(level, status, integration, details, deps) {
@@ -312,8 +427,65 @@ async function publishWabaTemplate(options, deps) {
   }
 }
 
+async function syncWabaTemplateStatuses(options, deps) {
+  options = options || {};
+  deps = deps || {};
+
+  var template = templateById(options.templateId);
+  var publication = template.attributes && template.attributes.publication || {};
+  var suggestions = publication && Array.isArray(publication.wabaTemplates) ? publication.wabaTemplates : [];
+  var integration = await findWabaIntegration(options.projectId, options.integrationId, deps);
+  var settings = await findWhatsappSettings(integration, deps);
+  var credentials = getCredentials(integration, settings);
+
+  if (!suggestions.length) {
+    var noSuggestions = new Error('waba_template_suggestions_not_found');
+    noSuggestions.statusCode = 404;
+    throw noSuggestions;
+  }
+
+  if (!integration || !credentials.token || !credentials.wabaId) {
+    var missing = buildSyncResponse(template, suggestions, integration, credentials, [], {
+      status: 'missing_waba_credentials',
+      message: 'Configure WABA ID e token antes de sincronizar status na Meta.'
+    });
+    await updateIntegrationSync(integration, missing, deps);
+    return missing;
+  }
+
+  try {
+    var startedAt = Date.now();
+    var metaTemplates = await fetchMetaTemplates(credentials, deps);
+    var result = buildSyncResponse(template, suggestions, integration, credentials, metaTemplates, {
+      status: 'synced',
+      providerLatencyMs: Date.now() - startedAt
+    });
+
+    await updateIntegrationSync(integration, result, deps);
+    await recordPublicationLog('info', 'success', integration, {
+      action: 'sync',
+      summary: result.summary,
+      providerLatencyMs: result.providerLatencyMs
+    }, deps);
+    return result;
+  } catch (err) {
+    var failed = buildSyncResponse(template, suggestions, integration, credentials, [], {
+      status: 'failed',
+      error: operationalLogger.extractErrorMessage(err)
+    });
+    await updateIntegrationSync(integration, failed, deps);
+    await recordPublicationLog('error', 'failed', integration, {
+      action: 'sync',
+      errorMessage: operationalLogger.extractErrorMessage(err),
+      errorCode: operationalLogger.extractErrorCode(err)
+    }, deps);
+    throw err;
+  }
+}
+
 module.exports = {
   buildMetaTemplatePayload: buildMetaTemplatePayload,
   publishWabaTemplate: publishWabaTemplate,
+  syncWabaTemplateStatuses: syncWabaTemplateStatuses,
   normalizeTemplateName: normalizeTemplateName
 };

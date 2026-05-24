@@ -264,6 +264,25 @@ router.post('/templates/:templateid/publication/waba', roleChecker.hasRole('admi
   }
 });
 
+router.post('/templates/:templateid/publication/waba/sync', roleChecker.hasRole('admin'), async function(req, res) {
+  try {
+    var result = await wabaTemplatePublicationService.syncWabaTemplateStatuses({
+      projectId: req.projectid,
+      templateId: req.params.templateid,
+      integrationId: req.body && req.body.integrationId
+    });
+
+    return res.status(200).send(result);
+  } catch (err) {
+    winston.error('WABA template sync error', err);
+    return res.status(err.statusCode || (err.response && err.response.status) || 500).send({
+      success: false,
+      error: err.message || 'waba_template_sync_failed',
+      providerError: err.response && err.response.data
+    });
+  }
+});
+
 router.put('/:faq_kbid/publish', roleChecker.hasRole('admin'), async (req, res) => {
 
   let id_faq_kb = req.params.faq_kbid;

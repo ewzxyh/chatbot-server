@@ -94,4 +94,72 @@ describe('WABA template publication service', () => {
     assert.strictEqual(result.providerResponse.id, 'template-provider-id');
     assert(scope.isDone(), 'Meta template creation endpoint should be called');
   });
+
+  it('returns missing credential status when syncing without configured WABA', async () => {
+    const result = await service.syncWabaTemplateStatuses({
+      projectId: 'project-1',
+      templateId: chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC
+    }, {
+      integration: null,
+      settings: null,
+      updateIntegration: false,
+      operationalLogger: null
+    });
+
+    assert.strictEqual(result.status, 'missing_waba_credentials');
+    assert.strictEqual(result.canSync, false);
+    assert.strictEqual(result.templates[0].state, 'not_found');
+    assert.strictEqual(result.summary.notFound, 1);
+  });
+
+  it('syncs suggested template status from Meta', async () => {
+    process.env.META_GRAPH_URL = 'https://graph.facebook.com/v25.0/';
+    const scope = nock('https://graph.facebook.com', {
+      reqheaders: {
+        authorization: 'Bearer token-1'
+      }
+    })
+      .get('/v25.0/waba-1/message_templates')
+      .query((query) => query.fields && query.limit === '200')
+      .reply(200, {
+        data: [
+          {
+            id: 'template-provider-id',
+            name: 'chatcase_menu_basico_inicio',
+            language: 'pt_BR',
+            category: 'MARKETING',
+            status: 'APPROVED',
+            quality_score: {
+              score: 'GREEN'
+            }
+          }
+        ]
+      });
+
+    const result = await service.syncWabaTemplateStatuses({
+      projectId: 'project-1',
+      templateId: chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC
+    }, {
+      integration: {
+        _id: 'integration-1',
+        id_project: 'project-1',
+        name: 'whatsapp',
+        value: {}
+      },
+      settings: {
+        value: {
+          access_token: 'token-1',
+          waba_id: 'waba-1'
+        }
+      },
+      updateIntegration: false,
+      operationalLogger: null
+    });
+
+    assert.strictEqual(result.status, 'synced');
+    assert.strictEqual(result.canSync, true);
+    assert.strictEqual(result.templates[0].state, 'approved');
+    assert.strictEqual(result.summary.approved, 1);
+    assert(scope.isDone(), 'Meta template list endpoint should be called');
+  });
 });
