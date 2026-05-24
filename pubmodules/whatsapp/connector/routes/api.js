@@ -148,7 +148,8 @@ router.post('/tiledesk/broadcast', async (req, res) => {
   winston.verbose("(wab) Action received from Tiledesk (Broadcast)");
   winston.debug("Body (broadcast): ", JSON.stringify(req.body, null, 2));
 
-  const { id_project, template, receiver_list, phone_number_id, transaction_id, broadcast = true } = req.body;
+  const { id_project, template, receiver_list, phone_number_id, broadcast = true } = req.body;
+  let transaction_id = req.body.transaction_id;
 
   const requiredFields = ['id_project', 'template', 'phone_number_id'];
   const missingFields = requiredFields.filter(field => !req.body[field]);

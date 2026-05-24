@@ -3,6 +3,32 @@ const nock = require('nock');
 const service = require('../services/wabaTemplatePublicationService');
 const chatcaseTemplates = require('../pubmodules/chatbotTemplates/chatcaseTemplates');
 
+function fakeTemplateTranslator() {
+  return {
+    toWhatsapp: async (message, to) => {
+      const template = message.attributes.attachment.template;
+      const whatsappMessage = {
+        messaging_product: 'whatsapp',
+        to: to,
+        type: 'template',
+        template: {
+          name: template.name,
+          language: {
+            code: template.language
+          }
+        }
+      };
+      if (template.params && template.params.body) {
+        whatsappMessage.template.components = [{
+          type: 'body',
+          parameters: template.params.body
+        }];
+      }
+      return whatsappMessage;
+    }
+  };
+}
+
 describe('WABA template publication service', () => {
   afterEach(() => {
     nock.cleanAll();
@@ -348,6 +374,230 @@ describe('WABA template publication service', () => {
     assert.strictEqual(template.params.body[0].type, 'text');
     assert.strictEqual(template.params.body[0].text, 'Enzo');
     assert.strictEqual(result.message.attributes.wabaTemplateBinding.providerTemplateId, 'template-provider-id');
+  });
+
+  it('builds a dry-run WABA template dispatch from an approved bot binding', async () => {
+    const binding = {
+      channel: 'waba',
+      provider: 'meta',
+      templateId: chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC,
+      suggestionName: 'chatcase_menu_basico_inicio',
+      providerTemplateId: 'template-provider-id',
+      providerTemplateName: 'chatcase_menu_basico_inicio',
+      language: 'pt_BR',
+      status: 'APPROVED',
+      state: 'approved',
+      wabaId: 'waba-1',
+      integrationId: 'integration-1'
+    };
+    const fakeFaqKb = {
+      findOne: () => ({
+        lean: () => ({
+          exec: async () => ({
+            _id: 'bot-1',
+            id_project: 'project-1',
+            attributes: {
+              publication: {
+                wabaTemplateBinding: binding
+              }
+            }
+          })
+        })
+      })
+    };
+
+    const result = await service.dispatchBoundWabaTemplate({
+      projectId: 'project-1',
+      botId: 'bot-1',
+      phoneNumber: '+55 (62) 98426-8492',
+      recipientName: 'Enzo',
+      dryRun: true
+    }, {
+      integration: {
+        _id: 'integration-1',
+        id_project: 'project-1',
+        name: 'whatsapp',
+        value: {}
+      },
+      settings: {
+        value: {
+          wab_token: 'token-1',
+          waba_id: 'waba-1',
+          phone_number_id: 'phone-number-1'
+        }
+      },
+      FaqKb: fakeFaqKb,
+      translator: fakeTemplateTranslator(),
+      whatsappClient: {
+        sendMessage: async () => {
+          throw new Error('dry-run should not send to Meta');
+        }
+      },
+      operationalLogger: null
+    });
+
+    assert.strictEqual(result.status, 'ready');
+    assert.strictEqual(result.dryRun, true);
+    assert.strictEqual(result.phoneNumberId, 'phone-number-1');
+    assert.strictEqual(result.results[0].phoneNumber, '5562984268492');
+    assert.strictEqual(result.results[0].whatsappJsonMessage.type, 'template');
+    assert.strictEqual(result.results[0].whatsappJsonMessage.template.name, 'chatcase_menu_basico_inicio');
+    assert.strictEqual(result.results[0].whatsappJsonMessage.template.components[0].parameters[0].text, 'Enzo');
+  });
+
+  it('sends a bound WABA template and persists broadcast logs', async () => {
+    const binding = {
+      channel: 'waba',
+      provider: 'meta',
+      templateId: chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC,
+      suggestionName: 'chatcase_menu_basico_inicio',
+      providerTemplateId: 'template-provider-id',
+      providerTemplateName: 'chatcase_menu_basico_inicio',
+      language: 'pt_BR',
+      status: 'APPROVED',
+      state: 'approved',
+      wabaId: 'waba-1',
+      integrationId: 'integration-1'
+    };
+    const fakeFaqKb = {
+      findOne: () => ({
+        lean: () => ({
+          exec: async () => ({
+            _id: 'bot-1',
+            id_project: 'project-1',
+            attributes: {
+              publication: {
+                wabaTemplateBinding: binding
+              }
+            }
+          })
+        })
+      })
+    };
+    const transactionUpdates = [];
+    const savedLogs = [];
+    const fakeTransaction = {
+      findOneAndUpdate: (query, update) => {
+        transactionUpdates.push({ query, update });
+        return {
+          lean: () => ({
+            exec: async () => Object.assign({}, query, update.$set)
+          })
+        };
+      }
+    };
+    function FakeMessageLog(doc) {
+      this.doc = doc;
+      this.save = function(callback) {
+        savedLogs.push(doc);
+        callback(null, doc);
+      };
+    }
+    const sentMessages = [];
+
+    const result = await service.dispatchBoundWabaTemplate({
+      projectId: 'project-1',
+      botId: 'bot-1',
+      phoneNumber: '+55 62 98426-8492',
+      recipientName: 'Enzo',
+      transactionId: 'transaction-1'
+    }, {
+      integration: {
+        _id: 'integration-1',
+        id_project: 'project-1',
+        name: 'whatsapp',
+        value: {}
+      },
+      settings: {
+        value: {
+          wab_token: 'token-1',
+          waba_id: 'waba-1',
+          phone_number_id: 'phone-number-1'
+        }
+      },
+      FaqKb: fakeFaqKb,
+      Transaction: fakeTransaction,
+      MessageLog: FakeMessageLog,
+      translator: fakeTemplateTranslator(),
+      whatsappClient: {
+        sendMessage: async (phoneNumberId, message) => {
+          sentMessages.push({ phoneNumberId, message });
+          return {
+            status: 200,
+            data: {
+              messages: [{ id: 'wamid-1' }]
+            }
+          };
+        }
+      },
+      operationalLogger: null
+    });
+
+    assert.strictEqual(result.status, 'completed');
+    assert.strictEqual(result.sent, 1);
+    assert.strictEqual(result.failed, 0);
+    assert.strictEqual(result.results[0].messageId, 'wamid-1');
+    assert.strictEqual(sentMessages[0].phoneNumberId, 'phone-number-1');
+    assert.strictEqual(sentMessages[0].message.to, '5562984268492');
+    assert.strictEqual(savedLogs[0].message_id, 'wamid-1');
+    assert.strictEqual(savedLogs[0].transaction_id, 'transaction-1');
+    assert.strictEqual(transactionUpdates.length, 2);
+    assert.strictEqual(transactionUpdates[0].update.$set.status, 'pending');
+    assert.strictEqual(transactionUpdates[1].update.$set.status, 'completed');
+  });
+
+  it('rejects bound WABA dispatch when the connected account has no phone number ID', async () => {
+    const fakeFaqKb = {
+      findOne: () => ({
+        lean: () => ({
+          exec: async () => ({
+            _id: 'bot-1',
+            id_project: 'project-1',
+            attributes: {
+              publication: {
+                wabaTemplateBinding: {
+                  channel: 'waba',
+                  templateId: chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC,
+                  suggestionName: 'chatcase_menu_basico_inicio',
+                  providerTemplateName: 'chatcase_menu_basico_inicio',
+                  language: 'pt_BR',
+                  status: 'APPROVED',
+                  state: 'approved'
+                }
+              }
+            }
+          })
+        })
+      })
+    };
+
+    await assert.rejects(
+      () => service.dispatchBoundWabaTemplate({
+        projectId: 'project-1',
+        botId: 'bot-1',
+        phoneNumber: '+55 62 98426-8492'
+      }, {
+        integration: {
+          _id: 'integration-1',
+          id_project: 'project-1',
+          name: 'whatsapp',
+          value: {}
+        },
+        settings: {
+          value: {
+            wab_token: 'token-1',
+            waba_id: 'waba-1'
+          }
+        },
+        FaqKb: fakeFaqKb,
+        operationalLogger: null
+      }),
+      (error) => {
+        assert.strictEqual(error.message, 'missing_waba_phone_number_id');
+        assert.strictEqual(error.statusCode, 400);
+        return true;
+      }
+    );
   });
 
   it('rejects bound WABA message generation when no approved binding exists', async () => {

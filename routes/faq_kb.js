@@ -337,6 +337,38 @@ router.post('/:faq_kbid/publication/waba/template-message', roleChecker.hasRole(
   }
 });
 
+router.post('/:faq_kbid/publication/waba/send-template', roleChecker.hasRole('admin'), async function(req, res) {
+  try {
+    var result = await wabaTemplatePublicationService.dispatchBoundWabaTemplate({
+      projectId: req.projectid,
+      botId: req.params.faq_kbid,
+      suggestionName: req.body && req.body.suggestionName,
+      integrationId: req.body && req.body.integrationId,
+      wabaId: req.body && req.body.wabaId,
+      language: req.body && req.body.language,
+      phoneNumber: req.body && (req.body.phoneNumber || req.body.phone || req.body.to),
+      recipients: req.body && req.body.recipients,
+      recipientName: req.body && req.body.recipientName,
+      customerName: req.body && req.body.customerName,
+      templateValues: req.body && req.body.templateValues,
+      headerParams: req.body && req.body.headerParams,
+      bodyParams: req.body && req.body.bodyParams,
+      buttonParams: req.body && req.body.buttonParams,
+      transactionId: req.body && req.body.transactionId,
+      dryRun: req.body && req.body.dryRun
+    });
+
+    return res.status(200).send(result);
+  } catch (err) {
+    winston.error('WABA bound template dispatch error', err);
+    return res.status(err.statusCode || (err.response && err.response.status) || 500).send({
+      success: false,
+      error: err.message || 'waba_bound_template_dispatch_failed',
+      providerError: err.response && err.response.data
+    });
+  }
+});
+
 router.put('/:faq_kbid/publish', roleChecker.hasRole('admin'), async (req, res) => {
 
   let id_faq_kb = req.params.faq_kbid;
