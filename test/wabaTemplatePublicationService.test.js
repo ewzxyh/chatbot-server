@@ -546,6 +546,111 @@ describe('WABA template publication service', () => {
     assert.strictEqual(transactionUpdates[1].update.$set.status, 'completed');
   });
 
+  it('sends a bound WABA template to multiple recipients', async () => {
+    const binding = {
+      channel: 'waba',
+      provider: 'meta',
+      templateId: chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC,
+      suggestionName: 'chatcase_menu_basico_inicio',
+      providerTemplateId: 'template-provider-id',
+      providerTemplateName: 'chatcase_menu_basico_inicio',
+      language: 'pt_BR',
+      status: 'APPROVED',
+      state: 'approved',
+      wabaId: 'waba-1',
+      integrationId: 'integration-1'
+    };
+    const fakeFaqKb = {
+      findOne: () => ({
+        lean: () => ({
+          exec: async () => ({
+            _id: 'bot-1',
+            id_project: 'project-1',
+            attributes: {
+              publication: {
+                wabaTemplateBinding: binding
+              }
+            }
+          })
+        })
+      })
+    };
+    const transactionUpdates = [];
+    const savedLogs = [];
+    const fakeTransaction = {
+      findOneAndUpdate: (query, update) => {
+        transactionUpdates.push({ query, update });
+        return {
+          lean: () => ({
+            exec: async () => Object.assign({}, query, update.$set)
+          })
+        };
+      }
+    };
+    function FakeMessageLog(doc) {
+      this.doc = doc;
+      this.save = function(callback) {
+        savedLogs.push(doc);
+        callback(null, doc);
+      };
+    }
+    const sentMessages = [];
+
+    const result = await service.dispatchBoundWabaTemplate({
+      projectId: 'project-1',
+      botId: 'bot-1',
+      recipients: [
+        { phoneNumber: '+55 62 98426-8492', recipientName: 'Enzo' },
+        { phoneNumber: '+55 62 99999-9999', recipientName: 'Cliente 2' }
+      ],
+      transactionId: 'transaction-batch-1'
+    }, {
+      integration: {
+        _id: 'integration-1',
+        id_project: 'project-1',
+        name: 'whatsapp',
+        value: {}
+      },
+      settings: {
+        value: {
+          wab_token: 'token-1',
+          waba_id: 'waba-1',
+          phone_number_id: 'phone-number-1'
+        }
+      },
+      FaqKb: fakeFaqKb,
+      Transaction: fakeTransaction,
+      MessageLog: FakeMessageLog,
+      translator: fakeTemplateTranslator(),
+      whatsappClient: {
+        sendMessage: async (phoneNumberId, message) => {
+          sentMessages.push({ phoneNumberId, message });
+          return {
+            status: 200,
+            data: {
+              messages: [{ id: 'wamid-' + sentMessages.length }]
+            }
+          };
+        }
+      },
+      operationalLogger: null
+    });
+
+    assert.strictEqual(result.status, 'completed');
+    assert.strictEqual(result.sent, 2);
+    assert.strictEqual(result.failed, 0);
+    assert.strictEqual(result.recipients, 2);
+    assert.strictEqual(sentMessages.length, 2);
+    assert.deepStrictEqual(sentMessages.map((item) => item.message.to), ['5562984268492', '5562999999999']);
+    assert.strictEqual(sentMessages[0].message.template.components[0].parameters[0].text, 'Enzo');
+    assert.strictEqual(sentMessages[1].message.template.components[0].parameters[0].text, 'Cliente 2');
+    assert.strictEqual(savedLogs.length, 2);
+    assert.deepStrictEqual(savedLogs.map((item) => item.message_id), ['wamid-1', 'wamid-2']);
+    assert.strictEqual(transactionUpdates.length, 2);
+    assert.strictEqual(transactionUpdates[0].update.$set.status, 'pending');
+    assert.strictEqual(transactionUpdates[1].update.$set.status, 'completed');
+  });
+
   it('rejects bound WABA dispatch when the connected account has no phone number ID', async () => {
     const fakeFaqKb = {
       findOne: () => ({
