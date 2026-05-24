@@ -33,6 +33,79 @@ const path = require('path');
     this.log = false;
   }
 
+  templateFromBinding(binding, params) {
+    if (!binding) return null;
+    const name = binding.providerTemplateName || binding.suggestionName || binding.name;
+    if (!name) return null;
+
+    const template = {
+      name: name,
+      language: binding.language || 'pt_BR'
+    };
+
+    const templateParams = params || binding.params;
+    if (templateParams) {
+      template.params = templateParams;
+    }
+
+    return template;
+  }
+
+  extractTemplate(tiledeskChannelMessage) {
+    const attributes = tiledeskChannelMessage && tiledeskChannelMessage.attributes;
+    if (!attributes) return null;
+
+    if (attributes.attachment && attributes.attachment.template) {
+      return attributes.attachment.template;
+    }
+
+    const binding = attributes.wabaTemplateBinding ||
+      (attributes.attachment && attributes.attachment.wabaTemplateBinding);
+
+    return this.templateFromBinding(binding, attributes.wabaTemplateParams);
+  }
+
+  toWhatsappTemplateMessage(whatsappMessage, template) {
+    whatsappMessage.type = "template";
+    whatsappMessage.template = {
+      name: template.name,
+      language: {
+        code: template.language || 'pt_BR'
+      }
+    }
+
+    let components = [];
+    if (template.params && template.params.header) {
+      let component = {
+        type: "header",
+        parameters: template.params.header
+      }
+      components.push(component);
+    }
+    if (template.params && template.params.body) {
+      let component = {
+        type: "body",
+        parameters: template.params.body
+      }
+      components.push(component);
+    }
+    if (template.params && template.params.buttons) {
+      let component = {
+        type: "button",
+        sub_type: "url",
+        index: "0",
+        parameters: template.params.buttons
+      }
+      components.push(component);
+    }
+
+    if (components.length > 0) {
+      whatsappMessage.template.components = components;
+    }
+
+    return whatsappMessage;
+  }
+
 
   /*
   *************** START ***************
@@ -64,6 +137,12 @@ const path = require('path');
     let whatsapp_message = {
       messaging_product: TiledeskWhatsappTranslator.WHATSAPP_MESSAGING_PRODUCT,
       to: whatsapp_receiver,
+    }
+
+    const template = this.extractTemplate(tiledeskChannelMessage);
+    if (template) {
+      winston.debug("(wab) [Translator] template: ", template);
+      return this.toWhatsappTemplateMessage(whatsapp_message, template);
     }
 
     if (tiledeskChannelMessage.type === 'frame') {

@@ -301,6 +301,90 @@ describe('WABA template publication service', () => {
     assert(scope.isDone(), 'Meta template list endpoint should be called before binding');
   });
 
+  it('builds a Tiledesk WABA template message from a bot binding', async () => {
+    const binding = {
+      channel: 'waba',
+      provider: 'meta',
+      templateId: chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC,
+      templateName: 'ChatCase WhatsApp menu basico',
+      suggestionName: 'chatcase_menu_basico_inicio',
+      providerTemplateId: 'template-provider-id',
+      providerTemplateName: 'chatcase_menu_basico_inicio',
+      language: 'pt_BR',
+      status: 'APPROVED',
+      state: 'approved',
+      wabaId: 'waba-1',
+      integrationId: 'integration-1'
+    };
+    const fakeFaqKb = {
+      findOne: () => ({
+        lean: () => ({
+          exec: async () => ({
+            _id: 'bot-1',
+            id_project: 'project-1',
+            attributes: {
+              publication: {
+                wabaTemplateBinding: binding
+              }
+            }
+          })
+        })
+      })
+    };
+
+    const result = await service.buildBoundWabaTemplateMessage({
+      projectId: 'project-1',
+      botId: 'bot-1',
+      recipientName: 'Enzo'
+    }, {
+      FaqKb: fakeFaqKb
+    });
+
+    const template = result.message.attributes.attachment.template;
+    assert.strictEqual(result.status, 'ready');
+    assert.strictEqual(result.botId, 'bot-1');
+    assert.strictEqual(template.name, 'chatcase_menu_basico_inicio');
+    assert.strictEqual(template.language, 'pt_BR');
+    assert.strictEqual(template.params.body[0].type, 'text');
+    assert.strictEqual(template.params.body[0].text, 'Enzo');
+    assert.strictEqual(result.message.attributes.wabaTemplateBinding.providerTemplateId, 'template-provider-id');
+  });
+
+  it('rejects bound WABA message generation when no approved binding exists', async () => {
+    const fakeFaqKb = {
+      findOne: () => ({
+        lean: () => ({
+          exec: async () => ({
+            _id: 'bot-1',
+            id_project: 'project-1',
+            attributes: {
+              publication: {
+                wabaTemplateBinding: {
+                  state: 'pending',
+                  suggestionName: 'chatcase_menu_basico_inicio'
+                }
+              }
+            }
+          })
+        })
+      })
+    };
+
+    await assert.rejects(
+      () => service.buildBoundWabaTemplateMessage({
+        projectId: 'project-1',
+        botId: 'bot-1'
+      }, {
+        FaqKb: fakeFaqKb
+      }),
+      (error) => {
+        assert.strictEqual(error.message, 'waba_template_binding_not_found');
+        assert.strictEqual(error.statusCode, 404);
+        return true;
+      }
+    );
+  });
+
   it('rejects binding when the Meta template is not approved yet', async () => {
     process.env.META_GRAPH_URL = 'https://graph.facebook.com/v25.0/';
     const scope = nock('https://graph.facebook.com', {

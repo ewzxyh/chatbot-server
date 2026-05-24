@@ -309,6 +309,34 @@ router.post('/templates/:templateid/publication/waba/bind', roleChecker.hasRole(
   }
 });
 
+router.post('/:faq_kbid/publication/waba/template-message', roleChecker.hasRole('admin'), async function(req, res) {
+  try {
+    var result = await wabaTemplatePublicationService.buildBoundWabaTemplateMessage({
+      projectId: req.projectid,
+      botId: req.params.faq_kbid,
+      suggestionName: req.body && req.body.suggestionName,
+      integrationId: req.body && req.body.integrationId,
+      wabaId: req.body && req.body.wabaId,
+      language: req.body && req.body.language,
+      recipientName: req.body && req.body.recipientName,
+      customerName: req.body && req.body.customerName,
+      templateValues: req.body && req.body.templateValues,
+      headerParams: req.body && req.body.headerParams,
+      bodyParams: req.body && req.body.bodyParams,
+      buttonParams: req.body && req.body.buttonParams,
+      text: req.body && req.body.text
+    });
+
+    return res.status(200).send(result);
+  } catch (err) {
+    winston.error('WABA bound template message error', err);
+    return res.status(err.statusCode || 500).send({
+      success: false,
+      error: err.message || 'waba_bound_template_message_failed'
+    });
+  }
+});
+
 router.put('/:faq_kbid/publish', roleChecker.hasRole('admin'), async (req, res) => {
 
   let id_faq_kb = req.params.faq_kbid;

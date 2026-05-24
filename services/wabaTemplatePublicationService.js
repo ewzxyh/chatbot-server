@@ -384,6 +384,224 @@ function mergeWabaTemplateBinding(attributes, binding) {
   return nextAttributes;
 }
 
+function isApprovedBinding(binding) {
+  if (!binding) return false;
+  return String(binding.state || binding.status || '').toLowerCase() === 'approved';
+}
+
+function wabaTemplateBindingsFromAttributes(attributes) {
+  var publication = attributes && attributes.publication || {};
+  var bindings = [];
+
+  if (publication.wabaTemplateBinding) {
+    bindings.push(publication.wabaTemplateBinding);
+  }
+
+  if (Array.isArray(publication.wabaTemplateBindings)) {
+    publication.wabaTemplateBindings.forEach(function(binding) {
+      var exists = bindings.some(function(item) {
+        return JSON.stringify(item) === JSON.stringify(binding);
+      });
+      if (!exists) bindings.push(binding);
+    });
+  }
+
+  return bindings;
+}
+
+function bindingMatchesOptions(binding, options) {
+  options = options || {};
+  if (!binding) return false;
+  if (options.integrationId && String(binding.integrationId || '') !== String(options.integrationId)) return false;
+  if (options.wabaId && String(binding.wabaId || '') !== String(options.wabaId)) return false;
+  if (options.suggestionName && String(binding.suggestionName || '') !== String(options.suggestionName)) return false;
+  if (options.language && String(binding.language || '') !== String(options.language)) return false;
+  return true;
+}
+
+function pickBoundWabaTemplate(attributes, options) {
+  var bindings = wabaTemplateBindingsFromAttributes(attributes)
+    .filter(isApprovedBinding);
+
+  if (!bindings.length) return null;
+
+  return bindings.find(function(binding) {
+    return bindingMatchesOptions(binding, options);
+  }) || bindings[0];
+}
+
+function normalizeTemplateParameter(value) {
+  if (value && typeof value === 'object' && value.type) {
+    return value;
+  }
+
+  if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'text')) {
+    return {
+      type: 'text',
+      text: String(value.text)
+    };
+  }
+
+  return {
+    type: 'text',
+    text: String(value == null ? '' : value)
+  };
+}
+
+function normalizeTemplateParameters(value) {
+  if (value == null) return null;
+  var values = Array.isArray(value) ? value : [value];
+  if (!values.length) return null;
+  return values.map(normalizeTemplateParameter);
+}
+
+function suggestionForBinding(binding) {
+  if (!binding || !binding.templateId) return null;
+  var template = chatcaseTemplates.getTemplateById(binding.templateId);
+  if (!template) return null;
+  var publication = template.attributes && template.attributes.publication;
+  var suggestions = publication && Array.isArray(publication.wabaTemplates) ? publication.wabaTemplates : [];
+  return suggestions.find(function(item) {
+    return item.name === binding.suggestionName;
+  }) || null;
+}
+
+function valueForTemplateVariable(options, index, position) {
+  options = options || {};
+
+  if (Array.isArray(options.templateValues) && options.templateValues[position] != null) {
+    return options.templateValues[position];
+  }
+
+  if (options.templateValues && typeof options.templateValues === 'object') {
+    if (options.templateValues[index] != null) return options.templateValues[index];
+    if (options.templateValues[String(index)] != null) return options.templateValues[String(index)];
+  }
+
+  return options.recipientName || options.customerName || options.name || 'Cliente';
+}
+
+function buildBodyParamsFromSuggestion(suggestion, options) {
+  if (!suggestion) return null;
+  var indexes = variableIndexes(suggestion.body);
+  if (!indexes.length) return null;
+
+  return indexes.map(function(index, position) {
+    return {
+      type: 'text',
+      text: String(valueForTemplateVariable(options, index, position))
+    };
+  });
+}
+
+function buildTemplateParams(binding, options) {
+  options = options || {};
+  var params = {};
+  var suggestion = suggestionForBinding(binding);
+  var header = normalizeTemplateParameters(options.headerParams);
+  var body = normalizeTemplateParameters(options.bodyParams) || buildBodyParamsFromSuggestion(suggestion, options);
+  var buttons = normalizeTemplateParameters(options.buttonParams || options.buttonsParams);
+
+  if (header) params.header = header;
+  if (body) params.body = body;
+  if (buttons) params.buttons = buttons;
+
+  return Object.keys(params).length ? params : undefined;
+}
+
+function buildBoundWabaTemplateAttachment(binding, options) {
+  if (!isApprovedBinding(binding)) {
+    var notApproved = new Error('waba_template_binding_not_approved');
+    notApproved.statusCode = 409;
+    throw notApproved;
+  }
+
+  var name = binding.providerTemplateName || binding.suggestionName;
+  if (!name) {
+    var invalid = new Error('waba_template_binding_missing_name');
+    invalid.statusCode = 400;
+    throw invalid;
+  }
+
+  var template = {
+    name: name,
+    language: binding.language || 'pt_BR'
+  };
+  var params = buildTemplateParams(binding, options);
+  if (params) template.params = params;
+
+  return {
+    type: 'wa_template',
+    template: template
+  };
+}
+
+async function getBoundWabaTemplateForBot(options, deps) {
+  options = options || {};
+  deps = deps || {};
+
+  if (!options.botId) {
+    var missingBot = new Error('missing_bot_id');
+    missingBot.statusCode = 400;
+    throw missingBot;
+  }
+
+  var FaqKbModel = deps.FaqKb || FaqKb;
+  var bot = await FaqKbModel.findOne({
+    _id: options.botId,
+    id_project: options.projectId
+  }).lean().exec();
+
+  if (!bot) {
+    var missingTarget = new Error('bot_not_found');
+    missingTarget.statusCode = 404;
+    throw missingTarget;
+  }
+
+  var binding = pickBoundWabaTemplate(bot.attributes, options);
+  if (!binding) {
+    var missingBinding = new Error('waba_template_binding_not_found');
+    missingBinding.statusCode = 404;
+    throw missingBinding;
+  }
+
+  return {
+    bot: bot,
+    binding: binding
+  };
+}
+
+async function buildBoundWabaTemplateMessage(options, deps) {
+  options = options || {};
+  deps = deps || {};
+
+  var resolved = options.binding
+    ? { bot: options.bot || null, binding: options.binding }
+    : await getBoundWabaTemplateForBot(options, deps);
+  var attachment = buildBoundWabaTemplateAttachment(resolved.binding, options);
+  var message = {
+    text: options.text || '',
+    type: 'text',
+    attributes: {
+      attachment: attachment,
+      wabaTemplateBinding: resolved.binding
+    }
+  };
+
+  if (options.botId) {
+    message.attributes.wabaTemplateBindingSource = {
+      botId: String(options.botId)
+    };
+  }
+
+  return {
+    status: 'ready',
+    botId: options.botId ? String(options.botId) : (resolved.bot && resolved.bot._id ? String(resolved.bot._id) : null),
+    binding: resolved.binding,
+    message: message
+  };
+}
+
 async function updateIntegrationPublication(integration, status, details, deps) {
   deps = deps || {};
   if (deps.updateIntegration === false || !integration || !integration._id) return;
@@ -677,6 +895,10 @@ async function bindApprovedWabaTemplateToBot(options, deps) {
 
 module.exports = {
   buildMetaTemplatePayload: buildMetaTemplatePayload,
+  buildBoundWabaTemplateAttachment: buildBoundWabaTemplateAttachment,
+  buildBoundWabaTemplateMessage: buildBoundWabaTemplateMessage,
+  getBoundWabaTemplateForBot: getBoundWabaTemplateForBot,
+  pickBoundWabaTemplate: pickBoundWabaTemplate,
   publishWabaTemplate: publishWabaTemplate,
   syncWabaTemplateStatuses: syncWabaTemplateStatuses,
   bindApprovedWabaTemplateToBot: bindApprovedWabaTemplateToBot,

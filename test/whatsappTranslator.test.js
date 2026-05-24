@@ -92,6 +92,34 @@ describe('TiledeskWhatsappTranslator', function() {
       assert.strictEqual(result.interactive.action.buttons[1].reply.title, 'Falar atendente');
       assert(result.interactive.action.buttons[0].reply.id.startsWith('quick'));
     });
+
+    it('maps a bound ChatCase WABA template to a Meta template message', async function() {
+      const translator = new TiledeskWhatsappTranslator();
+
+      const result = await translator.toWhatsapp({
+        text: '',
+        type: 'text',
+        attributes: {
+          wabaTemplateBinding: {
+            state: 'approved',
+            providerTemplateName: 'chatcase_menu_basico_inicio',
+            suggestionName: 'chatcase_menu_basico_inicio',
+            language: 'pt_BR'
+          },
+          wabaTemplateParams: {
+            body: [
+              { type: 'text', text: 'Enzo' }
+            ]
+          }
+        }
+      }, '5562999999999');
+
+      assert.strictEqual(result.type, 'template');
+      assert.strictEqual(result.template.name, 'chatcase_menu_basico_inicio');
+      assert.strictEqual(result.template.language.code, 'pt_BR');
+      assert.strictEqual(result.template.components[0].type, 'body');
+      assert.strictEqual(result.template.components[0].parameters[0].text, 'Enzo');
+    });
   });
 
   describe('toTiledesk', function() {
