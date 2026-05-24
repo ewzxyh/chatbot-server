@@ -370,6 +370,25 @@ router.post('/:faq_kbid/publication/waba/send-template', roleChecker.hasRole('ad
   }
 });
 
+router.post('/:faq_kbid/publication/waba/campaign/audience/preview', roleChecker.hasRole('admin'), async function(req, res) {
+  try {
+    var result = await wabaTemplateCampaignService.previewAudience({
+      projectId: req.projectid,
+      botId: req.params.faq_kbid,
+      audience: req.body && req.body.audience,
+      segmentId: req.body && (req.body.segmentId || req.body.segment_id)
+    });
+
+    return res.status(200).send(result);
+  } catch (err) {
+    winston.error('WABA campaign audience preview error', err);
+    return res.status(err.statusCode || 500).send({
+      success: false,
+      error: err.message || 'waba_campaign_audience_preview_failed'
+    });
+  }
+});
+
 router.post('/:faq_kbid/publication/waba/campaign', roleChecker.hasRole('admin'), async function(req, res) {
   try {
     var result = await wabaTemplateCampaignService.createCampaign({
@@ -381,6 +400,8 @@ router.post('/:faq_kbid/publication/waba/campaign', roleChecker.hasRole('admin')
       wabaId: req.body && req.body.wabaId,
       language: req.body && req.body.language,
       recipients: req.body && req.body.recipients,
+      audience: req.body && req.body.audience,
+      segmentId: req.body && (req.body.segmentId || req.body.segment_id),
       recipientName: req.body && req.body.recipientName,
       customerName: req.body && req.body.customerName,
       templateValues: req.body && req.body.templateValues,

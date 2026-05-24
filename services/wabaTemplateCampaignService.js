@@ -1,5 +1,11 @@
 var uuidv4 = require('uuid/v4');
+var mongoose = require('mongoose');
 var { Transaction } = require('../models/transaction');
+var Lead = require('../models/lead');
+var LeadConstants = require('../models/leadConstants');
+var Segment = require('../models/segment');
+var Request = require('../models/request');
+var Segment2MongoConverter = require('../utils/segment2mongoConverter');
 var publicationService = require('./wabaTemplatePublicationService');
 var operationalLogger = require('./operationalLogger');
 
@@ -28,8 +34,9 @@ function normalizeWhatsappRecipient(phoneNumber) {
   return normalized;
 }
 
-function normalizeCampaignRecipients(value, defaults) {
+function normalizeCampaignRecipients(value, defaults, settings) {
   defaults = defaults || {};
+  settings = settings || {};
   var source = Array.isArray(value) ? value : [];
   var seen = {};
   var recipients = [];
@@ -49,7 +56,9 @@ function normalizeCampaignRecipients(value, defaults) {
         templateValues: item.templateValues || defaults.templateValues,
         headerParams: item.headerParams || defaults.headerParams,
         bodyParams: item.bodyParams || defaults.bodyParams,
-        buttonParams: item.buttonParams || defaults.buttonParams
+        buttonParams: item.buttonParams || defaults.buttonParams,
+        leadId: item.leadId,
+        audienceSource: item.audienceSource
       };
     }
 
@@ -65,7 +74,7 @@ function normalizeCampaignRecipients(value, defaults) {
     }));
   });
 
-  if (!recipients.length) {
+  if (!recipients.length && !settings.allowEmpty) {
     var missing = new Error('missing_campaign_recipients');
     missing.statusCode = 400;
     throw missing;
@@ -80,6 +89,257 @@ function normalizeCampaignRecipients(value, defaults) {
   }
 
   return recipients;
+}
+
+function normalizeTags(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.map(function(item) { return String(item || '').trim(); }).filter(Boolean);
+  }
+  return String(value || '')
+    .split(',')
+    .map(function(item) { return item.trim(); })
+    .filter(Boolean);
+}
+
+function normalizeAudienceChannel(value) {
+  var channel = String(value || 'all').trim().toLowerCase();
+  if (['waba', 'whatsapp', 'casezap', 'phone', 'all'].indexOf(channel) === -1) return 'all';
+  return channel;
+}
+
+function campaignLimitFromAudience(audience) {
+  audience = audience || {};
+  var requested = parseInt(audience.limit || audience.maxRecipients || audience.max_recipients || getCampaignLimit(), 10);
+  if (isNaN(requested) || requested < 1) requested = getCampaignLimit();
+  return Math.min(requested, getCampaignLimit());
+}
+
+function addAndCondition(query, condition) {
+  if (!condition) return;
+  query.$and = query.$and || [];
+  query.$and.push(condition);
+}
+
+function channelNamesFromAudience(value) {
+  var channel = normalizeAudienceChannel(value);
+  if (channel === 'waba' || channel === 'whatsapp') return ['whatsapp'];
+  if (channel === 'casezap') return ['casezap'];
+  return [];
+}
+
+async function buildAudienceLeadQuery(projectId, audience, deps) {
+  audience = audience || {};
+  deps = deps || {};
+
+  var query = {
+    id_project: projectId,
+    status: LeadConstants.NORMAL
+  };
+
+  var segmentId = audience.segmentId || audience.segment_id;
+  if (segmentId) {
+    if (!mongoose.Types.ObjectId.isValid(segmentId)) {
+      var invalidSegment = new Error('invalid_audience_segment_id');
+      invalidSegment.statusCode = 400;
+      throw invalidSegment;
+    }
+
+    var SegmentModel = deps.Segment || Segment;
+    var segment = await SegmentModel.findOne({ id_project: projectId, _id: segmentId }).exec();
+    if (!segment) {
+      var missingSegment = new Error('audience_segment_not_found');
+      missingSegment.statusCode = 404;
+      throw missingSegment;
+    }
+    Segment2MongoConverter.convert(query, segment);
+    query.id_project = projectId;
+    if (!query.status) query.status = LeadConstants.NORMAL;
+  }
+
+  if (audience.status != null && audience.status !== '') {
+    var requestedStatus = parseInt(audience.status, 10);
+    if (requestedStatus !== LeadConstants.NORMAL) {
+      var invalidStatus = new Error('invalid_audience_status');
+      invalidStatus.statusCode = 400;
+      throw invalidStatus;
+    }
+    query.status = requestedStatus;
+  }
+
+  if (audience.fullText || audience.full_text || audience.search) {
+    query.$text = { $search: String(audience.fullText || audience.full_text || audience.search) };
+  }
+
+  if (audience.email) {
+    query.email = String(audience.email).trim();
+  }
+
+  var tags = normalizeTags(audience.tags);
+  if (tags.length === 1) {
+    query.tags = tags[0];
+  } else if (tags.length > 1) {
+    query.tags = { $all: tags };
+  }
+
+  var channel = normalizeAudienceChannel(audience.channel);
+  var channelNames = channelNamesFromAudience(channel);
+  var channelSourceConditions = [];
+
+  if (channelNames.length) {
+    var RequestModel = deps.Request || Request;
+    var leadIds = await RequestModel.distinct('lead', {
+      id_project: projectId,
+      'channel.name': { $in: channelNames },
+      lead: { $exists: true, $ne: null }
+    }).exec();
+
+    if (leadIds && leadIds.length > 0) {
+      channelSourceConditions.push({ _id: { $in: leadIds } });
+    }
+  }
+
+  if (channel === 'waba' || channel === 'whatsapp') {
+    channelSourceConditions.push({ lead_id: /^wab-/ });
+  } else if (channel === 'casezap') {
+    channelSourceConditions.push({ lead_id: /^casezap-/ });
+    channelSourceConditions.push({ 'attributes.casezapPhone': { $exists: true, $ne: '' } });
+  } else if (channel === 'phone') {
+    channelSourceConditions.push({ phone: { $exists: true, $ne: '' } });
+    channelSourceConditions.push({ lead_id: /^wab-/ });
+    channelSourceConditions.push({ lead_id: /^casezap-/ });
+    channelSourceConditions.push({ 'attributes.casezapPhone': { $exists: true, $ne: '' } });
+  }
+
+  if (channelSourceConditions.length > 0) {
+    addAndCondition(query, { $or: channelSourceConditions });
+  }
+
+  return query;
+}
+
+function phoneFromLeadId(leadId) {
+  var value = String(leadId || '');
+  if (value.indexOf('wab-') === 0) return value.replace(/^wab-/, '');
+  if (value.indexOf('casezap-') === 0) {
+    var parts = value.split('-');
+    return parts[parts.length - 1];
+  }
+  return '';
+}
+
+function phoneFromLead(lead) {
+  lead = lead || {};
+  var attributes = lead.attributes || {};
+  var candidates = [
+    lead.phone,
+    attributes.whatsappPhone,
+    attributes.casezapPhone,
+    attributes.phone,
+    phoneFromLeadId(lead.lead_id)
+  ];
+
+  for (var i = 0; i < candidates.length; i += 1) {
+    var normalized = String(candidates[i] || '').replace(/\D+/g, '');
+    if (normalized && normalized.length >= 8) return normalized;
+  }
+  return null;
+}
+
+function leadAudienceSource(lead) {
+  var leadId = String(lead && lead.lead_id || '');
+  if (leadId.indexOf('casezap-') === 0) return 'casezap';
+  if (leadId.indexOf('wab-') === 0) return 'waba';
+  return 'contact';
+}
+
+function recipientFromLead(lead) {
+  var phoneNumber = phoneFromLead(lead);
+  if (!phoneNumber) return null;
+  return {
+    phoneNumber: phoneNumber,
+    recipientName: lead.fullname || lead.name || 'Cliente',
+    leadId: lead._id ? String(lead._id) : null,
+    audienceSource: leadAudienceSource(lead)
+  };
+}
+
+async function resolveAudienceRecipients(options, deps) {
+  options = options || {};
+  deps = deps || {};
+  var audience = options.audience || {};
+  var LeadModel = deps.Lead || Lead;
+  var limit = campaignLimitFromAudience(audience);
+  var query = await buildAudienceLeadQuery(options.projectId, audience, deps);
+
+  var leads = await LeadModel.find(query)
+    .limit(limit)
+    .select('lead_id fullname email phone tags attributes status')
+    .lean()
+    .exec();
+
+  var candidates = [];
+  var invalid = 0;
+  (leads || []).forEach(function(lead) {
+    var recipient = recipientFromLead(lead);
+    if (!recipient) {
+      invalid += 1;
+      return;
+    }
+    candidates.push(recipient);
+  });
+
+  var recipients = normalizeCampaignRecipients(candidates, options, {
+    allowEmpty: options.allowEmptyAudience === true
+  });
+
+  return {
+    recipients: recipients,
+    audience: {
+      type: audience.type || 'contacts',
+      segmentId: audience.segmentId || audience.segment_id || null,
+      channel: normalizeAudienceChannel(audience.channel),
+      tags: normalizeTags(audience.tags),
+      fullText: audience.fullText || audience.full_text || audience.search || null,
+      limit: limit,
+      totalMatched: leads ? leads.length : 0,
+      validRecipients: recipients.length,
+      invalidRecipients: invalid,
+      duplicatesSkipped: Math.max(candidates.length - recipients.length, 0)
+    }
+  };
+}
+
+async function resolveCampaignRecipients(options, deps) {
+  options = options || {};
+  if ((options.audience && (options.audience.type || options.audience.segmentId || options.audience.segment_id || options.audience.tags || options.audience.fullText || options.audience.full_text || options.audience.search || options.audience.channel)) || options.segmentId || options.segment_id) {
+    if (!options.audience) options.audience = {};
+    if (!options.audience.segmentId && !options.audience.segment_id) {
+      options.audience.segmentId = options.segmentId || options.segment_id;
+    }
+    return resolveAudienceRecipients(options, deps);
+  }
+
+  return {
+    recipients: normalizeCampaignRecipients(options.recipients, options),
+    audience: {
+      type: 'manual',
+      totalMatched: Array.isArray(options.recipients) ? options.recipients.length : 0,
+      validRecipients: Array.isArray(options.recipients) ? options.recipients.length : 0,
+      invalidRecipients: 0,
+      duplicatesSkipped: 0
+    }
+  };
+}
+
+async function previewAudience(options, deps) {
+  var resolved = await resolveAudienceRecipients(Object.assign({}, options, {
+    allowEmptyAudience: true
+  }), deps);
+  return {
+    audience: resolved.audience,
+    recipients: []
+  };
 }
 
 function serializeTransaction(transaction) {
@@ -201,7 +461,8 @@ async function createCampaign(options, deps) {
   options = options || {};
   deps = deps || {};
 
-  var recipients = normalizeCampaignRecipients(options.recipients, options);
+  var resolvedRecipients = await resolveCampaignRecipients(options, deps);
+  var recipients = resolvedRecipients.recipients;
   var firstRecipient = recipients[0] || {};
   var service = deps.publicationService || publicationService;
   var preview = await service.buildBoundWabaTemplateMessage(Object.assign({}, options, firstRecipient), deps);
@@ -243,7 +504,8 @@ async function createCampaign(options, deps) {
       headerParams: options.headerParams,
       bodyParams: options.bodyParams,
       buttonParams: options.buttonParams,
-      text: options.text || ''
+      text: options.text || '',
+      audience: resolvedRecipients.audience
     },
     createdAt: now,
     updatedAt: now
@@ -434,6 +696,8 @@ module.exports = {
   pauseCampaign: pauseCampaign,
   resumeCampaign: resumeCampaign,
   cancelCampaign: cancelCampaign,
+  previewAudience: previewAudience,
+  resolveCampaignRecipients: resolveCampaignRecipients,
   normalizeCampaignRecipients: normalizeCampaignRecipients,
   summarizeRecipients: summarizeRecipients
 };

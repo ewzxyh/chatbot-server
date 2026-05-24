@@ -78,6 +78,43 @@ function fakePublicationService(failPhone) {
   };
 }
 
+function fakeLeadModel(leads, capture) {
+  capture = capture || {};
+  return {
+    find: (query) => {
+      capture.query = query;
+      return {
+        limit: (limit) => {
+          capture.limit = limit;
+          return {
+            select: (select) => {
+              capture.select = select;
+              return {
+                lean: () => ({
+                  exec: async () => leads.slice(0, limit)
+                })
+              };
+            }
+          };
+        }
+      };
+    }
+  };
+}
+
+function fakeRequestModel(leadIds, capture) {
+  capture = capture || {};
+  return {
+    distinct: (field, query) => {
+      capture.field = field;
+      capture.query = query;
+      return {
+        exec: async () => leadIds
+      };
+    }
+  };
+}
+
 describe('WABA template campaign service', () => {
   it('normalizes and deduplicates campaign recipients', () => {
     const recipients = campaignService.normalizeCampaignRecipients([
@@ -172,5 +209,113 @@ describe('WABA template campaign service', () => {
     assert.strictEqual(result.sent_count, 1);
     assert.strictEqual(result.failed_count, 1);
     assert.deepStrictEqual(result.recipients.map((recipient) => recipient.status), ['accepted', 'failed']);
+  });
+
+  it('previews audience recipients from leads and keeps lead metadata', async () => {
+    const leadCapture = {};
+    const requestCapture = {};
+    const result = await campaignService.previewAudience({
+      projectId: 'project-1',
+      audience: {
+        type: 'contacts',
+        channel: 'casezap',
+        tags: ['vip'],
+        limit: 10
+      }
+    }, {
+      Lead: fakeLeadModel([
+        { _id: 'lead-1', lead_id: 'casezap-inst-5562984268492', fullname: 'Enzo', tags: ['vip'] },
+        { _id: 'lead-2', lead_id: 'casezap-inst-5562984268492', fullname: 'Duplicado', tags: ['vip'] },
+        { _id: 'lead-3', lead_id: 'casezap-inst-invalid', fullname: 'Sem telefone', tags: ['vip'] }
+      ], leadCapture),
+      Request: fakeRequestModel(['lead-1', 'lead-2', 'lead-3'], requestCapture)
+    });
+
+    assert.strictEqual(requestCapture.field, 'lead');
+    assert.deepStrictEqual(requestCapture.query['channel.name'].$in, ['casezap']);
+    assert.strictEqual(leadCapture.query.id_project, 'project-1');
+    assert.strictEqual(leadCapture.query.tags, 'vip');
+    assert.strictEqual(leadCapture.query.$and[0].$or[0]._id.$in.length, 3);
+    assert.ok(String(leadCapture.query.$and[0].$or[1].lead_id).indexOf('casezap') > -1);
+    assert.strictEqual(result.audience.totalMatched, 3);
+    assert.strictEqual(result.audience.validRecipients, 1);
+    assert.strictEqual(result.audience.invalidRecipients, 1);
+    assert.strictEqual(result.audience.duplicatesSkipped, 1);
+    assert.deepStrictEqual(result.recipients, []);
+  });
+
+  it('creates a tracked campaign from an audience', async () => {
+    const store = [];
+    const Transaction = fakeTransactionModel(store);
+
+    const result = await campaignService.createCampaign({
+      projectId: 'project-1',
+      botId: 'bot-1',
+      audience: {
+        type: 'contacts',
+        tags: 'vip',
+        limit: 10
+      },
+      intervalMs: 0,
+      runInBackground: false
+    }, {
+      Transaction: Transaction,
+      Lead: fakeLeadModel([
+        { _id: 'lead-1', phone: '+55 62 98426-8492', fullname: 'Enzo', tags: ['vip'] },
+        { _id: 'lead-2', lead_id: 'wab-5562999999999', fullname: 'Cliente 2', tags: ['vip'] }
+      ]),
+      publicationService: fakePublicationService(),
+      delayFn: async () => {}
+    });
+
+    assert.strictEqual(result.status, 'completed');
+    assert.strictEqual(result.recipients_total, 2);
+    assert.strictEqual(result.campaign.audience.type, 'contacts');
+    assert.strictEqual(result.campaign.audience.tags[0], 'vip');
+    assert.deepStrictEqual(result.recipients.map((recipient) => recipient.phoneNumber), ['5562984268492', '5562999999999']);
+    assert.strictEqual(result.recipients[0].leadId, 'lead-1');
+    assert.strictEqual(result.recipients[0].leadKey, undefined);
+    assert.strictEqual(result.recipients[0].email, undefined);
+    assert.strictEqual(result.recipients[0].tags, undefined);
+  });
+
+  it('rejects deleted lead status audiences', async () => {
+    let error;
+    try {
+      await campaignService.previewAudience({
+        projectId: 'project-1',
+        audience: {
+          status: 1000
+        }
+      }, {
+        Lead: fakeLeadModel([])
+      });
+    } catch (err) {
+      error = err;
+    }
+
+    assert(error);
+    assert.strictEqual(error.message, 'invalid_audience_status');
+    assert.strictEqual(error.statusCode, 400);
+  });
+
+  it('rejects invalid segment ids before querying mongo', async () => {
+    let error;
+    try {
+      await campaignService.previewAudience({
+        projectId: 'project-1',
+        audience: {
+          segmentId: 'not-an-objectid'
+        }
+      }, {
+        Lead: fakeLeadModel([])
+      });
+    } catch (err) {
+      error = err;
+    }
+
+    assert(error);
+    assert.strictEqual(error.message, 'invalid_audience_segment_id');
+    assert.strictEqual(error.statusCode, 400);
   });
 });
