@@ -283,6 +283,32 @@ router.post('/templates/:templateid/publication/waba/sync', roleChecker.hasRole(
   }
 });
 
+router.post('/templates/:templateid/publication/waba/bind', roleChecker.hasRole('admin'), async function(req, res) {
+  try {
+    var result = await wabaTemplatePublicationService.bindApprovedWabaTemplateToBot({
+      projectId: req.projectid,
+      templateId: req.params.templateid,
+      botId: req.body && req.body.botId,
+      suggestionName: req.body && req.body.suggestionName,
+      integrationId: req.body && req.body.integrationId
+    });
+
+    if (result && result.bot) {
+      botEvent.emit('faqbot.update', result.bot);
+    }
+
+    return res.status(200).send(result);
+  } catch (err) {
+    winston.error('WABA template bind error', err);
+    return res.status(err.statusCode || (err.response && err.response.status) || 500).send({
+      success: false,
+      error: err.message || 'waba_template_bind_failed',
+      sync: err.sync,
+      providerError: err.response && err.response.data
+    });
+  }
+});
+
 router.put('/:faq_kbid/publish', roleChecker.hasRole('admin'), async (req, res) => {
 
   let id_faq_kb = req.params.faq_kbid;

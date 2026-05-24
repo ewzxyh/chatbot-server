@@ -1,6 +1,7 @@
 var axios = require('axios');
 var mongoose = require('mongoose');
 var Integration = require('../models/integrations');
+var FaqKb = require('../models/faq_kb');
 var chatcaseTemplates = require('../pubmodules/chatbotTemplates/chatcaseTemplates');
 var operationalLogger = require('./operationalLogger');
 
@@ -313,6 +314,76 @@ function buildSyncResponse(template, suggestions, integration, credentials, meta
   }, extra);
 }
 
+function pickApprovedTemplate(syncResult, suggestionName) {
+  var items = syncResult && Array.isArray(syncResult.templates) ? syncResult.templates : [];
+  return items.find(function(item) {
+    return item.state === 'approved' && (!suggestionName || item.name === suggestionName);
+  }) || null;
+}
+
+function buildWabaTemplateBinding(template, approvedTemplate, integration, credentials) {
+  var meta = approvedTemplate && approvedTemplate.meta || {};
+  return {
+    channel: 'waba',
+    provider: 'meta',
+    templateId: String(template._id),
+    templateName: template.name,
+    suggestionName: approvedTemplate.name,
+    providerTemplateId: meta.id || null,
+    providerTemplateName: meta.name || approvedTemplate.name,
+    language: approvedTemplate.language || meta.language || 'pt_BR',
+    category: approvedTemplate.category || meta.category || 'UTILITY',
+    status: meta.status || 'APPROVED',
+    state: approvedTemplate.state,
+    wabaId: credentials && credentials.wabaId ? String(credentials.wabaId) : null,
+    integrationId: integration && integration._id ? String(integration._id) : null,
+    boundAt: new Date().toISOString()
+  };
+}
+
+function cloneAttributes(attributes) {
+  if (!attributes) return {};
+  return JSON.parse(JSON.stringify(attributes));
+}
+
+function mergeWabaTemplateBinding(attributes, binding) {
+  var nextAttributes = cloneAttributes(attributes);
+  nextAttributes.publication = nextAttributes.publication || {};
+
+  var bindings = Array.isArray(nextAttributes.publication.wabaTemplateBindings)
+    ? nextAttributes.publication.wabaTemplateBindings.slice()
+    : [];
+  var bindingKey = [
+    binding.channel,
+    binding.provider,
+    binding.wabaId || '',
+    binding.suggestionName,
+    binding.language
+  ].join(':');
+
+  var found = false;
+  bindings = bindings.map(function(item) {
+    var currentKey = [
+      item.channel,
+      item.provider,
+      item.wabaId || '',
+      item.suggestionName,
+      item.language
+    ].join(':');
+
+    if (currentKey === bindingKey) {
+      found = true;
+      return binding;
+    }
+    return item;
+  });
+
+  if (!found) bindings.push(binding);
+  nextAttributes.publication.wabaTemplateBinding = binding;
+  nextAttributes.publication.wabaTemplateBindings = bindings;
+  return nextAttributes;
+}
+
 async function updateIntegrationPublication(integration, status, details, deps) {
   deps = deps || {};
   if (deps.updateIntegration === false || !integration || !integration._id) return;
@@ -537,9 +608,77 @@ async function syncWabaTemplateStatuses(options, deps) {
   }
 }
 
+async function bindApprovedWabaTemplateToBot(options, deps) {
+  options = options || {};
+  deps = deps || {};
+
+  if (!options.botId) {
+    var missingBot = new Error('missing_bot_id');
+    missingBot.statusCode = 400;
+    throw missingBot;
+  }
+
+  var template = templateById(options.templateId);
+  var integration = await findWabaIntegration(options.projectId, options.integrationId, deps);
+  var settings = await findWhatsappSettings(integration, deps, options.projectId);
+  var credentials = getCredentials(integration, settings);
+
+  if (!credentials.token || !credentials.wabaId) {
+    var missing = new Error(!credentials.wabaId ? 'missing_waba_id' : 'missing_waba_token');
+    missing.statusCode = 400;
+    throw missing;
+  }
+
+  var syncResult = await syncWabaTemplateStatuses(options, deps);
+  var approvedTemplate = pickApprovedTemplate(syncResult, options.suggestionName);
+  if (!approvedTemplate) {
+    var notApproved = new Error('waba_template_not_approved');
+    notApproved.statusCode = 409;
+    notApproved.sync = syncResult;
+    throw notApproved;
+  }
+
+  var FaqKbModel = deps.FaqKb || FaqKb;
+  var bot = await FaqKbModel.findOne({
+    _id: options.botId,
+    id_project: options.projectId
+  }).lean().exec();
+
+  if (!bot) {
+    var missingTarget = new Error('bot_not_found');
+    missingTarget.statusCode = 404;
+    throw missingTarget;
+  }
+
+  var binding = buildWabaTemplateBinding(template, approvedTemplate, integration, credentials);
+  var attributes = mergeWabaTemplateBinding(bot.attributes, binding);
+  var updatedBot = await FaqKbModel.findByIdAndUpdate(
+    bot._id,
+    { $set: { attributes: attributes, modified: true } },
+    { new: true }
+  ).lean().exec();
+
+  await recordPublicationLog('info', 'success', integration, {
+    action: 'bind',
+    botId: String(bot._id),
+    templateName: binding.suggestionName,
+    providerTemplateId: binding.providerTemplateId
+  }, deps);
+
+  return {
+    status: 'bound',
+    botId: String(bot._id),
+    templateId: template._id,
+    binding: binding,
+    sync: syncResult,
+    bot: updatedBot
+  };
+}
+
 module.exports = {
   buildMetaTemplatePayload: buildMetaTemplatePayload,
   publishWabaTemplate: publishWabaTemplate,
   syncWabaTemplateStatuses: syncWabaTemplateStatuses,
+  bindApprovedWabaTemplateToBot: bindApprovedWabaTemplateToBot,
   normalizeTemplateName: normalizeTemplateName
 };

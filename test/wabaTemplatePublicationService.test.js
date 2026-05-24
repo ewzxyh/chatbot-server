@@ -218,4 +218,139 @@ describe('WABA template publication service', () => {
     assert(capturedQuery.$or.some((clause) => clause.project_id === 'project-1'), 'kvstore lookup should include project fallback');
     assert(scope.isDone(), 'Meta template list endpoint should be called with kvstore credentials');
   });
+
+  it('binds an approved Meta template to a bot publication attributes', async () => {
+    process.env.META_GRAPH_URL = 'https://graph.facebook.com/v25.0/';
+    const scope = nock('https://graph.facebook.com', {
+      reqheaders: {
+        authorization: 'Bearer token-1'
+      }
+    })
+      .get('/v25.0/waba-1/message_templates')
+      .query((query) => query.fields && query.limit === '200')
+      .reply(200, {
+        data: [
+          {
+            id: 'template-provider-id',
+            name: 'chatcase_menu_basico_inicio',
+            language: 'pt_BR',
+            category: 'MARKETING',
+            status: 'APPROVED'
+          }
+        ]
+      });
+
+    let savedUpdate;
+    const fakeFaqKb = {
+      findOne: () => ({
+        lean: () => ({
+          exec: async () => ({
+            _id: 'bot-1',
+            id_project: 'project-1',
+            attributes: {
+              existing: true,
+              publication: {
+                note: 'keep-me'
+              }
+            }
+          })
+        })
+      }),
+      findByIdAndUpdate: (id, update) => {
+        savedUpdate = { id, update };
+        return {
+          lean: () => ({
+            exec: async () => Object.assign({ _id: id }, update.$set)
+          })
+        };
+      }
+    };
+
+    const result = await service.bindApprovedWabaTemplateToBot({
+      projectId: 'project-1',
+      templateId: chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC,
+      botId: 'bot-1'
+    }, {
+      integration: {
+        _id: 'integration-1',
+        id_project: 'project-1',
+        name: 'whatsapp',
+        value: {}
+      },
+      settings: {
+        value: {
+          access_token: 'token-1',
+          waba_id: 'waba-1'
+        }
+      },
+      FaqKb: fakeFaqKb,
+      updateIntegration: false,
+      operationalLogger: null
+    });
+
+    const binding = savedUpdate.update.$set.attributes.publication.wabaTemplateBinding;
+    assert.strictEqual(result.status, 'bound');
+    assert.strictEqual(savedUpdate.id, 'bot-1');
+    assert.strictEqual(savedUpdate.update.$set.attributes.existing, true);
+    assert.strictEqual(savedUpdate.update.$set.attributes.publication.note, 'keep-me');
+    assert.strictEqual(binding.suggestionName, 'chatcase_menu_basico_inicio');
+    assert.strictEqual(binding.providerTemplateId, 'template-provider-id');
+    assert.strictEqual(binding.state, 'approved');
+    assert.strictEqual(binding.wabaId, 'waba-1');
+    assert.strictEqual(savedUpdate.update.$set.attributes.publication.wabaTemplateBindings.length, 1);
+    assert(scope.isDone(), 'Meta template list endpoint should be called before binding');
+  });
+
+  it('rejects binding when the Meta template is not approved yet', async () => {
+    process.env.META_GRAPH_URL = 'https://graph.facebook.com/v25.0/';
+    const scope = nock('https://graph.facebook.com', {
+      reqheaders: {
+        authorization: 'Bearer token-1'
+      }
+    })
+      .get('/v25.0/waba-1/message_templates')
+      .query((query) => query.fields && query.limit === '200')
+      .reply(200, {
+        data: [
+          {
+            id: 'template-provider-id',
+            name: 'chatcase_menu_basico_inicio',
+            language: 'pt_BR',
+            category: 'MARKETING',
+            status: 'PENDING'
+          }
+        ]
+      });
+
+    await assert.rejects(
+      () => service.bindApprovedWabaTemplateToBot({
+        projectId: 'project-1',
+        templateId: chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC,
+        botId: 'bot-1'
+      }, {
+        integration: {
+          _id: 'integration-1',
+          id_project: 'project-1',
+          name: 'whatsapp',
+          value: {}
+        },
+        settings: {
+          value: {
+            access_token: 'token-1',
+            waba_id: 'waba-1'
+          }
+        },
+        updateIntegration: false,
+        operationalLogger: null
+      }),
+      (error) => {
+        assert.strictEqual(error.message, 'waba_template_not_approved');
+        assert.strictEqual(error.statusCode, 409);
+        assert.strictEqual(error.sync.summary.pending, 1);
+        return true;
+      }
+    );
+
+    assert(scope.isDone(), 'Meta template list endpoint should be called before rejecting the bind');
+  });
 });
