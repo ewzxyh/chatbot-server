@@ -1,0 +1,319 @@
+var axios = require('axios');
+var mongoose = require('mongoose');
+var Integration = require('../models/integrations');
+var chatcaseTemplates = require('../pubmodules/chatbotTemplates/chatcaseTemplates');
+var operationalLogger = require('./operationalLogger');
+
+var DEFAULT_TIMEOUT_MS = parseInt(process.env.OPERATIONAL_PROVIDER_CHECK_TIMEOUT_MS || '8000', 10);
+var META_GRAPH_URL = process.env.META_GRAPH_URL || process.env.GRAPH_URL || 'https://graph.facebook.com/v25.0/';
+if (isNaN(DEFAULT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS < 1000) DEFAULT_TIMEOUT_MS = 8000;
+
+function ensureTrailingSlash(url) {
+  if (!url) return url;
+  return url.charAt(url.length - 1) === '/' ? url : url + '/';
+}
+
+function graphUrl() {
+  var url = process.env.META_GRAPH_URL || process.env.GRAPH_URL || META_GRAPH_URL;
+  return ensureTrailingSlash(url);
+}
+
+function normalizeTemplateName(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function variableIndexes(text) {
+  var indexes = [];
+  var regex = /\{\{(\d+)\}\}/g;
+  var match;
+  while ((match = regex.exec(String(text || ''))) !== null) {
+    var index = parseInt(match[1], 10);
+    if (!isNaN(index) && indexes.indexOf(index) === -1) {
+      indexes.push(index);
+    }
+  }
+  return indexes.sort(function(a, b) { return a - b; });
+}
+
+function sampleValuesForSuggestion(suggestion, indexes) {
+  var variables = Array.isArray(suggestion.variables) ? suggestion.variables : [];
+  return indexes.map(function(index, position) {
+    var name = variables[position] || variables[index - 1] || 'valor';
+    if (/nome|name/i.test(name)) return 'Cliente';
+    if (/pedido|order/i.test(name)) return '12345';
+    if (/data|date/i.test(name)) return '25/05/2026';
+    return 'Exemplo';
+  });
+}
+
+function buildMetaTemplatePayload(suggestion) {
+  if (!suggestion) {
+    var missing = new Error('missing_waba_template_suggestion');
+    missing.statusCode = 400;
+    throw missing;
+  }
+
+  var name = normalizeTemplateName(suggestion.name);
+  var body = String(suggestion.body || '').trim();
+  var category = String(suggestion.category || 'UTILITY').toUpperCase();
+  var language = suggestion.language || 'pt_BR';
+
+  if (!name) {
+    var invalidName = new Error('invalid_waba_template_name');
+    invalidName.statusCode = 400;
+    throw invalidName;
+  }
+
+  if (!body) {
+    var invalidBody = new Error('invalid_waba_template_body');
+    invalidBody.statusCode = 400;
+    throw invalidBody;
+  }
+
+  var bodyComponent = {
+    type: 'BODY',
+    text: body
+  };
+  var indexes = variableIndexes(body);
+  if (indexes.length) {
+    bodyComponent.example = {
+      body_text: [
+        sampleValuesForSuggestion(suggestion, indexes)
+      ]
+    };
+  }
+
+  var components = [bodyComponent];
+  var buttons = Array.isArray(suggestion.buttons) ? suggestion.buttons.filter(Boolean).slice(0, 3) : [];
+  if (buttons.length) {
+    components.push({
+      type: 'BUTTONS',
+      buttons: buttons.map(function(button) {
+        return {
+          type: 'QUICK_REPLY',
+          text: String(button).substring(0, 25)
+        };
+      })
+    });
+  }
+
+  return {
+    name: name,
+    language: language,
+    category: category,
+    components: components
+  };
+}
+
+function templateById(templateId) {
+  var template = chatcaseTemplates.getTemplateById(templateId);
+  if (!template) {
+    var missing = new Error('template_not_found');
+    missing.statusCode = 404;
+    throw missing;
+  }
+  return template;
+}
+
+function getSuggestion(template, suggestionName) {
+  var publication = template.attributes && template.attributes.publication;
+  var suggestions = publication && Array.isArray(publication.wabaTemplates) ? publication.wabaTemplates : [];
+  var suggestion = suggestions.find(function(item) {
+    return !suggestionName || item.name === suggestionName;
+  });
+
+  if (!suggestion) {
+    var missing = new Error('waba_template_suggestion_not_found');
+    missing.statusCode = 404;
+    throw missing;
+  }
+
+  return suggestion;
+}
+
+async function findWabaIntegration(projectId, integrationId, deps) {
+  deps = deps || {};
+  if (deps.integration) return deps.integration;
+
+  var query = {
+    id_project: projectId,
+    name: 'whatsapp'
+  };
+  if (integrationId) query._id = integrationId;
+
+  return (deps.Integration || Integration)
+    .findOne(query)
+    .sort({ updatedAt: -1, createdAt: -1 })
+    .lean()
+    .exec();
+}
+
+async function findWhatsappSettings(integration, deps) {
+  deps = deps || {};
+  if (deps.settings) return deps.settings;
+  if (!integration) return null;
+
+  var value = integration.value || {};
+  var collection = (deps.mongooseConnection || mongoose.connection).collection('kvstore');
+  var clauses = [];
+
+  if (value.waba_id) clauses.push({ key: 'whatsapp-' + value.waba_id });
+  if (value.phone_number_id) clauses.push({ 'value.phone_number_id': value.phone_number_id });
+  if (value.waba_id) clauses.push({ 'value.waba_id': value.waba_id });
+  if (integration.id_project) clauses.push({ key: 'whatsapp-' + integration.id_project });
+  if (integration.id_project) clauses.push({ project_id: integration.id_project });
+
+  if (!clauses.length) return null;
+  return collection.findOne({ $or: clauses });
+}
+
+function getCredentials(integration, settings) {
+  var integrationValue = integration && integration.value ? integration.value : {};
+  var settingsValue = settings && settings.value ? settings.value : {};
+  return {
+    token: settingsValue.wab_token || settingsValue.access_token || integrationValue.wab_token || integrationValue.access_token || null,
+    wabaId: settingsValue.waba_id || integrationValue.waba_id || null
+  };
+}
+
+function redactedEndpoint(wabaId) {
+  return graphUrl() + (wabaId || '{waba-id}') + '/message_templates';
+}
+
+function publicationResponse(template, suggestion, payload, integration, credentials, extra) {
+  extra = extra || {};
+  var publication = template.attributes && template.attributes.publication || {};
+  return Object.assign({
+    templateId: template._id,
+    templateName: template.name,
+    dryRun: true,
+    canPublish: !!(credentials && credentials.token && credentials.wabaId),
+    channel: 'waba',
+    waba: {
+      integrationId: integration && integration._id ? String(integration._id) : null,
+      wabaId: credentials && credentials.wabaId ? String(credentials.wabaId) : null,
+      configured: !!(credentials && credentials.token && credentials.wabaId)
+    },
+    wabaTemplate: suggestion,
+    metaEndpoint: redactedEndpoint(credentials && credentials.wabaId),
+    metaPayload: payload,
+    checklist: publication.checklist || []
+  }, extra);
+}
+
+async function updateIntegrationPublication(integration, status, details, deps) {
+  deps = deps || {};
+  if (deps.updateIntegration === false || !integration || !integration._id) return;
+
+  var set = {
+    'value.operational.lastWabaTemplatePublicationAt': new Date().toISOString(),
+    'value.operational.lastWabaTemplatePublicationStatus': status,
+    'value.operational.lastWabaTemplatePublicationError': details && details.error || null
+  };
+
+  if (details && details.templateName) {
+    set['value.operational.lastWabaTemplateName'] = details.templateName;
+  }
+  if (details && details.providerTemplateId) {
+    set['value.operational.lastWabaTemplateProviderId'] = details.providerTemplateId;
+  }
+
+  await (deps.Integration || Integration).findByIdAndUpdate(integration._id, { $set: set });
+}
+
+async function recordPublicationLog(level, status, integration, details, deps) {
+  deps = deps || {};
+  if (deps.operationalLogger === null || deps.operationalLogger === false) return;
+  var logger = deps.operationalLogger || operationalLogger;
+  if (!logger || !logger.recordSafe) return;
+
+  logger.recordSafe({
+    level: level,
+    area: 'waba_template',
+    channel: 'waba',
+    id_project: integration && integration.id_project,
+    integrationId: integration && integration._id ? String(integration._id) : null,
+    event: 'waba_template.publication',
+    status: status,
+    details: details
+  });
+}
+
+async function publishWabaTemplate(options, deps) {
+  options = options || {};
+  deps = deps || {};
+
+  var dryRun = options.dryRun !== false;
+  var template = templateById(options.templateId);
+  var suggestion = getSuggestion(template, options.suggestionName);
+  var payload = buildMetaTemplatePayload(suggestion);
+  var integration = await findWabaIntegration(options.projectId, options.integrationId, deps);
+  var settings = await findWhatsappSettings(integration, deps);
+  var credentials = getCredentials(integration, settings);
+
+  if (dryRun) {
+    return publicationResponse(template, suggestion, payload, integration, credentials, {
+      dryRun: true,
+      status: credentials.token && credentials.wabaId ? 'ready_to_publish' : 'missing_waba_credentials',
+      message: credentials.token && credentials.wabaId
+        ? 'Payload pronto para envio ao endpoint de templates da Meta.'
+        : 'Configure WABA ID e token antes de enviar para a Meta.'
+    });
+  }
+
+  if (!integration || !credentials.token || !credentials.wabaId) {
+    var missing = new Error(!integration ? 'missing_waba_integration' : (!credentials.wabaId ? 'missing_waba_id' : 'missing_waba_token'));
+    missing.statusCode = 400;
+    throw missing;
+  }
+
+  try {
+    var httpClient = deps.httpClient || axios;
+    var startedAt = Date.now();
+    var result = await httpClient.post(redactedEndpoint(credentials.wabaId), payload, {
+      headers: {
+        Authorization: 'Bearer ' + credentials.token,
+        'Content-Type': 'application/json'
+      },
+      timeout: DEFAULT_TIMEOUT_MS
+    });
+
+    await updateIntegrationPublication(integration, 'success', {
+      templateName: payload.name,
+      providerTemplateId: result.data && result.data.id
+    }, deps);
+    await recordPublicationLog('info', 'success', integration, {
+      templateName: payload.name,
+      providerTemplateId: result.data && result.data.id,
+      providerStatus: result.data && result.data.status,
+      latencyMs: Date.now() - startedAt
+    }, deps);
+
+    return publicationResponse(template, suggestion, payload, integration, credentials, {
+      dryRun: false,
+      status: 'submitted',
+      providerResponse: result.data
+    });
+  } catch (err) {
+    await updateIntegrationPublication(integration, 'failed', {
+      templateName: payload.name,
+      error: operationalLogger.extractErrorMessage(err)
+    }, deps);
+    await recordPublicationLog('error', 'failed', integration, {
+      templateName: payload.name,
+      errorMessage: operationalLogger.extractErrorMessage(err),
+      errorCode: operationalLogger.extractErrorCode(err)
+    }, deps);
+    throw err;
+  }
+}
+
+module.exports = {
+  buildMetaTemplatePayload: buildMetaTemplatePayload,
+  publishWabaTemplate: publishWabaTemplate,
+  normalizeTemplateName: normalizeTemplateName
+};

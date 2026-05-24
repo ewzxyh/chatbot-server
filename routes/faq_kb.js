@@ -19,6 +19,7 @@ var roleChecker = require('../middleware/has-role');
 const roleConstants = require('../models/roleConstants');
 const errorCodes = require('../errorCodes');
 const faq_kb = require('../models/faq_kb');
+const wabaTemplatePublicationService = require('../services/wabaTemplatePublicationService');
 
 let chatbot_templates_api_url = process.env.CHATBOT_TEMPLATES_API_URL
 
@@ -239,6 +240,28 @@ router.post('/askbot', roleChecker.hasRole('admin'), function (req, res) {
       return res.status(400).send({ success: false, msg: 'askbot on external bot.' });
     }
   });
+});
+
+router.post('/templates/:templateid/publication/waba', roleChecker.hasRole('admin'), async function(req, res) {
+  try {
+    var shouldPublish = req.body && (req.body.publish === true || req.body.publish === 'true');
+    var result = await wabaTemplatePublicationService.publishWabaTemplate({
+      projectId: req.projectid,
+      templateId: req.params.templateid,
+      suggestionName: req.body && req.body.suggestionName,
+      integrationId: req.body && req.body.integrationId,
+      dryRun: !shouldPublish
+    });
+
+    return res.status(200).send(result);
+  } catch (err) {
+    winston.error('WABA template publication error', err);
+    return res.status(err.statusCode || (err.response && err.response.status) || 500).send({
+      success: false,
+      error: err.message || 'waba_template_publication_failed',
+      providerError: err.response && err.response.data
+    });
+  }
 });
 
 router.put('/:faq_kbid/publish', roleChecker.hasRole('admin'), async (req, res) => {
