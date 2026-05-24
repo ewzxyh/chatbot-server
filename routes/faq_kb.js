@@ -20,6 +20,7 @@ const roleConstants = require('../models/roleConstants');
 const errorCodes = require('../errorCodes');
 const faq_kb = require('../models/faq_kb');
 const wabaTemplatePublicationService = require('../services/wabaTemplatePublicationService');
+const wabaTemplateCampaignService = require('../services/wabaTemplateCampaignService');
 
 let chatbot_templates_api_url = process.env.CHATBOT_TEMPLATES_API_URL
 
@@ -365,6 +366,104 @@ router.post('/:faq_kbid/publication/waba/send-template', roleChecker.hasRole('ad
       success: false,
       error: err.message || 'waba_bound_template_dispatch_failed',
       providerError: err.response && err.response.data
+    });
+  }
+});
+
+router.post('/:faq_kbid/publication/waba/campaign', roleChecker.hasRole('admin'), async function(req, res) {
+  try {
+    var result = await wabaTemplateCampaignService.createCampaign({
+      projectId: req.projectid,
+      botId: req.params.faq_kbid,
+      createdBy: req.user && req.user.id,
+      suggestionName: req.body && req.body.suggestionName,
+      integrationId: req.body && req.body.integrationId,
+      wabaId: req.body && req.body.wabaId,
+      language: req.body && req.body.language,
+      recipients: req.body && req.body.recipients,
+      recipientName: req.body && req.body.recipientName,
+      customerName: req.body && req.body.customerName,
+      templateValues: req.body && req.body.templateValues,
+      headerParams: req.body && req.body.headerParams,
+      bodyParams: req.body && req.body.bodyParams,
+      buttonParams: req.body && req.body.buttonParams,
+      intervalMs: req.body && (req.body.intervalMs || req.body.interval_ms),
+      transactionId: req.body && req.body.transactionId,
+      dryRun: req.body && req.body.dryRun
+    });
+
+    return res.status(202).send(result);
+  } catch (err) {
+    winston.error('WABA campaign create error', err);
+    return res.status(err.statusCode || (err.response && err.response.status) || 500).send({
+      success: false,
+      error: err.message || 'waba_campaign_create_failed',
+      providerError: err.response && err.response.data,
+      limit: err.limit
+    });
+  }
+});
+
+router.get('/:faq_kbid/publication/waba/campaign/:transaction_id', roleChecker.hasRole('admin'), async function(req, res) {
+  try {
+    var result = await wabaTemplateCampaignService.getCampaign({
+      projectId: req.projectid,
+      transactionId: req.params.transaction_id
+    });
+    return res.status(200).send(result);
+  } catch (err) {
+    winston.error('WABA campaign get error', err);
+    return res.status(err.statusCode || 500).send({
+      success: false,
+      error: err.message || 'waba_campaign_get_failed'
+    });
+  }
+});
+
+router.post('/:faq_kbid/publication/waba/campaign/:transaction_id/pause', roleChecker.hasRole('admin'), async function(req, res) {
+  try {
+    var result = await wabaTemplateCampaignService.pauseCampaign({
+      projectId: req.projectid,
+      transactionId: req.params.transaction_id
+    });
+    return res.status(200).send(result);
+  } catch (err) {
+    winston.error('WABA campaign pause error', err);
+    return res.status(err.statusCode || 500).send({
+      success: false,
+      error: err.message || 'waba_campaign_pause_failed'
+    });
+  }
+});
+
+router.post('/:faq_kbid/publication/waba/campaign/:transaction_id/resume', roleChecker.hasRole('admin'), async function(req, res) {
+  try {
+    var result = await wabaTemplateCampaignService.resumeCampaign({
+      projectId: req.projectid,
+      transactionId: req.params.transaction_id
+    });
+    return res.status(200).send(result);
+  } catch (err) {
+    winston.error('WABA campaign resume error', err);
+    return res.status(err.statusCode || 500).send({
+      success: false,
+      error: err.message || 'waba_campaign_resume_failed'
+    });
+  }
+});
+
+router.post('/:faq_kbid/publication/waba/campaign/:transaction_id/cancel', roleChecker.hasRole('admin'), async function(req, res) {
+  try {
+    var result = await wabaTemplateCampaignService.cancelCampaign({
+      projectId: req.projectid,
+      transactionId: req.params.transaction_id
+    });
+    return res.status(200).send(result);
+  } catch (err) {
+    winston.error('WABA campaign cancel error', err);
+    return res.status(err.statusCode || 500).send({
+      success: false,
+      error: err.message || 'waba_campaign_cancel_failed'
     });
   }
 });

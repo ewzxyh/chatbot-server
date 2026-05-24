@@ -789,7 +789,7 @@ async function dispatchBoundWabaTemplate(options, deps) {
   var sent = 0;
   var failed = 0;
 
-  if (!dryRun) {
+  if (!dryRun && options.persistTransaction !== false) {
     await saveDispatchTransaction({
       projectId: options.projectId,
       transactionId: transactionId,
@@ -870,7 +870,7 @@ async function dispatchBoundWabaTemplate(options, deps) {
     ? 'ready'
     : (failed === 0 ? 'completed' : (sent > 0 ? 'partial_failed' : 'failed'));
 
-  if (!dryRun) {
+  if (!dryRun && options.persistTransaction !== false) {
     await saveDispatchTransaction({
       projectId: options.projectId,
       transactionId: transactionId,
