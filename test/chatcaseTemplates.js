@@ -15,7 +15,7 @@ describe('ChatCase chatbot templates', () => {
   it('lists all certified local templates with import metadata', () => {
     const templates = chatcaseTemplates.listMetadata();
 
-    assert(templates.length >= 3, 'should expose multiple ChatCase templates');
+    assert(templates.length >= 6, 'should expose multiple ChatCase templates');
 
     templates.forEach((template) => {
       assert(template._id, 'template should have an id');

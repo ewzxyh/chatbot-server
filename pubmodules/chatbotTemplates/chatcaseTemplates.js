@@ -1,7 +1,10 @@
 const CHATCASE_TEMPLATE_IDS = {
   WHATSAPP_MENU_BASIC: 'chatcase-whatsapp-menu-basic',
   ECOMMERCE_ORDERS: 'chatcase-ecommerce-orders',
-  CLINIC_SCHEDULING: 'chatcase-clinic-scheduling'
+  CLINIC_SCHEDULING: 'chatcase-clinic-scheduling',
+  RESTAURANT_DELIVERY: 'chatcase-restaurant-delivery',
+  REAL_ESTATE_LEADS: 'chatcase-real-estate-leads',
+  EDUCATION_COURSES: 'chatcase-education-courses'
 };
 
 function clone(value) {
@@ -328,10 +331,295 @@ const CLINIC_SCHEDULING = createTemplate({
   ]
 });
 
+const RESTAURANT_DELIVERY = createTemplate({
+  _id: CHATCASE_TEMPLATE_IDS.RESTAURANT_DELIVERY,
+  name: 'ChatCase Restaurante e delivery',
+  title: 'Restaurante e delivery',
+  description: 'Fluxo para restaurantes, lanchonetes e operacoes de delivery com cardapio, horario, status do pedido e atendimento humano.',
+  short_description: 'Menu para cardapio, horario de funcionamento, status do pedido e atendimento.',
+  shortDescription: 'Menu para cardapio, horario de funcionamento, status do pedido e atendimento.',
+  mainCategory: 'Increase Sales',
+  tags: ['whatsapp', 'casezap', 'restaurante', 'delivery', 'cardapio', 'pedidos'],
+  certifiedTags: [
+    { name: 'WhatsApp', color: '#25833e' },
+    { name: 'CaseZap', color: '#0049bd' }
+  ],
+  templateFeatures: [
+    'Atendimento inicial para delivery',
+    'Opcoes de cardapio, horario e status do pedido',
+    'Handoff para atendente quando precisar'
+  ],
+  attributes: {
+    source: 'chatcase-static-template',
+    channels: ['whatsapp', 'casezap'],
+    segment: 'restaurant',
+    nativeInteractions: {
+      whatsapp: 'buttons',
+      casezap: 'menu'
+    },
+    rules: []
+  },
+  intents: [
+    intent({
+      id: 'cc-restaurant-default-fallback',
+      name: 'defaultFallback',
+      answer: 'Nao entendi sua mensagem. Digite menu para ver as opcoes do restaurante.',
+      x: 740,
+      y: 520
+    }),
+    intent({
+      id: 'cc-restaurant-start',
+      name: 'start',
+      question: '\\start',
+      answer: 'Ola! Sou o assistente do restaurante.\n\n1 - Ver cardapio\n2 - Horario e entrega\n3 - Status do pedido\n4 - Falar com atendente\n\nResponda com o numero da opcao.',
+      buttons: ['Cardapio', 'Horario', 'Pedido', 'Atendente'],
+      x: 150,
+      y: 160
+    }),
+    intent({
+      id: 'cc-restaurant-menu',
+      name: 'menu',
+      question: 'menu',
+      aliases: ['Menu'],
+      answer: 'Menu do restaurante:\n\n1 - Ver cardapio\n2 - Horario e entrega\n3 - Status do pedido\n4 - Falar com atendente',
+      buttons: ['Cardapio', 'Horario', 'Pedido', 'Atendente'],
+      x: 460,
+      y: 160
+    }),
+    intent({
+      id: 'cc-restaurant-menu-link',
+      name: 'menu_link',
+      question: '1',
+      aliases: ['Cardapio', 'Ver cardapio'],
+      answer: 'Envie aqui o link do seu cardapio ou substitua esta mensagem pelo cardapio do dia. Para fazer um pedido, informe os itens e o endereco de entrega.',
+      x: 300,
+      y: 360
+    }),
+    intent({
+      id: 'cc-restaurant-hours',
+      name: 'hours_delivery',
+      question: '2',
+      aliases: ['Horario', 'Horario e entrega', 'Entrega'],
+      answer: 'Nosso horario de atendimento e entrega pode ser configurado aqui. Informe seu bairro para confirmarmos prazo e taxa de entrega.',
+      x: 540,
+      y: 360
+    }),
+    intent({
+      id: 'cc-restaurant-order-status',
+      name: 'order_status',
+      question: '3',
+      aliases: ['Pedido', 'Status do pedido', 'Status pedido'],
+      answer: 'Para consultar seu pedido, envie o nome usado na compra ou o numero do pedido.',
+      x: 780,
+      y: 360
+    }),
+    intent({
+      id: 'cc-restaurant-human-handoff',
+      name: 'human_handoff',
+      question: '4',
+      aliases: ['Atendente', 'Falar com atendente'],
+      answer: 'Certo, vou chamar uma atendente. Descreva em uma mensagem o que voce precisa.',
+      x: 1020,
+      y: 360
+    })
+  ]
+});
+
+const REAL_ESTATE_LEADS = createTemplate({
+  _id: CHATCASE_TEMPLATE_IDS.REAL_ESTATE_LEADS,
+  name: 'ChatCase Imobiliaria e visitas',
+  title: 'Imobiliaria e visitas',
+  description: 'Fluxo para imobiliarias e corretores captarem interesse, filtrarem compra ou aluguel, agendarem visitas e encaminharem para atendimento.',
+  short_description: 'Menu para compra, aluguel, agendamento de visita e atendimento com corretor.',
+  shortDescription: 'Menu para compra, aluguel, agendamento de visita e atendimento com corretor.',
+  mainCategory: 'Increase Sales',
+  tags: ['whatsapp', 'casezap', 'imobiliaria', 'imoveis', 'visitas', 'leads'],
+  certifiedTags: [
+    { name: 'WhatsApp', color: '#25833e' },
+    { name: 'CaseZap', color: '#0049bd' }
+  ],
+  templateFeatures: [
+    'Qualificacao inicial para compra ou aluguel',
+    'Coleta de bairro, faixa de valor e tipo de imovel',
+    'Agendamento de visita com corretor'
+  ],
+  attributes: {
+    source: 'chatcase-static-template',
+    channels: ['whatsapp', 'casezap'],
+    segment: 'real-estate',
+    nativeInteractions: {
+      whatsapp: 'buttons',
+      casezap: 'menu'
+    },
+    rules: []
+  },
+  intents: [
+    intent({
+      id: 'cc-real-estate-default-fallback',
+      name: 'defaultFallback',
+      answer: 'Nao entendi sua mensagem. Digite menu para ver as opcoes da imobiliaria.',
+      x: 740,
+      y: 520
+    }),
+    intent({
+      id: 'cc-real-estate-start',
+      name: 'start',
+      question: '\\start',
+      answer: 'Ola! Sou o assistente da imobiliaria.\n\n1 - Comprar imovel\n2 - Alugar imovel\n3 - Agendar visita\n4 - Falar com corretor\n\nResponda com o numero da opcao.',
+      buttons: ['Comprar', 'Alugar', 'Visita', 'Corretor'],
+      x: 150,
+      y: 160
+    }),
+    intent({
+      id: 'cc-real-estate-menu',
+      name: 'menu',
+      question: 'menu',
+      aliases: ['Menu'],
+      answer: 'Menu da imobiliaria:\n\n1 - Comprar imovel\n2 - Alugar imovel\n3 - Agendar visita\n4 - Falar com corretor',
+      buttons: ['Comprar', 'Alugar', 'Visita', 'Corretor'],
+      x: 460,
+      y: 160
+    }),
+    intent({
+      id: 'cc-real-estate-buy',
+      name: 'buy_property',
+      question: '1',
+      aliases: ['Comprar', 'Comprar imovel'],
+      answer: 'Para compra, envie bairro desejado, tipo de imovel, faixa de valor e se precisa de financiamento.',
+      x: 300,
+      y: 360
+    }),
+    intent({
+      id: 'cc-real-estate-rent',
+      name: 'rent_property',
+      question: '2',
+      aliases: ['Alugar', 'Alugar imovel'],
+      answer: 'Para aluguel, envie bairro desejado, tipo de imovel, faixa de valor e data prevista de mudanca.',
+      x: 540,
+      y: 360
+    }),
+    intent({
+      id: 'cc-real-estate-visit',
+      name: 'schedule_visit',
+      question: '3',
+      aliases: ['Visita', 'Agendar visita'],
+      answer: 'Para agendar visita, envie o codigo ou link do imovel e os melhores dias/horarios.',
+      x: 780,
+      y: 360
+    }),
+    intent({
+      id: 'cc-real-estate-human-handoff',
+      name: 'human_handoff',
+      question: '4',
+      aliases: ['Corretor', 'Falar com corretor'],
+      answer: 'Certo, vou chamar um corretor. Descreva em uma mensagem o que voce procura.',
+      x: 1020,
+      y: 360
+    })
+  ]
+});
+
+const EDUCATION_COURSES = createTemplate({
+  _id: CHATCASE_TEMPLATE_IDS.EDUCATION_COURSES,
+  name: 'ChatCase Cursos e matriculas',
+  title: 'Cursos e matriculas',
+  description: 'Fluxo para escolas, cursos livres e treinamentos responderem sobre cursos, valores, matricula e atendimento humano.',
+  short_description: 'Menu para cursos, valores, matricula e atendimento com consultor.',
+  shortDescription: 'Menu para cursos, valores, matricula e atendimento com consultor.',
+  mainCategory: 'Increase Sales',
+  tags: ['whatsapp', 'casezap', 'educacao', 'cursos', 'matriculas', 'leads'],
+  certifiedTags: [
+    { name: 'WhatsApp', color: '#25833e' },
+    { name: 'CaseZap', color: '#0049bd' }
+  ],
+  templateFeatures: [
+    'Triagem de interesse por curso',
+    'Resposta inicial sobre valores e formas de pagamento',
+    'Encaminhamento para consultor de matricula'
+  ],
+  attributes: {
+    source: 'chatcase-static-template',
+    channels: ['whatsapp', 'casezap'],
+    segment: 'education',
+    nativeInteractions: {
+      whatsapp: 'buttons',
+      casezap: 'menu'
+    },
+    rules: []
+  },
+  intents: [
+    intent({
+      id: 'cc-education-default-fallback',
+      name: 'defaultFallback',
+      answer: 'Nao entendi sua mensagem. Digite menu para ver as opcoes de atendimento.',
+      x: 740,
+      y: 520
+    }),
+    intent({
+      id: 'cc-education-start',
+      name: 'start',
+      question: '\\start',
+      answer: 'Ola! Sou o assistente de matriculas.\n\n1 - Ver cursos\n2 - Valores e bolsas\n3 - Fazer matricula\n4 - Falar com consultor\n\nResponda com o numero da opcao.',
+      buttons: ['Cursos', 'Valores', 'Matricula', 'Consultor'],
+      x: 150,
+      y: 160
+    }),
+    intent({
+      id: 'cc-education-menu',
+      name: 'menu',
+      question: 'menu',
+      aliases: ['Menu'],
+      answer: 'Menu de atendimento:\n\n1 - Ver cursos\n2 - Valores e bolsas\n3 - Fazer matricula\n4 - Falar com consultor',
+      buttons: ['Cursos', 'Valores', 'Matricula', 'Consultor'],
+      x: 460,
+      y: 160
+    }),
+    intent({
+      id: 'cc-education-courses',
+      name: 'courses',
+      question: '1',
+      aliases: ['Cursos', 'Ver cursos'],
+      answer: 'Informe a area de interesse ou substitua esta mensagem pela lista de cursos disponiveis da escola.',
+      x: 300,
+      y: 360
+    }),
+    intent({
+      id: 'cc-education-pricing',
+      name: 'pricing',
+      question: '2',
+      aliases: ['Valores', 'Valores e bolsas', 'Bolsas'],
+      answer: 'Para valores e bolsas, envie o curso de interesse e a modalidade desejada. Um consultor confirma as condicoes.',
+      x: 540,
+      y: 360
+    }),
+    intent({
+      id: 'cc-education-enrollment',
+      name: 'enrollment',
+      question: '3',
+      aliases: ['Matricula', 'Fazer matricula'],
+      answer: 'Para iniciar a matricula, envie nome completo, curso desejado, telefone e melhor horario para contato.',
+      x: 780,
+      y: 360
+    }),
+    intent({
+      id: 'cc-education-human-handoff',
+      name: 'human_handoff',
+      question: '4',
+      aliases: ['Consultor', 'Falar com consultor'],
+      answer: 'Certo, vou chamar um consultor. Descreva em uma mensagem sua duvida.',
+      x: 1020,
+      y: 360
+    })
+  ]
+});
+
 const CHATCASE_TEMPLATES = [
   WHATSAPP_MENU_BASIC,
   ECOMMERCE_ORDERS,
-  CLINIC_SCHEDULING
+  CLINIC_SCHEDULING,
+  RESTAURANT_DELIVERY,
+  REAL_ESTATE_LEADS,
+  EDUCATION_COURSES
 ];
 
 const TEMPLATE_BY_ID = CHATCASE_TEMPLATES.reduce((acc, template) => {
