@@ -4,9 +4,14 @@ var Integration = require('../models/integrations');
 var chatcaseTemplates = require('../pubmodules/chatbotTemplates/chatcaseTemplates');
 var operationalLogger = require('./operationalLogger');
 
-var DEFAULT_TIMEOUT_MS = parseInt(process.env.OPERATIONAL_PROVIDER_CHECK_TIMEOUT_MS || '8000', 10);
+var DEFAULT_TIMEOUT_MS = parseInt(
+  process.env.WABA_TEMPLATE_PUBLICATION_TIMEOUT_MS ||
+  process.env.OPERATIONAL_PROVIDER_CHECK_TIMEOUT_MS ||
+  '30000',
+  10
+);
 var META_GRAPH_URL = process.env.META_GRAPH_URL || process.env.GRAPH_URL || 'https://graph.facebook.com/v25.0/';
-if (isNaN(DEFAULT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS < 1000) DEFAULT_TIMEOUT_MS = 8000;
+if (isNaN(DEFAULT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS < 1000) DEFAULT_TIMEOUT_MS = 30000;
 
 function ensureTrailingSlash(url) {
   if (!url) return url;
@@ -152,20 +157,22 @@ async function findWabaIntegration(projectId, integrationId, deps) {
     .exec();
 }
 
-async function findWhatsappSettings(integration, deps) {
+async function findWhatsappSettings(integration, deps, projectId) {
   deps = deps || {};
   if (Object.prototype.hasOwnProperty.call(deps, 'settings')) return deps.settings;
-  if (!integration) return null;
 
-  var value = integration.value || {};
+  var value = integration && integration.value || {};
   var collection = (deps.mongooseConnection || mongoose.connection).collection('kvstore');
   var clauses = [];
 
   if (value.waba_id) clauses.push({ key: 'whatsapp-' + value.waba_id });
   if (value.phone_number_id) clauses.push({ 'value.phone_number_id': value.phone_number_id });
   if (value.waba_id) clauses.push({ 'value.waba_id': value.waba_id });
-  if (integration.id_project) clauses.push({ key: 'whatsapp-' + integration.id_project });
-  if (integration.id_project) clauses.push({ project_id: integration.id_project });
+  if (integration && integration.id_project) clauses.push({ key: 'whatsapp-' + integration.id_project });
+  if (integration && integration.id_project) clauses.push({ project_id: integration.id_project });
+  if (projectId) clauses.push({ key: 'whatsapp-' + projectId });
+  if (projectId) clauses.push({ project_id: String(projectId), key: /^whatsapp-/ });
+  if (projectId) clauses.push({ project_id: String(projectId), 'value.waba_id': { $exists: true } });
 
   if (!clauses.length) return null;
   return collection.findOne({ $or: clauses });
@@ -326,11 +333,47 @@ async function updateIntegrationPublication(integration, status, details, deps) 
   await (deps.Integration || Integration).findByIdAndUpdate(integration._id, { $set: set });
 }
 
+async function updateSettingsPublication(settings, status, details, deps) {
+  deps = deps || {};
+  if (deps.updateIntegration === false || !settings || !settings._id) return;
+
+  var set = {
+    'value.operational.lastWabaTemplatePublicationAt': new Date().toISOString(),
+    'value.operational.lastWabaTemplatePublicationStatus': status,
+    'value.operational.lastWabaTemplatePublicationError': details && details.error || null
+  };
+
+  if (details && details.templateName) {
+    set['value.operational.lastWabaTemplateName'] = details.templateName;
+  }
+  if (details && details.providerTemplateId) {
+    set['value.operational.lastWabaTemplateProviderId'] = details.providerTemplateId;
+  }
+
+  await (deps.mongooseConnection || mongoose.connection)
+    .collection('kvstore')
+    .updateOne({ _id: settings._id }, { $set: set });
+}
+
 async function updateIntegrationSync(integration, result, deps) {
   deps = deps || {};
   if (deps.updateIntegration === false || !integration || !integration._id) return;
 
   await (deps.Integration || Integration).findByIdAndUpdate(integration._id, {
+    $set: {
+      'value.operational.lastWabaTemplateSyncAt': result.syncedAt,
+      'value.operational.lastWabaTemplateSyncStatus': result.status,
+      'value.operational.lastWabaTemplateSyncSummary': result.summary,
+      'value.operational.lastWabaTemplateSyncError': result.error || null
+    }
+  });
+}
+
+async function updateSettingsSync(settings, result, deps) {
+  deps = deps || {};
+  if (deps.updateIntegration === false || !settings || !settings._id) return;
+
+  await (deps.mongooseConnection || mongoose.connection).collection('kvstore').updateOne({ _id: settings._id }, {
     $set: {
       'value.operational.lastWabaTemplateSyncAt': result.syncedAt,
       'value.operational.lastWabaTemplateSyncStatus': result.status,
@@ -367,7 +410,7 @@ async function publishWabaTemplate(options, deps) {
   var suggestion = getSuggestion(template, options.suggestionName);
   var payload = buildMetaTemplatePayload(suggestion);
   var integration = await findWabaIntegration(options.projectId, options.integrationId, deps);
-  var settings = await findWhatsappSettings(integration, deps);
+  var settings = await findWhatsappSettings(integration, deps, options.projectId);
   var credentials = getCredentials(integration, settings);
 
   if (dryRun) {
@@ -380,8 +423,8 @@ async function publishWabaTemplate(options, deps) {
     });
   }
 
-  if (!integration || !credentials.token || !credentials.wabaId) {
-    var missing = new Error(!integration ? 'missing_waba_integration' : (!credentials.wabaId ? 'missing_waba_id' : 'missing_waba_token'));
+  if (!credentials.token || !credentials.wabaId) {
+    var missing = new Error(!credentials.wabaId ? 'missing_waba_id' : 'missing_waba_token');
     missing.statusCode = 400;
     throw missing;
   }
@@ -398,6 +441,10 @@ async function publishWabaTemplate(options, deps) {
     });
 
     await updateIntegrationPublication(integration, 'success', {
+      templateName: payload.name,
+      providerTemplateId: result.data && result.data.id
+    }, deps);
+    await updateSettingsPublication(settings, 'success', {
       templateName: payload.name,
       providerTemplateId: result.data && result.data.id
     }, deps);
@@ -418,6 +465,10 @@ async function publishWabaTemplate(options, deps) {
       templateName: payload.name,
       error: operationalLogger.extractErrorMessage(err)
     }, deps);
+    await updateSettingsPublication(settings, 'failed', {
+      templateName: payload.name,
+      error: operationalLogger.extractErrorMessage(err)
+    }, deps);
     await recordPublicationLog('error', 'failed', integration, {
       templateName: payload.name,
       errorMessage: operationalLogger.extractErrorMessage(err),
@@ -435,7 +486,7 @@ async function syncWabaTemplateStatuses(options, deps) {
   var publication = template.attributes && template.attributes.publication || {};
   var suggestions = publication && Array.isArray(publication.wabaTemplates) ? publication.wabaTemplates : [];
   var integration = await findWabaIntegration(options.projectId, options.integrationId, deps);
-  var settings = await findWhatsappSettings(integration, deps);
+  var settings = await findWhatsappSettings(integration, deps, options.projectId);
   var credentials = getCredentials(integration, settings);
 
   if (!suggestions.length) {
@@ -444,12 +495,13 @@ async function syncWabaTemplateStatuses(options, deps) {
     throw noSuggestions;
   }
 
-  if (!integration || !credentials.token || !credentials.wabaId) {
+  if (!credentials.token || !credentials.wabaId) {
     var missing = buildSyncResponse(template, suggestions, integration, credentials, [], {
       status: 'missing_waba_credentials',
       message: 'Configure WABA ID e token antes de sincronizar status na Meta.'
     });
     await updateIntegrationSync(integration, missing, deps);
+    await updateSettingsSync(settings, missing, deps);
     return missing;
   }
 
@@ -462,6 +514,7 @@ async function syncWabaTemplateStatuses(options, deps) {
     });
 
     await updateIntegrationSync(integration, result, deps);
+    await updateSettingsSync(settings, result, deps);
     await recordPublicationLog('info', 'success', integration, {
       action: 'sync',
       summary: result.summary,
@@ -474,6 +527,7 @@ async function syncWabaTemplateStatuses(options, deps) {
       error: operationalLogger.extractErrorMessage(err)
     });
     await updateIntegrationSync(integration, failed, deps);
+    await updateSettingsSync(settings, failed, deps);
     await recordPublicationLog('error', 'failed', integration, {
       action: 'sync',
       errorMessage: operationalLogger.extractErrorMessage(err),

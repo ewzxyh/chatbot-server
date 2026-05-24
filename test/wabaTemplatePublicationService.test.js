@@ -162,4 +162,60 @@ describe('WABA template publication service', () => {
     assert.strictEqual(result.summary.approved, 1);
     assert(scope.isDone(), 'Meta template list endpoint should be called');
   });
+
+  it('syncs using WABA credentials saved only in kvstore', async () => {
+    process.env.META_GRAPH_URL = 'https://graph.facebook.com/v25.0/';
+    let capturedQuery;
+    const scope = nock('https://graph.facebook.com', {
+      reqheaders: {
+        authorization: 'Bearer token-1'
+      }
+    })
+      .get('/v25.0/waba-1/message_templates')
+      .query((query) => query.fields && query.limit === '200')
+      .reply(200, {
+        data: [
+          {
+            id: 'template-provider-id',
+            name: 'chatcase_menu_basico_inicio',
+            language: 'pt_BR',
+            category: 'MARKETING',
+            status: 'PENDING'
+          }
+        ]
+      });
+
+    const result = await service.syncWabaTemplateStatuses({
+      projectId: 'project-1',
+      templateId: chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC
+    }, {
+      integration: null,
+      mongooseConnection: {
+        collection: () => ({
+          findOne: async (query) => {
+            capturedQuery = query;
+            return {
+              _id: 'kvstore-1',
+              key: 'whatsapp-waba-1',
+              project_id: 'project-1',
+              value: {
+                wab_token: 'token-1',
+                waba_id: 'waba-1'
+              }
+            };
+          }
+        })
+      },
+      updateIntegration: false,
+      operationalLogger: null
+    });
+
+    assert.strictEqual(result.status, 'synced');
+    assert.strictEqual(result.canSync, true);
+    assert.strictEqual(result.waba.integrationId, null);
+    assert.strictEqual(result.waba.wabaId, 'waba-1');
+    assert.strictEqual(result.templates[0].state, 'pending');
+    assert(capturedQuery.$or.some((clause) => clause.project_id === 'project-1'), 'kvstore lookup should include project fallback');
+    assert(scope.isDone(), 'Meta template list endpoint should be called with kvstore credentials');
+  });
 });
