@@ -30,6 +30,10 @@ describe('ChatCase chatbot templates', () => {
       assert(template.attributes.channels.includes('casezap'), 'template should support CaseZap');
       assert.strictEqual(template.attributes.nativeInteractions.whatsapp, 'buttons');
       assert.strictEqual(template.attributes.nativeInteractions.casezap, 'menu');
+      assert(template.attributes.publication, 'template should expose publication readiness metadata');
+      assert(Array.isArray(template.attributes.publication.readiness), 'template should expose channel readiness list');
+      assert(Array.isArray(template.attributes.publication.wabaTemplates), 'template should expose WABA template suggestions');
+      assert(template.attributes.publication.wabaTemplates.length > 0, 'template should expose at least one WABA template suggestion');
       assert(!template.intents, 'metadata list should not include full intents payload');
     });
   });
@@ -66,6 +70,8 @@ describe('ChatCase chatbot templates', () => {
       assert.strictEqual(exported.intents.length, template.intentsCount);
       assert.strictEqual(exported.attributes.nativeInteractions.whatsapp, 'buttons');
       assert.strictEqual(exported.attributes.nativeInteractions.casezap, 'menu');
+      assert(exported.attributes.publication, 'export should include publication readiness metadata');
+      assert(Array.isArray(exported.attributes.publication.checklist), 'export should include publication checklist');
     });
   });
 

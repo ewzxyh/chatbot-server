@@ -87,6 +87,47 @@ function createTemplate(config) {
   }, config);
 }
 
+function publicationPlan({ wabaTemplateName, wabaCategory, wabaBody, wabaButtons, checklist }) {
+  return {
+    readiness: [
+      {
+        channel: 'casezap',
+        status: 'ready',
+        title: 'CaseZap / UAZAPI',
+        description: 'Pode responder conversas recebidas e clientes que ja estao falando com a empresa.'
+      },
+      {
+        channel: 'whatsapp',
+        status: 'ready',
+        title: 'WhatsApp com conversa aberta',
+        description: 'Funciona quando o cliente iniciou a conversa ou esta dentro da janela de atendimento.'
+      },
+      {
+        channel: 'waba',
+        status: 'requires_approval',
+        title: 'WABA iniciada pela empresa',
+        description: 'Para iniciar conversa ativa, crie e aprove um template de mensagem na Meta antes de publicar.'
+      }
+    ],
+    wabaTemplates: [
+      {
+        name: wabaTemplateName,
+        category: wabaCategory || 'UTILITY',
+        language: 'pt_BR',
+        body: wabaBody,
+        variables: ['nome'],
+        buttons: wabaButtons || []
+      }
+    ],
+    checklist: checklist || [
+      'Conectar numero WABA ou CaseZap ao projeto.',
+      'Importar o fluxo e revisar textos de marca, horarios e politicas.',
+      'Publicar o bot no canal desejado.',
+      'Testar entrada de cliente real antes de ativar trafego.'
+    ]
+  };
+}
+
 const WHATSAPP_MENU_BASIC = createTemplate({
   _id: CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC,
   name: 'ChatCase WhatsApp menu basico',
@@ -112,6 +153,12 @@ const WHATSAPP_MENU_BASIC = createTemplate({
       whatsapp: 'buttons',
       casezap: 'menu'
     },
+    publication: publicationPlan({
+      wabaTemplateName: 'chatcase_menu_basico_inicio',
+      wabaCategory: 'MARKETING',
+      wabaBody: 'Ola {{1}}, tudo bem? Temos algumas opcoes de atendimento para voce. Responda esta mensagem para abrir o menu e falar com a equipe.',
+      wabaButtons: ['Ver opcoes', 'Falar com atendente']
+    }),
     rules: []
   },
   intents: [
@@ -189,6 +236,12 @@ const ECOMMERCE_ORDERS = createTemplate({
       whatsapp: 'buttons',
       casezap: 'menu'
     },
+    publication: publicationPlan({
+      wabaTemplateName: 'chatcase_loja_status_pedido',
+      wabaCategory: 'UTILITY',
+      wabaBody: 'Ola {{1}}, podemos te ajudar com status do pedido, entrega, trocas ou atendimento da loja. Responda esta mensagem para continuar.',
+      wabaButtons: ['Status do pedido', 'Falar com atendente']
+    }),
     rules: []
   },
   intents: [
@@ -273,6 +326,12 @@ const CLINIC_SCHEDULING = createTemplate({
       whatsapp: 'buttons',
       casezap: 'menu'
     },
+    publication: publicationPlan({
+      wabaTemplateName: 'chatcase_clinica_agendamento',
+      wabaCategory: 'UTILITY',
+      wabaBody: 'Ola {{1}}, podemos te ajudar com agendamento, valores, convenios ou atendimento da recepcao. Responda esta mensagem para continuar.',
+      wabaButtons: ['Agendar horario', 'Falar com recepcao']
+    }),
     rules: []
   },
   intents: [
@@ -357,6 +416,12 @@ const RESTAURANT_DELIVERY = createTemplate({
       whatsapp: 'buttons',
       casezap: 'menu'
     },
+    publication: publicationPlan({
+      wabaTemplateName: 'chatcase_restaurante_delivery',
+      wabaCategory: 'MARKETING',
+      wabaBody: 'Ola {{1}}, temos opcoes de cardapio, entrega e status do pedido. Responda esta mensagem para fazer ou acompanhar seu pedido.',
+      wabaButtons: ['Ver cardapio', 'Falar com atendente']
+    }),
     rules: []
   },
   intents: [
@@ -451,6 +516,12 @@ const REAL_ESTATE_LEADS = createTemplate({
       whatsapp: 'buttons',
       casezap: 'menu'
     },
+    publication: publicationPlan({
+      wabaTemplateName: 'chatcase_imobiliaria_visita',
+      wabaCategory: 'MARKETING',
+      wabaBody: 'Ola {{1}}, podemos te ajudar com compra, aluguel ou agendamento de visita. Responda esta mensagem para falar com a imobiliaria.',
+      wabaButtons: ['Agendar visita', 'Falar com corretor']
+    }),
     rules: []
   },
   intents: [
@@ -545,6 +616,12 @@ const EDUCATION_COURSES = createTemplate({
       whatsapp: 'buttons',
       casezap: 'menu'
     },
+    publication: publicationPlan({
+      wabaTemplateName: 'chatcase_cursos_matricula',
+      wabaCategory: 'MARKETING',
+      wabaBody: 'Ola {{1}}, podemos te ajudar com cursos, valores, bolsas ou matricula. Responda esta mensagem para falar com um consultor.',
+      wabaButtons: ['Ver cursos', 'Falar com consultor']
+    }),
     rules: []
   },
   intents: [
