@@ -192,6 +192,7 @@ var schemaMigrationService = require('./services/schemaMigrationService');
 var operationalMonitorService = require('./services/operationalMonitorService');
 var privacyRetentionJobService = require('./services/privacyRetentionJobService');
 var billingLifecycleJobService = require('./services/billingLifecycleJobService');
+var wabaTemplateCampaignService = require('./services/wabaTemplateCampaignService');
 var auditService = require('./services/auditService');
 var RouterLogger = require('./models/routerLogger');
 var cacheEnabler = require("./services/cacheEnabler");
@@ -318,6 +319,8 @@ app.set('privacy_retention_job', privacyRetentionJobService);
 privacyRetentionJobService.start();
 app.set('billing_lifecycle_job', billingLifecycleJobService);
 billingLifecycleJobService.start();
+app.set('waba_template_campaign_scheduler', wabaTemplateCampaignService);
+wabaTemplateCampaignService.startScheduledCampaignSweep();
 
 // TODO DELETE IT IN THE NEXT RELEASE
 if (process.env.ENABLE_ALTERNATIVE_CORS_MIDDLEWARE === "true") {  

@@ -339,6 +339,7 @@ function buildWabaTemplateBinding(template, approvedTemplate, integration, crede
     category: approvedTemplate.category || meta.category || 'UTILITY',
     status: meta.status || 'APPROVED',
     state: approvedTemplate.state,
+    qualityScore: meta.qualityScore || meta.quality_score || null,
     wabaId: credentials && credentials.wabaId ? String(credentials.wabaId) : null,
     integrationId: integration && integration._id ? String(integration._id) : null,
     boundAt: new Date().toISOString()

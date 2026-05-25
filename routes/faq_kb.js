@@ -25,6 +25,13 @@ const chatcaseTemplates = require('../pubmodules/chatbotTemplates/chatcaseTempla
 
 let chatbot_templates_api_url = process.env.CHATBOT_TEMPLATES_API_URL
 
+function bodyValue(body, primaryKey, fallbackKey) {
+  if (!body) return undefined;
+  if (body[primaryKey] !== undefined) return body[primaryKey];
+  if (fallbackKey && body[fallbackKey] !== undefined) return body[fallbackKey];
+  return undefined;
+}
+
 
 let MAX_UPLOAD_FILE_SIZE = process.env.MAX_UPLOAD_FILE_SIZE;
 let uploadlimits = undefined;
@@ -402,14 +409,17 @@ router.post('/:faq_kbid/publication/waba/campaign', roleChecker.hasRole('admin')
       language: req.body && req.body.language,
       recipients: req.body && req.body.recipients,
       audience: req.body && req.body.audience,
-      segmentId: req.body && (req.body.segmentId || req.body.segment_id),
+      segmentId: bodyValue(req.body, 'segmentId', 'segment_id'),
       recipientName: req.body && req.body.recipientName,
       customerName: req.body && req.body.customerName,
       templateValues: req.body && req.body.templateValues,
       headerParams: req.body && req.body.headerParams,
       bodyParams: req.body && req.body.bodyParams,
       buttonParams: req.body && req.body.buttonParams,
-      intervalMs: req.body && (req.body.intervalMs || req.body.interval_ms),
+      intervalMs: bodyValue(req.body, 'intervalMs', 'interval_ms'),
+      scheduledAt: bodyValue(req.body, 'scheduledAt', 'scheduled_at'),
+      timezone: bodyValue(req.body, 'timezone', 'timeZone'),
+      consentConfirmed: bodyValue(req.body, 'consentConfirmed', 'consent_confirmed'),
       transactionId: req.body && req.body.transactionId,
       dryRun: req.body && req.body.dryRun
     });
