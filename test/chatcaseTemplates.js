@@ -38,7 +38,19 @@ describe('ChatCase chatbot templates', () => {
       assert(template.attributes.publication, 'template should expose publication readiness metadata');
       assert(Array.isArray(template.attributes.publication.readiness), 'template should expose channel readiness list');
       assert(Array.isArray(template.attributes.publication.wabaTemplates), 'template should expose WABA template suggestions');
-      assert(template.attributes.publication.wabaTemplates.length > 0, 'template should expose at least one WABA template suggestion');
+      assert(template.attributes.publication.wabaTemplates.length >= 3, 'template should expose a local WABA template library');
+      assert.strictEqual(
+        new Set(template.attributes.publication.wabaTemplates.map((item) => item.name)).size,
+        template.attributes.publication.wabaTemplates.length,
+        'WABA template suggestion names should be unique per local template'
+      );
+      template.attributes.publication.wabaTemplates.forEach((suggestion) => {
+        assert.strictEqual(suggestion.language, 'pt_BR', 'WABA suggestions should use Brazilian Portuguese');
+        assert(['UTILITY', 'MARKETING'].includes(suggestion.category), 'WABA suggestions should use supported Meta categories');
+        assert(suggestion.body, 'WABA suggestions should include a body');
+        assert(suggestion.purpose, 'WABA suggestions should explain their purpose');
+        assert(suggestion.whenToUse, 'WABA suggestions should explain when to use them');
+      });
       assert(!template.intents, 'metadata list should not include full intents payload');
     });
   });

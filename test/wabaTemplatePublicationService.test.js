@@ -122,6 +122,8 @@ describe('WABA template publication service', () => {
   });
 
   it('returns missing credential status when syncing without configured WABA', async () => {
+    const template = chatcaseTemplates.getTemplateById(chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC);
+    const expectedSuggestions = template.attributes.publication.wabaTemplates.length;
     const result = await service.syncWabaTemplateStatuses({
       projectId: 'project-1',
       templateId: chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC
@@ -134,8 +136,9 @@ describe('WABA template publication service', () => {
 
     assert.strictEqual(result.status, 'missing_waba_credentials');
     assert.strictEqual(result.canSync, false);
+    assert.strictEqual(result.templates.length, expectedSuggestions);
     assert.strictEqual(result.templates[0].state, 'not_found');
-    assert.strictEqual(result.summary.notFound, 1);
+    assert.strictEqual(result.summary.notFound, expectedSuggestions);
   });
 
   it('syncs suggested template status from Meta', async () => {
@@ -186,6 +189,7 @@ describe('WABA template publication service', () => {
     assert.strictEqual(result.canSync, true);
     assert.strictEqual(result.templates[0].state, 'approved');
     assert.strictEqual(result.summary.approved, 1);
+    assert.strictEqual(result.summary.notFound, result.templates.length - 1);
     assert(scope.isDone(), 'Meta template list endpoint should be called');
   });
 
@@ -241,6 +245,7 @@ describe('WABA template publication service', () => {
     assert.strictEqual(result.waba.integrationId, null);
     assert.strictEqual(result.waba.wabaId, 'waba-1');
     assert.strictEqual(result.templates[0].state, 'pending');
+    assert.strictEqual(result.summary.notFound, result.templates.length - 1);
     assert(capturedQuery.$or.some((clause) => clause.project_id === 'project-1'), 'kvstore lookup should include project fallback');
     assert(scope.isDone(), 'Meta template list endpoint should be called with kvstore credentials');
   });

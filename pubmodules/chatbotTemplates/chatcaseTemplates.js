@@ -336,7 +336,30 @@ function createTemplate(config) {
   }, config);
 }
 
-function publicationPlan({ wabaTemplateName, wabaCategory, wabaBody, wabaButtons, checklist }) {
+function wabaSuggestion({ name, category, body, variables, buttons, purpose, useCase, whenToUse }) {
+  return {
+    name,
+    category: category || 'UTILITY',
+    language: 'pt_BR',
+    body,
+    variables: variables || ['nome'],
+    buttons: buttons || [],
+    purpose: purpose || 'Iniciar conversa ativa aprovada pela Meta',
+    useCase: useCase || 'business_initiated',
+    whenToUse: whenToUse || 'Use quando a empresa precisa iniciar ou retomar uma conversa fora da janela de atendimento.'
+  };
+}
+
+function publicationPlan({ wabaTemplateName, wabaCategory, wabaBody, wabaButtons, wabaTemplates, checklist }) {
+  const templates = [
+    wabaSuggestion({
+      name: wabaTemplateName,
+      category: wabaCategory,
+      body: wabaBody,
+      buttons: wabaButtons
+    })
+  ].concat((wabaTemplates || []).map(wabaSuggestion));
+
   return {
     readiness: [
       {
@@ -358,16 +381,7 @@ function publicationPlan({ wabaTemplateName, wabaCategory, wabaBody, wabaButtons
         description: 'Para iniciar conversa ativa, crie e aprove um template de mensagem na Meta antes de publicar.'
       }
     ],
-    wabaTemplates: [
-      {
-        name: wabaTemplateName,
-        category: wabaCategory || 'UTILITY',
-        language: 'pt_BR',
-        body: wabaBody,
-        variables: ['nome'],
-        buttons: wabaButtons || []
-      }
-    ],
+    wabaTemplates: templates,
     checklist: checklist || [
       'Conectar numero WABA ou CaseZap ao projeto.',
       'Importar o fluxo e revisar textos de marca, horarios e politicas.',
@@ -406,7 +420,25 @@ const WHATSAPP_MENU_BASIC = createTemplate({
       wabaTemplateName: 'chatcase_menu_basico_inicio',
       wabaCategory: 'MARKETING',
       wabaBody: 'Ola {{1}}, tudo bem? Temos algumas opcoes de atendimento para voce. Responda esta mensagem para abrir o menu e falar com a equipe.',
-      wabaButtons: ['Ver opcoes', 'Falar com atendente']
+      wabaButtons: ['Ver opcoes', 'Falar com atendente'],
+      wabaTemplates: [
+        {
+          name: 'chatcase_menu_basico_retorno',
+          category: 'UTILITY',
+          body: 'Ola {{1}}, sua solicitacao ainda esta aberta. Responda esta mensagem para continuar o atendimento com a equipe.',
+          buttons: ['Continuar', 'Falar com atendente'],
+          purpose: 'Retomar atendimento pendente',
+          whenToUse: 'Use para reabrir uma conversa quando o cliente ja tem solicitacao em andamento.'
+        },
+        {
+          name: 'chatcase_menu_basico_lembrete',
+          category: 'UTILITY',
+          body: 'Ola {{1}}, passando para lembrar que podemos te ajudar por aqui. Responda para ver as opcoes ou falar com uma atendente.',
+          buttons: ['Ver opcoes', 'Atendente'],
+          purpose: 'Lembrete de atendimento',
+          whenToUse: 'Use para lembrar o cliente de uma proxima acao sem misturar com promocao.'
+        }
+      ]
     }),
     rules: []
   },
@@ -489,7 +521,26 @@ const ECOMMERCE_ORDERS = createTemplate({
       wabaTemplateName: 'chatcase_loja_status_pedido',
       wabaCategory: 'UTILITY',
       wabaBody: 'Ola {{1}}, podemos te ajudar com status do pedido, entrega, trocas ou atendimento da loja. Responda esta mensagem para continuar.',
-      wabaButtons: ['Status do pedido', 'Falar com atendente']
+      wabaButtons: ['Status do pedido', 'Falar com atendente'],
+      wabaTemplates: [
+        {
+          name: 'chatcase_loja_confirmacao_pedido',
+          category: 'UTILITY',
+          body: 'Ola {{1}}, recebemos seu pedido {{2}}. Responda para acompanhar entrega, troca ou falar com a loja.',
+          variables: ['nome', 'pedido'],
+          buttons: ['Acompanhar pedido', 'Falar com a loja'],
+          purpose: 'Confirmar pedido',
+          whenToUse: 'Use apos uma compra ou atualizacao operacional de pedido.'
+        },
+        {
+          name: 'chatcase_loja_recuperar_carrinho',
+          category: 'MARKETING',
+          body: 'Ola {{1}}, voce deixou itens no carrinho. Responda para retomar sua compra ou falar com a loja.',
+          buttons: ['Retomar compra', 'Falar com a loja'],
+          purpose: 'Recuperar carrinho',
+          whenToUse: 'Use somente com base legal/consentimento para comunicacao promocional.'
+        }
+      ]
     }),
     rules: []
   },
@@ -579,7 +630,26 @@ const CLINIC_SCHEDULING = createTemplate({
       wabaTemplateName: 'chatcase_clinica_agendamento',
       wabaCategory: 'UTILITY',
       wabaBody: 'Ola {{1}}, podemos te ajudar com agendamento, valores, convenios ou atendimento da recepcao. Responda esta mensagem para continuar.',
-      wabaButtons: ['Agendar horario', 'Falar com recepcao']
+      wabaButtons: ['Agendar horario', 'Falar com recepcao'],
+      wabaTemplates: [
+        {
+          name: 'chatcase_clinica_lembrete_consulta',
+          category: 'UTILITY',
+          body: 'Ola {{1}}, este e um lembrete do seu atendimento em {{2}}. Responda para confirmar presenca ou falar com a recepcao.',
+          variables: ['nome', 'data'],
+          buttons: ['Confirmar presenca', 'Recepcao'],
+          purpose: 'Lembrete de consulta',
+          whenToUse: 'Use para avisos transacionais de consulta, exame ou procedimento ja solicitado.'
+        },
+        {
+          name: 'chatcase_clinica_retorno_recepcao',
+          category: 'UTILITY',
+          body: 'Ola {{1}}, a recepcao precisa continuar seu atendimento. Responda esta mensagem para seguir com agendamento ou informacoes.',
+          buttons: ['Continuar', 'Falar com recepcao'],
+          purpose: 'Retorno da recepcao',
+          whenToUse: 'Use quando a clinica precisa retomar uma conversa iniciada anteriormente.'
+        }
+      ]
     }),
     rules: []
   },
@@ -669,7 +739,26 @@ const RESTAURANT_DELIVERY = createTemplate({
       wabaTemplateName: 'chatcase_restaurante_delivery',
       wabaCategory: 'MARKETING',
       wabaBody: 'Ola {{1}}, temos opcoes de cardapio, entrega e status do pedido. Responda esta mensagem para fazer ou acompanhar seu pedido.',
-      wabaButtons: ['Ver cardapio', 'Falar com atendente']
+      wabaButtons: ['Ver cardapio', 'Falar com atendente'],
+      wabaTemplates: [
+        {
+          name: 'chatcase_restaurante_status_pedido',
+          category: 'UTILITY',
+          body: 'Ola {{1}}, temos uma atualizacao sobre seu pedido {{2}}. Responda para acompanhar ou falar com o restaurante.',
+          variables: ['nome', 'pedido'],
+          buttons: ['Acompanhar', 'Atendente'],
+          purpose: 'Atualizacao de pedido',
+          whenToUse: 'Use para comunicacoes operacionais de preparo, entrega ou retirada.'
+        },
+        {
+          name: 'chatcase_restaurante_promocao_dia',
+          category: 'MARKETING',
+          body: 'Ola {{1}}, temos uma opcao especial no cardapio de hoje. Responda para ver o cardapio ou falar com o restaurante.',
+          buttons: ['Ver cardapio', 'Atendente'],
+          purpose: 'Promocao do dia',
+          whenToUse: 'Use somente para clientes que aceitaram receber ofertas.'
+        }
+      ]
     }),
     rules: []
   },
@@ -769,7 +858,26 @@ const REAL_ESTATE_LEADS = createTemplate({
       wabaTemplateName: 'chatcase_imobiliaria_visita',
       wabaCategory: 'MARKETING',
       wabaBody: 'Ola {{1}}, podemos te ajudar com compra, aluguel ou agendamento de visita. Responda esta mensagem para falar com a imobiliaria.',
-      wabaButtons: ['Agendar visita', 'Falar com corretor']
+      wabaButtons: ['Agendar visita', 'Falar com corretor'],
+      wabaTemplates: [
+        {
+          name: 'chatcase_imobiliaria_lembrete_visita',
+          category: 'UTILITY',
+          body: 'Ola {{1}}, lembrando da sua visita em {{2}}. Responda para confirmar, reagendar ou falar com o corretor.',
+          variables: ['nome', 'data'],
+          buttons: ['Confirmar visita', 'Corretor'],
+          purpose: 'Lembrete de visita',
+          whenToUse: 'Use para compromisso ja combinado com o interessado.'
+        },
+        {
+          name: 'chatcase_imobiliaria_novos_imoveis',
+          category: 'MARKETING',
+          body: 'Ola {{1}}, temos novos imoveis que podem combinar com sua busca. Responda para receber opcoes ou falar com um corretor.',
+          buttons: ['Ver opcoes', 'Corretor'],
+          purpose: 'Novos imoveis',
+          whenToUse: 'Use para comunicacao comercial com opt-in do lead.'
+        }
+      ]
     }),
     rules: []
   },
@@ -869,7 +977,25 @@ const EDUCATION_COURSES = createTemplate({
       wabaTemplateName: 'chatcase_cursos_matricula',
       wabaCategory: 'MARKETING',
       wabaBody: 'Ola {{1}}, podemos te ajudar com cursos, valores, bolsas ou matricula. Responda esta mensagem para falar com um consultor.',
-      wabaButtons: ['Ver cursos', 'Falar com consultor']
+      wabaButtons: ['Ver cursos', 'Falar com consultor'],
+      wabaTemplates: [
+        {
+          name: 'chatcase_cursos_lembrete_matricula',
+          category: 'UTILITY',
+          body: 'Ola {{1}}, sua solicitacao de matricula ainda esta pendente. Responda para continuar ou falar com um consultor.',
+          buttons: ['Continuar', 'Consultor'],
+          purpose: 'Retomar matricula',
+          whenToUse: 'Use quando o aluno ja iniciou uma solicitacao de curso ou matricula.'
+        },
+        {
+          name: 'chatcase_cursos_turma_aberta',
+          category: 'MARKETING',
+          body: 'Ola {{1}}, abrimos novas turmas para cursos. Responda para ver opcoes, valores ou falar com um consultor.',
+          buttons: ['Ver cursos', 'Consultor'],
+          purpose: 'Divulgar novas turmas',
+          whenToUse: 'Use para campanhas com consentimento de marketing.'
+        }
+      ]
     }),
     rules: []
   },
