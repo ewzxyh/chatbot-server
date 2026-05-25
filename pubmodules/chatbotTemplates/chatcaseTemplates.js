@@ -11,6 +11,149 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function unique(values) {
+  const seen = {};
+  return (values || []).filter((value) => {
+    const key = normalizeChannel(value);
+    if (!key || seen[key]) {
+      return false;
+    }
+    seen[key] = true;
+    return true;
+  });
+}
+
+function normalizeChannel(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isWabaChannel(channel) {
+  return normalizeChannel(channel) === 'waba';
+}
+
+function buildChannelCompatibility(attributes) {
+  const channels = unique(attributes && attributes.channels || []);
+  const publication = attributes && attributes.publication || {};
+  const hasWabaPublication = Array.isArray(publication.wabaTemplates) && publication.wabaTemplates.length > 0;
+  const compatibility = {};
+
+  if (channels.includes('casezap')) {
+    compatibility.casezap = {
+      status: 'supported',
+      title: 'CaseZap / UAZAPI',
+      mode: 'session',
+      nativeInteractions: 'menu',
+      features: ['text', 'buttons.text', 'menu.numeric', 'media.image', 'media.document', 'human_handoff']
+    };
+  }
+
+  if (channels.includes('whatsapp')) {
+    compatibility.whatsapp = {
+      status: 'supported',
+      title: 'WhatsApp com conversa aberta',
+      mode: 'session',
+      nativeInteractions: 'buttons',
+      features: ['text', 'buttons.text', 'interactive.button', 'interactive.list', 'media.image', 'media.document', 'human_handoff']
+    };
+  }
+
+  if (hasWabaPublication) {
+    compatibility.waba = {
+      status: 'requires_approval',
+      title: 'WABA iniciada pela empresa',
+      mode: 'business_initiated',
+      requires: ['approved_template_binding'],
+      features: ['approved_template', 'template_buttons', 'template_variables']
+    };
+  }
+
+  return compatibility;
+}
+
+function enrichTemplate(template) {
+  const enriched = clone(template);
+  const attributes = Object.assign({}, enriched.attributes || {});
+  const channelCompatibility = Object.assign(
+    {},
+    buildChannelCompatibility(attributes),
+    attributes.channelCompatibility || {}
+  );
+
+  attributes.channels = unique(attributes.channels || []);
+  attributes.compatibilityVersion = attributes.compatibilityVersion || 1;
+  attributes.channelCompatibility = channelCompatibility;
+  attributes.availableChannels = unique(Object.keys(channelCompatibility));
+
+  enriched.attributes = attributes;
+  return enriched;
+}
+
+function getDefaultChannel(template) {
+  const enriched = enrichTemplate(template);
+  const attributes = enriched.attributes || {};
+  const availableChannels = unique(attributes.availableChannels || Object.keys(attributes.channelCompatibility || {}));
+  const preferredChannels = ['casezap', 'whatsapp', 'waba'];
+
+  for (const channel of preferredChannels) {
+    if (availableChannels.includes(channel) && templateSupportsChannel(enriched, channel)) {
+      return channel;
+    }
+  }
+
+  return availableChannels.find((channel) => templateSupportsChannel(enriched, channel)) || '';
+}
+
+function templateSupportsChannel(template, channel) {
+  const normalizedChannel = normalizeChannel(channel);
+
+  if (!normalizedChannel || normalizedChannel === 'all') {
+    return true;
+  }
+
+  const enriched = enrichTemplate(template);
+  const compatibility = enriched.attributes && enriched.attributes.channelCompatibility || {};
+  const channelState = compatibility[normalizedChannel];
+
+  return !!channelState && channelState.status !== 'unsupported';
+}
+
+function prepareTemplateForChannel(template, channel) {
+  const normalizedChannel = normalizeChannel(channel);
+  const prepared = enrichTemplate(template);
+
+  if (!normalizedChannel || normalizedChannel === 'all') {
+    return prepared;
+  }
+
+  prepared.attributes.targetChannel = normalizedChannel;
+  prepared.attributes.selectedChannel = normalizedChannel;
+
+  if (prepared.attributes.publication) {
+    const publication = Object.assign({}, prepared.attributes.publication);
+    publication.readiness = Array.isArray(publication.readiness)
+      ? publication.readiness.filter((item) => normalizeChannel(item.channel) === normalizedChannel)
+      : [];
+
+    if (!isWabaChannel(normalizedChannel)) {
+      const selectedCompatibility = prepared.attributes.channelCompatibility[normalizedChannel] || {};
+      delete publication.wabaTemplates;
+      publication.checklist = [
+        `Conectar uma instancia ${selectedCompatibility.title || normalizedChannel} ao projeto.`,
+        'Importar o fluxo e revisar textos, horarios e politicas.',
+        'Testar uma conversa real antes de ativar trafego.'
+      ];
+    }
+
+    if (!publication.readiness.length && !publication.wabaTemplates && !publication.checklist) {
+      delete prepared.attributes.publication;
+    } else {
+      prepared.attributes.publication = publication;
+    }
+  }
+
+  return prepared;
+}
+
 function textButton(value) {
   return {
     type: 'text',
@@ -133,10 +276,10 @@ const WHATSAPP_MENU_BASIC = createTemplate({
   name: 'ChatCase WhatsApp menu basico',
   title: 'Menu basico para WhatsApp',
   description: 'Fluxo inicial de automacao para canais de mensagem: saudacao, menu numerico, planos e encaminhamento para atendimento humano.',
-  short_description: 'Menu inicial para WhatsApp, CaseZap e Telegram com saudacao, opcoes numericas e handoff para atendimento humano.',
-  shortDescription: 'Menu inicial para WhatsApp, CaseZap e Telegram com saudacao, opcoes numericas e handoff para atendimento humano.',
+  short_description: 'Menu inicial para WhatsApp e CaseZap com saudacao, opcoes numericas e handoff para atendimento humano.',
+  shortDescription: 'Menu inicial para WhatsApp e CaseZap com saudacao, opcoes numericas e handoff para atendimento humano.',
   mainCategory: 'Customer Satisfaction',
-  tags: ['whatsapp', 'casezap', 'telegram', 'atendimento'],
+  tags: ['whatsapp', 'casezap', 'atendimento'],
   certifiedTags: [
     { name: 'WhatsApp', color: '#25833e' },
     { name: 'CaseZap', color: '#0049bd' }
@@ -144,11 +287,11 @@ const WHATSAPP_MENU_BASIC = createTemplate({
   templateFeatures: [
     'Saudacao automatica com menu numerico',
     'Respostas para planos e atendimento humano',
-    'Compatibilidade inicial com WhatsApp, CaseZap e Telegram'
+    'Compatibilidade inicial com WhatsApp e CaseZap'
   ],
   attributes: {
     source: 'chatcase-static-template',
-    channels: ['whatsapp', 'casezap', 'telegram'],
+    channels: ['whatsapp', 'casezap'],
     nativeInteractions: {
       whatsapp: 'buttons',
       casezap: 'menu'
@@ -709,40 +852,53 @@ function getMetadata(template) {
   return Object.assign({}, metadata, { intentsCount: intents.length });
 }
 
-function listMetadata() {
-  return CHATCASE_TEMPLATES.map(getMetadata).map(clone);
+function listMetadata(options = {}) {
+  const channel = normalizeChannel(options.channel);
+  return CHATCASE_TEMPLATES
+    .map(enrichTemplate)
+    .filter((template) => templateSupportsChannel(template, channel))
+    .map((template) => prepareTemplateForChannel(template, channel))
+    .map(getMetadata)
+    .map(clone);
 }
 
 function getTemplateById(id) {
-  return TEMPLATE_BY_ID[id] ? clone(TEMPLATE_BY_ID[id]) : null;
+  return TEMPLATE_BY_ID[id] ? enrichTemplate(TEMPLATE_BY_ID[id]) : null;
 }
 
-function getTemplatePayloadById(id) {
+function getTemplatePayloadById(id, options = {}) {
   const template = getTemplateById(id);
+  const channel = normalizeChannel(options.channel);
 
   if (!template) {
     return null;
   }
 
+  if (channel && channel !== 'all' && !templateSupportsChannel(template, channel)) {
+    return null;
+  }
+
+  const prepared = prepareTemplateForChannel(template, channel);
+
   return {
-    webhook_enabled: template.webhook_enabled,
-    webhook_url: template.webhook_url,
-    language: template.language,
-    name: template.name,
-    title: template.title,
-    short_description: template.short_description,
-    description: template.description,
-    type: template.type,
-    subtype: template.subtype,
-    intentsEngine: template.intentsEngine,
-    mainCategory: template.mainCategory,
-    attributes: template.attributes,
-    intents: template.intents
+    webhook_enabled: prepared.webhook_enabled,
+    webhook_url: prepared.webhook_url,
+    language: prepared.language,
+    name: prepared.name,
+    title: prepared.title,
+    short_description: prepared.short_description,
+    description: prepared.description,
+    type: prepared.type,
+    subtype: prepared.subtype,
+    intentsEngine: prepared.intentsEngine,
+    mainCategory: prepared.mainCategory,
+    attributes: prepared.attributes,
+    intents: prepared.intents
   };
 }
 
-function getTemplateExportById(id) {
-  const template = getTemplatePayloadById(id);
+function getTemplateExportById(id, options = {}) {
+  const template = getTemplatePayloadById(id, options);
 
   if (!template) {
     return null;
@@ -761,5 +917,9 @@ module.exports = {
   listMetadata,
   getTemplateById,
   getTemplatePayloadById,
-  getTemplateExportById
+  getTemplateExportById,
+  normalizeChannel,
+  getDefaultChannel,
+  templateSupportsChannel,
+  prepareTemplateForChannel
 };

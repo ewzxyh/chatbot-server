@@ -28,6 +28,11 @@ describe('ChatCase chatbot templates', () => {
       assert(Array.isArray(template.attributes.channels), 'template should expose supported channels');
       assert(template.attributes.channels.includes('whatsapp'), 'template should support WhatsApp');
       assert(template.attributes.channels.includes('casezap'), 'template should support CaseZap');
+      assert(!template.attributes.channels.includes('telegram'), 'template should not advertise Telegram when not supported');
+      assert(Array.isArray(template.attributes.availableChannels), 'template should expose available channel modes');
+      assert(template.attributes.availableChannels.includes('waba'), 'template should expose WABA as a separate publication mode');
+      assert.strictEqual(template.attributes.channelCompatibility.casezap.status, 'supported');
+      assert.strictEqual(template.attributes.channelCompatibility.waba.status, 'requires_approval');
       assert.strictEqual(template.attributes.nativeInteractions.whatsapp, 'buttons');
       assert.strictEqual(template.attributes.nativeInteractions.casezap, 'menu');
       assert(template.attributes.publication, 'template should expose publication readiness metadata');
@@ -73,6 +78,29 @@ describe('ChatCase chatbot templates', () => {
       assert(exported.attributes.publication, 'export should include publication readiness metadata');
       assert(Array.isArray(exported.attributes.publication.checklist), 'export should include publication checklist');
     });
+  });
+
+  it('filters template metadata and payloads by selected channel', () => {
+    const casezapTemplates = chatcaseTemplates.listMetadata({ channel: 'casezap' });
+    assert(casezapTemplates.length >= 6, 'casezap should list local templates');
+
+    casezapTemplates.forEach((template) => {
+      assert.strictEqual(chatcaseTemplates.getDefaultChannel(template), 'casezap');
+      assert.strictEqual(template.attributes.targetChannel, 'casezap');
+      assert.strictEqual(template.attributes.selectedChannel, 'casezap');
+      assert(template.attributes.publication, 'casezap template should keep publication checklist');
+      assert(!template.attributes.publication.wabaTemplates, 'casezap import should hide WABA template suggestions');
+      assert(template.attributes.publication.readiness.every((item) => item.channel === 'casezap'), 'casezap readiness should be channel scoped');
+    });
+
+    const wabaPayload = chatcaseTemplates.getTemplatePayloadById(casezapTemplates[0]._id, { channel: 'waba' });
+    assert.strictEqual(wabaPayload.attributes.targetChannel, 'waba');
+    assert(Array.isArray(wabaPayload.attributes.publication.wabaTemplates), 'waba payload should expose WABA suggestions');
+    assert(wabaPayload.attributes.publication.readiness.every((item) => item.channel === 'waba'), 'waba readiness should be channel scoped');
+
+    const telegramTemplates = chatcaseTemplates.listMetadata({ channel: 'telegram' });
+    assert.strictEqual(telegramTemplates.length, 0, 'telegram should not list templates without compatibility');
+    assert.strictEqual(chatcaseTemplates.getTemplatePayloadById(casezapTemplates[0]._id, { channel: 'telegram' }), null, 'telegram detail should be unavailable without compatibility');
   });
 
   it('returns null for unknown template ids', () => {

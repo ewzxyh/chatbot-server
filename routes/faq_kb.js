@@ -21,6 +21,7 @@ const errorCodes = require('../errorCodes');
 const faq_kb = require('../models/faq_kb');
 const wabaTemplatePublicationService = require('../services/wabaTemplatePublicationService');
 const wabaTemplateCampaignService = require('../services/wabaTemplateCampaignService');
+const chatcaseTemplates = require('../pubmodules/chatbotTemplates/chatcaseTemplates');
 
 let chatbot_templates_api_url = process.env.CHATBOT_TEMPLATES_API_URL
 
@@ -902,6 +903,9 @@ router.post('/fork/:id_faq_kb', roleChecker.hasRole('admin'), async (req, res) =
   let public = req.query.public;
   winston.debug("public " + public);
 
+  let requestedChannel = chatcaseTemplates.normalizeChannel(req.query.channel);
+  winston.debug("requested target channel " + requestedChannel);
+
   let globals = req.query.globals;
   winston.debug("export globals " + globals);
 
@@ -917,6 +921,21 @@ router.post('/fork/:id_faq_kb', roleChecker.hasRole('admin'), async (req, res) =
 
   if (!chatbot) {
     return res.status(500).send({ success: false, message: "Unable to get chatbot to be forked" });
+  }
+
+  let targetChannel = requestedChannel || chatcaseTemplates.getDefaultChannel(chatbot);
+  winston.debug("resolved target channel " + targetChannel);
+
+  if (targetChannel) {
+    if (!chatcaseTemplates.templateSupportsChannel(chatbot, targetChannel)) {
+      return res.status(400).send({
+        success: false,
+        message: "Template is not compatible with selected channel",
+        channel: targetChannel
+      });
+    }
+
+    chatbot = chatcaseTemplates.prepareTemplateForChannel(chatbot, targetChannel);
   }
 
   if (!globals) {
