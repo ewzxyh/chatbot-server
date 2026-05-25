@@ -1,5 +1,6 @@
 var uuidv4 = require('uuid/v4');
 var mongoose = require('mongoose');
+var moment_tz = require('moment-timezone');
 var { Transaction } = require('../models/transaction');
 var Lead = require('../models/lead');
 var LeadConstants = require('../models/leadConstants');
@@ -190,6 +191,178 @@ function parseScheduledAt(options, deps) {
     throw past;
   }
   return scheduledAt;
+}
+
+function resolveCampaignTimezone(timezone) {
+  var value = timezone || process.env.CHATCASE_CAMPAIGN_TIMEZONE || 'America/Sao_Paulo';
+  return moment_tz.tz.zone(value) ? value : 'America/Sao_Paulo';
+}
+
+function normalizeCampaignTimezone(timezone) {
+  var value = timezone || process.env.CHATCASE_CAMPAIGN_TIMEZONE || 'America/Sao_Paulo';
+  if (!moment_tz.tz.zone(value)) {
+    var invalid = new Error('invalid_campaign_timezone');
+    invalid.statusCode = 400;
+    throw invalid;
+  }
+  return value;
+}
+
+function parseWindowTime(value, field) {
+  if (value === undefined || value === null || value === '') {
+    var missing = new Error('campaign_sending_window_' + field + '_required');
+    missing.statusCode = 400;
+    throw missing;
+  }
+
+  var match = String(value).trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (!match) {
+    var invalid = new Error('invalid_campaign_sending_window_' + field);
+    invalid.statusCode = 400;
+    throw invalid;
+  }
+
+  return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+}
+
+function formatWindowTime(minutes) {
+  var hours = Math.floor(minutes / 60);
+  var mins = minutes % 60;
+  return String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0');
+}
+
+function getSendingWindowInput(options) {
+  options = options || {};
+  return options.sendingWindow ||
+    options.sending_window ||
+    options.sendWindow ||
+    options.send_window ||
+    null;
+}
+
+function normalizeSendingWindow(options) {
+  options = options || {};
+  var raw = getSendingWindowInput(options);
+  if (!raw) return null;
+
+  if (typeof raw === 'string') {
+    var parts = raw.split('-');
+    if (parts.length === 2) {
+      raw = { start: parts[0].trim(), end: parts[1].trim() };
+    } else {
+      var invalidString = new Error('invalid_campaign_sending_window');
+      invalidString.statusCode = 400;
+      throw invalidString;
+    }
+  }
+
+  var enabled = parseBoolean(raw.enabled);
+  if (enabled === false) return null;
+
+  var timezone = normalizeCampaignTimezone(raw.timezone || raw.timeZone || options.timezone || options.timeZone);
+  var startMinutes = raw.startMinutes !== undefined ? parseInt(raw.startMinutes, 10) :
+    parseWindowTime(raw.start || raw.startTime || raw.start_time || raw.from, 'start');
+  var endMinutes = raw.endMinutes !== undefined ? parseInt(raw.endMinutes, 10) :
+    parseWindowTime(raw.end || raw.endTime || raw.end_time || raw.to, 'end');
+
+  if (isNaN(startMinutes) || startMinutes < 0 || startMinutes > 1439) {
+    var invalidStart = new Error('invalid_campaign_sending_window_start');
+    invalidStart.statusCode = 400;
+    throw invalidStart;
+  }
+
+  if (isNaN(endMinutes) || endMinutes < 0 || endMinutes > 1439) {
+    var invalidEnd = new Error('invalid_campaign_sending_window_end');
+    invalidEnd.statusCode = 400;
+    throw invalidEnd;
+  }
+
+  if (startMinutes === endMinutes) {
+    var invalidRange = new Error('invalid_campaign_sending_window_range');
+    invalidRange.statusCode = 400;
+    throw invalidRange;
+  }
+
+  return {
+    enabled: true,
+    start: formatWindowTime(startMinutes),
+    end: formatWindowTime(endMinutes),
+    timezone: timezone,
+    startMinutes: startMinutes,
+    endMinutes: endMinutes
+  };
+}
+
+function serializeSendingWindow(window) {
+  if (!window) return null;
+  return {
+    enabled: true,
+    start: window.start,
+    end: window.end,
+    timezone: window.timezone
+  };
+}
+
+function getLocalMinutes(date, timezone) {
+  var local = moment_tz.tz(date, timezone);
+  return local.hours() * 60 + local.minutes();
+}
+
+function isWithinSendingWindow(date, window) {
+  if (!window) return true;
+  var minutes = getLocalMinutes(date, window.timezone);
+  if (window.startMinutes < window.endMinutes) {
+    return minutes >= window.startMinutes && minutes < window.endMinutes;
+  }
+  return minutes >= window.startMinutes || minutes < window.endMinutes;
+}
+
+function nextSendingWindowStart(date, window) {
+  if (!window || isWithinSendingWindow(date, window)) return date;
+  var local = moment_tz.tz(date, window.timezone);
+  var minutes = local.hours() * 60 + local.minutes();
+  var candidate = local.clone()
+    .hour(Math.floor(window.startMinutes / 60))
+    .minute(window.startMinutes % 60)
+    .second(0)
+    .millisecond(0);
+
+  if (window.startMinutes < window.endMinutes && minutes >= window.endMinutes) {
+    candidate.add(1, 'day');
+  }
+
+  if (candidate.valueOf() <= local.valueOf()) {
+    candidate.add(1, 'day');
+  }
+
+  return candidate.toDate();
+}
+
+function resolveCampaignTiming(options, deps) {
+  options = options || {};
+  deps = deps || {};
+  var now = getNow(deps);
+  var timezone = resolveCampaignTimezone(options.timezone || options.timeZone);
+  var scheduledAt = parseScheduledAt(options, deps);
+  var sendingWindow = normalizeSendingWindow(Object.assign({}, options, {
+    timezone: options.timezone || options.timeZone || timezone
+  }));
+  var nextRunAt = scheduledAt;
+
+  if (sendingWindow) {
+    var base = scheduledAt || now;
+    nextRunAt = nextSendingWindowStart(base, sendingWindow);
+    timezone = sendingWindow.timezone;
+  }
+
+  var initialStatus = nextRunAt && nextRunAt.getTime() > now.getTime() ? 'scheduled' : 'queued';
+  return {
+    timezone: timezone,
+    scheduledAt: scheduledAt,
+    nextRunAt: nextRunAt,
+    sendingWindow: sendingWindow,
+    initialStatus: initialStatus
+  };
 }
 
 function isTruthyFlag(value) {
@@ -1117,6 +1290,31 @@ function getCampaignNextRunAt(transaction) {
   return isNaN(date.getTime()) ? null : date;
 }
 
+function getTransactionSendingWindow(transaction) {
+  if (!transaction || !transaction.campaign || !transaction.campaign.sendingWindow) return null;
+  return normalizeSendingWindow({
+    sendingWindow: transaction.campaign.sendingWindow,
+    timezone: transaction.campaign.sendingWindow.timezone || transaction.campaign.timezone
+  });
+}
+
+function deferCampaignOutsideSendingWindow(transaction, deps) {
+  var sendingWindow = getTransactionSendingWindow(transaction);
+  if (!sendingWindow) return false;
+
+  var now = getNow(deps);
+  if (isWithinSendingWindow(now, sendingWindow)) return false;
+
+  var nextRunAt = nextSendingWindowStart(now, sendingWindow);
+  transaction.status = 'scheduled';
+  transaction.campaign = transaction.campaign || {};
+  transaction.campaign.sendingWindow = serializeSendingWindow(sendingWindow);
+  transaction.campaign.timezone = sendingWindow.timezone;
+  transaction.campaign.nextRunAt = nextRunAt.toISOString();
+  transaction.updatedAt = now;
+  return true;
+}
+
 async function scheduleCampaign(projectId, transactionId, deps) {
   deps = deps || {};
   if (deps.autostart === false) return;
@@ -1200,16 +1398,15 @@ async function createCampaign(options, deps) {
   var requestedIntervalMs = options.intervalMs !== undefined && options.intervalMs !== null ? options.intervalMs : options.interval_ms;
   var throttlePolicy = buildThrottlePolicy(getDefaultIntervalMs(requestedIntervalMs), options, binding);
   var intervalMs = throttlePolicy.intervalMs;
-  var scheduledAt = parseScheduledAt(options, deps);
+  var timing = resolveCampaignTiming(options, deps);
   var now = getNow(deps);
-  var initialStatus = scheduledAt ? 'scheduled' : 'queued';
 
   var TransactionModel = deps.Transaction || Transaction;
   var transaction = new TransactionModel({
     transaction_id: transactionId,
     id_project: options.projectId,
     template_name: templateName,
-    status: initialStatus,
+    status: timing.initialStatus,
     channel: 'whatsapp',
     broadcast: true,
     dispatch_type: CAMPAIGN_TYPE,
@@ -1246,9 +1443,10 @@ async function createCampaign(options, deps) {
         intervalMs: intervalMs,
         minIntervalMs: throttlePolicy.minIntervalMs
       },
-      scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
-      nextRunAt: scheduledAt ? scheduledAt.toISOString() : null,
-      timezone: options.timezone || options.timeZone || process.env.CHATCASE_CAMPAIGN_TIMEZONE || 'America/Sao_Paulo'
+      scheduledAt: timing.scheduledAt ? timing.scheduledAt.toISOString() : null,
+      nextRunAt: timing.nextRunAt ? timing.nextRunAt.toISOString() : null,
+      timezone: timing.timezone,
+      sendingWindow: serializeSendingWindow(timing.sendingWindow)
     },
     createdAt: now,
     updatedAt: now
@@ -1304,12 +1502,21 @@ async function processCampaign(options, deps) {
         if (nextRunAt && nextRunAt.getTime() > now.getTime()) {
           return serializeTransaction(transaction);
         }
+        if (deferCampaignOutsideSendingWindow(transaction, deps)) {
+          await transaction.save();
+          return serializeTransaction(transaction);
+        }
         transaction.status = 'queued';
         transaction.updatedAt = now;
         await transaction.save();
         if (!(await ensureProcessingLease(projectId, transactionId, leaseOwner, deps))) {
           return serializeTransaction(await findTransaction(projectId, transactionId, deps));
         }
+      }
+
+      if (deferCampaignOutsideSendingWindow(transaction, deps)) {
+        await transaction.save();
+        return serializeTransaction(transaction);
       }
 
       var recipients = Array.isArray(transaction.recipients) ? transaction.recipients : [];

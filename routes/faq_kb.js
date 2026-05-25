@@ -419,6 +419,7 @@ router.post('/:faq_kbid/publication/waba/campaign', roleChecker.hasRole('admin')
       intervalMs: bodyValue(req.body, 'intervalMs', 'interval_ms'),
       scheduledAt: bodyValue(req.body, 'scheduledAt', 'scheduled_at'),
       timezone: bodyValue(req.body, 'timezone', 'timeZone'),
+      sendingWindow: bodyValue(req.body, 'sendingWindow', 'sending_window'),
       consentConfirmed: bodyValue(req.body, 'consentConfirmed', 'consent_confirmed'),
       transactionId: req.body && req.body.transactionId,
       dryRun: req.body && req.body.dryRun

@@ -375,6 +375,165 @@ describe('WABA template campaign service', () => {
     assert.strictEqual(publication.calls.length, 0);
   });
 
+  it('schedules immediate campaigns for the next allowed sending window', async () => {
+    const store = [];
+    const Transaction = fakeTransactionModel(store);
+    const publication = fakePublicationService();
+
+    const result = await campaignService.createCampaign({
+      projectId: 'project-1',
+      botId: 'bot-1',
+      recipients: [
+        { phoneNumber: '+55 62 98426-8492', recipientName: 'Enzo' }
+      ],
+      consentConfirmed: true,
+      sendingWindow: {
+        enabled: true,
+        start: '08:00',
+        end: '18:00',
+        timezone: 'America/Sao_Paulo'
+      },
+      runInBackground: false
+    }, {
+      Transaction: Transaction,
+      publicationService: publication,
+      nowFn: () => new Date('2026-05-25T10:00:00.000Z')
+    });
+
+    assert.strictEqual(result.status, 'scheduled');
+    assert.strictEqual(result.processed_count, 0);
+    assert.strictEqual(result.campaign.nextRunAt, '2026-05-25T11:00:00.000Z');
+    assert.deepStrictEqual(result.campaign.sendingWindow, {
+      enabled: true,
+      start: '08:00',
+      end: '18:00',
+      timezone: 'America/Sao_Paulo'
+    });
+    assert.strictEqual(publication.calls.length, 0);
+  });
+
+  it('dispatches campaigns immediately when the sending window is open', async () => {
+    const store = [];
+    const Transaction = fakeTransactionModel(store);
+    const publication = fakePublicationService();
+
+    const result = await campaignService.createCampaign({
+      projectId: 'project-1',
+      botId: 'bot-1',
+      recipients: [
+        { phoneNumber: '+55 62 98426-8492', recipientName: 'Enzo' }
+      ],
+      consentConfirmed: true,
+      intervalMs: 0,
+      sendingWindow: {
+        enabled: true,
+        start: '08:00',
+        end: '18:00',
+        timezone: 'America/Sao_Paulo'
+      },
+      runInBackground: false
+    }, {
+      Transaction: Transaction,
+      publicationService: publication,
+      nowFn: () => new Date('2026-05-25T12:00:00.000Z'),
+      delayFn: async () => {}
+    });
+
+    assert.strictEqual(result.status, 'completed');
+    assert.strictEqual(result.sent_count, 1);
+    assert.strictEqual(result.campaign.sendingWindow.start, '08:00');
+    assert.strictEqual(publication.calls.length, 1);
+  });
+
+  it('postpones due scheduled campaigns when the sending window is closed', async () => {
+    const store = [{
+      transaction_id: 'tx-window',
+      id_project: 'project-1',
+      status: 'scheduled',
+      channel: 'whatsapp',
+      dispatch_type: campaignService.CAMPAIGN_TYPE,
+      faq_kb_id: 'bot-1',
+      dry_run: false,
+      interval_ms: 0,
+      recipients_total: 1,
+      processed_count: 0,
+      sent_count: 0,
+      failed_count: 0,
+      ready_count: 0,
+      skipped_count: 0,
+      recipients: [{
+        phoneNumber: '5562984268492',
+        recipientName: 'Enzo',
+        status: 'queued',
+        attempts: 0
+      }],
+      campaign: {
+        suggestionName: 'menu_basico',
+        integrationId: 'integration-1',
+        wabaId: 'waba-1',
+        language: 'pt_BR',
+        scheduledAt: '2026-05-25T10:00:00.000Z',
+        nextRunAt: '2026-05-25T10:00:00.000Z',
+        sendingWindow: {
+          enabled: true,
+          start: '08:00',
+          end: '18:00',
+          timezone: 'America/Sao_Paulo'
+        }
+      }
+    }];
+    const Transaction = fakeTransactionModel(store);
+    const publication = fakePublicationService();
+
+    const result = await campaignService.processCampaign({
+      projectId: 'project-1',
+      transactionId: 'tx-window'
+    }, {
+      Transaction: Transaction,
+      publicationService: publication,
+      nowFn: () => new Date('2026-05-25T10:30:00.000Z')
+    });
+
+    assert.strictEqual(result.status, 'scheduled');
+    assert.strictEqual(result.campaign.nextRunAt, '2026-05-25T11:00:00.000Z');
+    assert.strictEqual(result.processed_count, 0);
+    assert.strictEqual(publication.calls.length, 0);
+  });
+
+  it('rejects invalid sending windows before creating a campaign', async () => {
+    const store = [];
+    const Transaction = fakeTransactionModel(store);
+
+    let error;
+    try {
+      await campaignService.createCampaign({
+        projectId: 'project-1',
+        botId: 'bot-1',
+        recipients: [
+          { phoneNumber: '+55 62 98426-8492', recipientName: 'Enzo' }
+        ],
+        consentConfirmed: true,
+        sendingWindow: {
+          enabled: true,
+          start: '08:00',
+          end: '08:00',
+          timezone: 'America/Sao_Paulo'
+        },
+        runInBackground: false
+      }, {
+        Transaction: Transaction,
+        publicationService: fakePublicationService()
+      });
+    } catch (err) {
+      error = err;
+    }
+
+    assert(error);
+    assert.strictEqual(error.message, 'invalid_campaign_sending_window_range');
+    assert.strictEqual(error.statusCode, 400);
+    assert.strictEqual(store.length, 0);
+  });
+
   it('does not create per-campaign timers when the scheduler is disabled', async () => {
     const previous = process.env.WABA_TEMPLATE_CAMPAIGN_SCHEDULER_ENABLED;
     process.env.WABA_TEMPLATE_CAMPAIGN_SCHEDULER_ENABLED = 'false';
