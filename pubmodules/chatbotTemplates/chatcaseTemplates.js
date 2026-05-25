@@ -13,18 +13,30 @@ function clone(value) {
 
 function unique(values) {
   const seen = {};
-  return (values || []).filter((value) => {
+  return (values || []).reduce((items, value) => {
     const key = normalizeChannel(value);
     if (!key || seen[key]) {
-      return false;
+      return items;
     }
     seen[key] = true;
-    return true;
-  });
+    items.push(key);
+    return items;
+  }, []);
 }
 
 function normalizeChannel(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function getChannelTitle(channel) {
+  const titles = {
+    casezap: 'CaseZap / UAZAPI',
+    whatsapp: 'WhatsApp com conversa aberta',
+    waba: 'WABA iniciada pela empresa',
+    telegram: 'Telegram'
+  };
+
+  return titles[normalizeChannel(channel)] || channel;
 }
 
 function isWabaChannel(channel) {
@@ -57,6 +69,16 @@ function buildChannelCompatibility(attributes) {
     };
   }
 
+  if (channels.includes('telegram')) {
+    compatibility.telegram = {
+      status: 'supported',
+      title: 'Telegram',
+      mode: 'session',
+      nativeInteractions: 'buttons',
+      features: ['text', 'buttons.text', 'buttons.url', 'media.image', 'media.document', 'human_handoff']
+    };
+  }
+
   if (hasWabaPublication) {
     compatibility.waba = {
       status: 'requires_approval',
@@ -66,6 +88,17 @@ function buildChannelCompatibility(attributes) {
       features: ['approved_template', 'template_buttons', 'template_variables']
     };
   }
+
+  channels.forEach((channel) => {
+    if (!compatibility[channel]) {
+      compatibility[channel] = {
+        status: 'supported',
+        title: getChannelTitle(channel),
+        mode: 'session',
+        features: ['text', 'human_handoff']
+      };
+    }
+  });
 
   return compatibility;
 }
@@ -91,8 +124,13 @@ function enrichTemplate(template) {
 function getDefaultChannel(template) {
   const enriched = enrichTemplate(template);
   const attributes = enriched.attributes || {};
+  const explicitChannel = normalizeChannel(attributes.targetChannel || attributes.selectedChannel);
   const availableChannels = unique(attributes.availableChannels || Object.keys(attributes.channelCompatibility || {}));
   const preferredChannels = ['casezap', 'whatsapp', 'waba'];
+
+  if (explicitChannel && explicitChannel !== 'all' && templateSupportsChannel(enriched, explicitChannel)) {
+    return explicitChannel;
+  }
 
   for (const channel of preferredChannels) {
     if (availableChannels.includes(channel) && templateSupportsChannel(enriched, channel)) {
@@ -114,7 +152,75 @@ function templateSupportsChannel(template, channel) {
   const compatibility = enriched.attributes && enriched.attributes.channelCompatibility || {};
   const channelState = compatibility[normalizedChannel];
 
-  return !!channelState && channelState.status !== 'unsupported';
+  if (channelState) {
+    return channelState.status !== 'unsupported';
+  }
+
+  const channels = enriched.attributes && enriched.attributes.channels || [];
+  return channels.includes(normalizedChannel);
+}
+
+function isWabaOnlyAction(action) {
+  const type = normalizeChannel(action && (action._tdActionType || action.type));
+  return ['whatsapp_static', 'whatsapp_attribute', 'whatsapp_segment'].includes(type);
+}
+
+function sanitizeIntentsForChannel(intents, channel) {
+  const normalizedChannel = normalizeChannel(channel);
+
+  if (isWabaChannel(normalizedChannel)) {
+    return intents;
+  }
+
+  return (intents || []).map((intent) => {
+    if (!Array.isArray(intent.actions)) {
+      return intent;
+    }
+
+    return Object.assign({}, intent, {
+      actions: intent.actions.filter((action) => !isWabaOnlyAction(action))
+    });
+  });
+}
+
+function filterChannelMetadata(prepared, channel) {
+  const normalizedChannel = normalizeChannel(channel);
+  const selectedCompatibility = prepared.attributes.channelCompatibility &&
+    prepared.attributes.channelCompatibility[normalizedChannel];
+
+  prepared.attributes.channels = [normalizedChannel];
+  prepared.attributes.availableChannels = [normalizedChannel];
+  prepared.attributes.channelCompatibility = selectedCompatibility
+    ? { [normalizedChannel]: selectedCompatibility }
+    : {};
+
+  if (prepared.attributes.nativeInteractions) {
+    const nativeInteraction = prepared.attributes.nativeInteractions[normalizedChannel];
+    prepared.attributes.nativeInteractions = nativeInteraction
+      ? { [normalizedChannel]: nativeInteraction }
+      : {};
+  }
+
+  const channelTags = ['casezap', 'whatsapp', 'waba', 'telegram', 'messenger'];
+  prepared.tags = unique(prepared.tags || [])
+    .filter((tag) => !channelTags.includes(tag) || tag === normalizedChannel);
+
+  if (Array.isArray(prepared.certifiedTags)) {
+    prepared.certifiedTags = prepared.certifiedTags.filter((tag) => {
+      const name = normalizeChannel(tag && tag.name);
+      return !channelTags.includes(name) || name === normalizedChannel;
+    });
+  }
+
+  if (Array.isArray(prepared.templateFeatures) && !isWabaChannel(normalizedChannel)) {
+    prepared.templateFeatures = prepared.templateFeatures.filter((feature) => !/waba|meta/i.test(feature));
+  }
+
+  if (Array.isArray(prepared.intents)) {
+    prepared.intents = sanitizeIntentsForChannel(prepared.intents, normalizedChannel);
+  }
+
+  return prepared;
 }
 
 function prepareTemplateForChannel(template, channel) {
@@ -151,7 +257,7 @@ function prepareTemplateForChannel(template, channel) {
     }
   }
 
-  return prepared;
+  return filterChannelMetadata(prepared, normalizedChannel);
 }
 
 function textButton(value) {

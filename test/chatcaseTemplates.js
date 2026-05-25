@@ -88,19 +88,49 @@ describe('ChatCase chatbot templates', () => {
       assert.strictEqual(chatcaseTemplates.getDefaultChannel(template), 'casezap');
       assert.strictEqual(template.attributes.targetChannel, 'casezap');
       assert.strictEqual(template.attributes.selectedChannel, 'casezap');
+      assert.deepStrictEqual(template.attributes.channels, ['casezap']);
+      assert.deepStrictEqual(template.attributes.availableChannels, ['casezap']);
+      assert.deepStrictEqual(Object.keys(template.attributes.channelCompatibility), ['casezap']);
+      assert.deepStrictEqual(Object.keys(template.attributes.nativeInteractions), ['casezap']);
+      assert(!template.tags.includes('whatsapp'), 'casezap template should not advertise WhatsApp tags after scoping');
       assert(template.attributes.publication, 'casezap template should keep publication checklist');
       assert(!template.attributes.publication.wabaTemplates, 'casezap import should hide WABA template suggestions');
       assert(template.attributes.publication.readiness.every((item) => item.channel === 'casezap'), 'casezap readiness should be channel scoped');
     });
 
     const wabaPayload = chatcaseTemplates.getTemplatePayloadById(casezapTemplates[0]._id, { channel: 'waba' });
+    assert.strictEqual(chatcaseTemplates.getDefaultChannel(wabaPayload), 'waba');
     assert.strictEqual(wabaPayload.attributes.targetChannel, 'waba');
+    assert.deepStrictEqual(wabaPayload.attributes.channels, ['waba']);
+    assert.deepStrictEqual(wabaPayload.attributes.availableChannels, ['waba']);
+    assert.deepStrictEqual(Object.keys(wabaPayload.attributes.channelCompatibility), ['waba']);
     assert(Array.isArray(wabaPayload.attributes.publication.wabaTemplates), 'waba payload should expose WABA suggestions');
     assert(wabaPayload.attributes.publication.readiness.every((item) => item.channel === 'waba'), 'waba readiness should be channel scoped');
+
+    const whatsappPayload = chatcaseTemplates.getTemplatePayloadById(casezapTemplates[0]._id, { channel: 'whatsapp' });
+    assert.strictEqual(chatcaseTemplates.getDefaultChannel(whatsappPayload), 'whatsapp');
+    assert.deepStrictEqual(whatsappPayload.attributes.channels, ['whatsapp']);
 
     const telegramTemplates = chatcaseTemplates.listMetadata({ channel: 'telegram' });
     assert.strictEqual(telegramTemplates.length, 0, 'telegram should not list templates without compatibility');
     assert.strictEqual(chatcaseTemplates.getTemplatePayloadById(casezapTemplates[0]._id, { channel: 'telegram' }), null, 'telegram detail should be unavailable without compatibility');
+  });
+
+  it('normalizes legacy channel metadata and strips WABA-only actions outside WABA', () => {
+    const mixedTemplate = chatcaseTemplates.getTemplatePayloadById(chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC);
+    mixedTemplate.attributes.channels = ['CaseZap', 'WhatsApp'];
+    mixedTemplate.intents[0].actions.push({ _tdActionType: 'whatsapp_static', attributes: { templateName: 'legacy_waba' } });
+
+    assert.strictEqual(chatcaseTemplates.templateSupportsChannel({ attributes: { channels: ['CaseZap'] } }, 'casezap'), true);
+    assert.strictEqual(chatcaseTemplates.templateSupportsChannel({ attributes: { channels: ['Telegram'] } }, 'telegram'), true);
+
+    const preparedCasezap = chatcaseTemplates.prepareTemplateForChannel(mixedTemplate, 'casezap');
+    assert.deepStrictEqual(preparedCasezap.attributes.channels, ['casezap']);
+    assert.deepStrictEqual(Object.keys(preparedCasezap.attributes.channelCompatibility), ['casezap']);
+    assert(!preparedCasezap.intents[0].actions.some((action) => action._tdActionType === 'whatsapp_static'), 'casezap scoped import should strip WABA-only actions');
+
+    const preparedWaba = chatcaseTemplates.prepareTemplateForChannel(mixedTemplate, 'waba');
+    assert(preparedWaba.intents[0].actions.some((action) => action._tdActionType === 'whatsapp_static'), 'waba scoped import may keep WABA-only actions');
   });
 
   it('returns null for unknown template ids', () => {

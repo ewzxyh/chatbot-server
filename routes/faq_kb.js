@@ -906,6 +906,14 @@ router.post('/fork/:id_faq_kb', roleChecker.hasRole('admin'), async (req, res) =
   let requestedChannel = chatcaseTemplates.normalizeChannel(req.query.channel);
   winston.debug("requested target channel " + requestedChannel);
 
+  if (requestedChannel === 'all') {
+    return res.status(400).send({
+      success: false,
+      message: "A specific channel is required to fork a ChatCase template",
+      channel: requestedChannel
+    });
+  }
+
   let globals = req.query.globals;
   winston.debug("export globals " + globals);
 
@@ -1072,6 +1080,32 @@ router.post('/importjson/:id_faq_kb', roleChecker.hasRole('admin'), upload.singl
   }
 
   winston.debug("json source " + json_string)
+
+  let requestedChannel = chatcaseTemplates.normalizeChannel(
+    req.query.channel ||
+    (json.attributes && (json.attributes.targetChannel || json.attributes.selectedChannel))
+  );
+
+  if (requestedChannel === 'all') {
+    return res.status(400).send({
+      success: false,
+      message: "A specific channel is required to import a channel-scoped chatbot",
+      channel: requestedChannel
+    });
+  }
+
+  if (requestedChannel) {
+    if (!chatcaseTemplates.templateSupportsChannel(json, requestedChannel)) {
+      return res.status(400).send({
+        success: false,
+        message: "Imported chatbot is not compatible with selected channel",
+        channel: requestedChannel
+      });
+    }
+
+    json = chatcaseTemplates.prepareTemplateForChannel(json, requestedChannel);
+  }
+
   const import_intents = expandImportedIntents(json.intents);
 
   // ****************************
