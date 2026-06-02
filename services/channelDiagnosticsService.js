@@ -227,6 +227,90 @@ function graphUrl() {
   return ensureTrailingSlash(url);
 }
 
+function isValidObjectId(value) {
+  return value && mongoose.Types.ObjectId.isValid(String(value));
+}
+
+function objectId(value) {
+  return mongoose.Types.ObjectId(String(value));
+}
+
+function kvstoreCollection() {
+  return mongoose.connection.collection('kvstore');
+}
+
+function isKvstoreIntegration(integration) {
+  return integration && integration._source === 'kvstore';
+}
+
+function buildKvstoreWabaIntegration(row) {
+  if (!row) return null;
+  var value = row.value || {};
+  return {
+    _id: row._id,
+    _kvstoreId: row._id,
+    _kvstoreKey: row.key,
+    _source: 'kvstore',
+    name: 'whatsapp',
+    id_project: row.project_id || value.id_project || value.project_id,
+    value: Object.assign({}, value, {
+      operational: value.operational || {},
+      verified_name: value.verified_name || value.business_name || value.name || value.display_phone_number || value.phone_number
+    })
+  };
+}
+
+function kvstoreWabaSearchClauses(identifier) {
+  var value = String(identifier || '');
+  var clauses = [
+    { key: value },
+    { 'value.waba_id': value },
+    { 'value.phone_number_id': value }
+  ];
+
+  if (isValidObjectId(value)) {
+    clauses.unshift({ _id: objectId(value) });
+  }
+
+  return clauses;
+}
+
+async function findKvstoreWabaIntegration(identifier) {
+  if (!identifier) return null;
+  var row = await kvstoreCollection().findOne({ $or: kvstoreWabaSearchClauses(identifier) });
+  return buildKvstoreWabaIntegration(row);
+}
+
+async function listKvstoreWabaIntegrations() {
+  var rows = await kvstoreCollection().find({
+    $or: [
+      { key: /^whatsapp-/ },
+      { 'value.waba_id': { $exists: true } },
+      { 'value.phone_number_id': { $exists: true } }
+    ]
+  }).toArray();
+
+  return rows.map(buildKvstoreWabaIntegration).filter(function(integration) {
+    var value = integration && integration.value ? integration.value : {};
+    return integration && integration.id_project && (value.waba_id || value.phone_number_id || value.wab_token || value.access_token);
+  });
+}
+
+async function findChannelIntegration(channel, integrationId) {
+  var names = channel === 'casezap' ? ['casezap'] : ['whatsapp'];
+  var integration = null;
+
+  if (isValidObjectId(integrationId)) {
+    integration = await Integration.findOne({ _id: integrationId, name: { $in: names } });
+  }
+
+  if (!integration && channel !== 'casezap') {
+    integration = await findKvstoreWabaIntegration(integrationId);
+  }
+
+  return integration;
+}
+
 function requestHeaders(token) {
   return {
     token: token,
@@ -294,6 +378,11 @@ async function updateIntegrationOperational(integration, result, extra) {
     }
   }
 
+  if (isKvstoreIntegration(integration)) {
+    await kvstoreCollection().updateOne({ _id: integration._kvstoreId || integration._id }, { $set: set });
+    return;
+  }
+
   await Integration.findByIdAndUpdate(integration._id, { $set: set });
 }
 
@@ -308,6 +397,11 @@ async function updateWebhookRegistration(integration, status, details) {
 
   if (details.webhookSecret) set['value.webhookSecret'] = details.webhookSecret;
   if (details.webhookUrl) set['value.operational.lastWebhookRegistrationUrl'] = details.webhookUrl;
+
+  if (isKvstoreIntegration(integration)) {
+    await kvstoreCollection().updateOne({ _id: integration._kvstoreId || integration._id }, { $set: set });
+    return;
+  }
 
   await Integration.findByIdAndUpdate(integration._id, { $set: set });
 }
@@ -400,8 +494,13 @@ async function checkCaseZapIntegration(integration, options) {
 
 async function findWhatsappSettings(integration) {
   var value = integration.value || {};
-  var collection = mongoose.connection.collection('kvstore');
+  var collection = kvstoreCollection();
   var clauses = [];
+
+  if (isKvstoreIntegration(integration)) {
+    if (integration._kvstoreId) clauses.push({ _id: integration._kvstoreId });
+    if (integration._kvstoreKey) clauses.push({ key: integration._kvstoreKey });
+  }
 
   if (value.waba_id) clauses.push({ key: 'whatsapp-' + value.waba_id });
   if (value.phone_number_id) clauses.push({ 'value.phone_number_id': value.phone_number_id });
@@ -512,8 +611,7 @@ async function checkIntegration(integration, options) {
 }
 
 async function testChannelConnection(channel, integrationId) {
-  var names = channel === 'casezap' ? ['casezap'] : ['whatsapp'];
-  var integration = await Integration.findOne({ _id: integrationId, name: { $in: names } });
+  var integration = await findChannelIntegration(channel, integrationId);
   if (!integration) {
     var err = new Error('Integration not found');
     err.statusCode = 404;
@@ -615,8 +713,7 @@ async function registerWabaWebhook(integration) {
 }
 
 async function registerChannelWebhook(channel, integrationId, options) {
-  var names = channel === 'casezap' ? ['casezap'] : ['whatsapp'];
-  var integration = await Integration.findOne({ _id: integrationId, name: { $in: names } });
+  var integration = await findChannelIntegration(channel, integrationId);
   if (!integration) {
     var notFound = new Error('Integration not found');
     notFound.statusCode = 404;
@@ -668,5 +765,6 @@ module.exports = {
   checkWabaIntegration: checkWabaIntegration,
   testChannelConnection: testChannelConnection,
   registerChannelWebhook: registerChannelWebhook,
+  listKvstoreWabaIntegrations: listKvstoreWabaIntegrations,
   normalizeProviderHealth: normalizeProviderHealth
 };

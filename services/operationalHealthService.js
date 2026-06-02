@@ -620,6 +620,40 @@ function integrationOperationalKey(integration) {
   return integration.value && (integration.value.waba_id || integration.value.phone_number_id || String(integration._id));
 }
 
+function wabaDedupeKeys(integration) {
+  var value = integration.value || {};
+  var projectId = integration.id_project || 'unknown';
+  var keys = [];
+  if (value.waba_id) keys.push(projectId + ':waba:' + value.waba_id);
+  if (value.phone_number_id) keys.push(projectId + ':phone:' + value.phone_number_id);
+  return keys;
+}
+
+function mergeKvstoreWabaIntegrations(integrations, kvstoreWabas) {
+  var seen = {};
+  integrations.forEach(function(integration) {
+    if (integration.name !== 'whatsapp') return;
+    wabaDedupeKeys(integration).forEach(function(key) {
+      seen[key] = true;
+    });
+  });
+
+  kvstoreWabas.forEach(function(integration) {
+    var keys = wabaDedupeKeys(integration);
+    var exists = keys.some(function(key) {
+      return seen[key];
+    });
+    if (exists) return;
+
+    keys.forEach(function(key) {
+      seen[key] = true;
+    });
+    integrations.push(integration);
+  });
+
+  return integrations;
+}
+
 async function getLastEventMap(channel) {
   var rows = await OperationalEvent.find({ channel: channel })
     .sort({ timestamp: -1 })
@@ -662,13 +696,17 @@ async function mapLimit(items, limit, iterator) {
 
 async function getChannels() {
   var integrations = await Integration.find({ name: { $in: ['whatsapp', 'casezap'] } }).lean();
+  var kvstoreWabas = await channelDiagnosticsService.listKvstoreWabaIntegrations();
+  integrations = mergeKvstoreWabaIntegrations(integrations, kvstoreWabas);
   var wabaEvents = await getLastEventMap('waba');
   var casezapEvents = await getLastEventMap('casezap');
 
   return mapLimit(integrations, PROVIDER_CHECK_CONCURRENCY, async function(integration) {
     var channel = integration.name === 'casezap' ? 'casezap' : 'waba';
     var key = integrationOperationalKey(integration);
-    var eventInfo = channel === 'casezap' ? casezapEvents[key] : wabaEvents[key];
+    var docKey = String(integration._id);
+    var channelEvents = channel === 'casezap' ? casezapEvents : wabaEvents;
+    var eventInfo = channelEvents[key] || channelEvents[docKey];
     eventInfo = eventInfo || {};
     var diagnostics = null;
     try {
@@ -697,6 +735,7 @@ async function getChannels() {
       channel: channel,
       integrationId: key,
       integrationDocId: String(integration._id),
+      integrationSource: integration._source || 'integration',
       id_project: integration.id_project,
       name: integrationDisplayName(integration),
       status: status,

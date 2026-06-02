@@ -685,6 +685,96 @@ describe('OperationalRoute', function() {
     expect(res.body.result.qualityRating).to.equal('RED');
   });
 
+  it('lists WABA channels stored only in kvstore', async function() {
+    var inserted = await mongoose.connection.collection('kvstore').insertOne({
+      key: 'whatsapp-waba-kvstore',
+      project_id: 'operation-waba-kvstore',
+      value: {
+        verified_name: 'WABA kvstore',
+        wab_token: 'meta-token',
+        waba_id: 'waba-kvstore',
+        phone_number_id: 'phone-kvstore'
+      }
+    });
+
+    nock('https://graph.facebook.com')
+      .get('/v25.0/phone-kvstore')
+      .query(true)
+      .reply(200, {
+        id: 'phone-kvstore',
+        display_phone_number: '+15550000001',
+        verified_name: 'WABA kvstore',
+        status: 'CONNECTED',
+        quality_rating: 'GREEN',
+        name_status: 'APPROVED'
+      });
+
+    var res = await getAsSuperAdmin('/sadmin/health/channels', adminEmail, pwd);
+
+    res.should.have.status(200);
+    var channel = res.body.channels.find(function(item) {
+      return item.integrationDocId === String(inserted.insertedId);
+    });
+    expect(channel).to.exist;
+    expect(channel.channel).to.equal('waba');
+    expect(channel.integrationSource).to.equal('kvstore');
+    expect(channel.integrationId).to.equal('waba-kvstore');
+    expect(channel.providerHealth).to.equal('ok');
+
+    var updated = await mongoose.connection.collection('kvstore').findOne({ _id: inserted.insertedId });
+    expect(updated.value.operational.lastProviderHealth).to.equal('ok');
+  });
+
+  it('tests WABA connections stored only in kvstore', async function() {
+    var inserted = await mongoose.connection.collection('kvstore').insertOne({
+      key: 'whatsapp-waba-kvstore-test',
+      project_id: 'operation-waba-kvstore-test',
+      value: {
+        verified_name: 'WABA kvstore test',
+        wab_token: 'meta-token',
+        waba_id: 'waba-kvstore-test',
+        phone_number_id: 'phone-kvstore-test'
+      }
+    });
+
+    nock('https://graph.facebook.com')
+      .get('/v25.0/phone-kvstore-test')
+      .query(true)
+      .reply(200, {
+        id: 'phone-kvstore-test',
+        display_phone_number: '+15550000002',
+        verified_name: 'WABA kvstore test',
+        status: 'CONNECTED',
+        quality_rating: 'GREEN',
+        name_status: 'APPROVED'
+      });
+
+    var res = await postAsSuperAdmin('/sadmin/health/channels/test', adminEmail, pwd, {
+      channel: 'waba',
+      integrationId: String(inserted.insertedId)
+    });
+
+    res.should.have.status(200);
+    expect(res.body.result.channel).to.equal('waba');
+    expect(res.body.result.providerHealth).to.equal('ok');
+
+    var event = await OperationalEvent.findOne({
+      channel: 'waba',
+      integrationId: String(inserted.insertedId),
+      event: 'channel.provider_check'
+    }).lean();
+    expect(event).to.exist;
+    expect(event.status).to.equal('success');
+
+    var channelsRes = await getAsSuperAdmin('/sadmin/health/channels', adminEmail, pwd);
+    channelsRes.should.have.status(200);
+    var channel = channelsRes.body.channels.find(function(item) {
+      return item.integrationDocId === String(inserted.insertedId);
+    });
+    expect(channel).to.exist;
+    expect(channel.lastEvent).to.equal('channel.provider_check');
+  });
+
   it('manually re-registers a CaseZap webhook and records the operation', async function() {
     var originalExternalBaseUrl = process.env.EXTERNAL_BASE_URL;
     process.env.EXTERNAL_BASE_URL = 'https://chatcase.example.com';
@@ -778,6 +868,44 @@ describe('OperationalRoute', function() {
     var event = await OperationalEvent.findOne({
       channel: 'waba',
       integrationId: String(integration._id),
+      event: 'channel.webhook_registered'
+    }).lean();
+    expect(event).to.exist;
+    expect(event.status).to.equal('success');
+  });
+
+  it('manually re-registers a WABA subscribed app stored only in kvstore', async function() {
+    var inserted = await mongoose.connection.collection('kvstore').insertOne({
+      key: 'whatsapp-waba-kvstore-register',
+      project_id: 'operation-waba-kvstore-register',
+      value: {
+        verified_name: 'WABA kvstore register',
+        wab_token: 'meta-token',
+        waba_id: 'waba-kvstore-register',
+        phone_number_id: 'phone-kvstore-register'
+      }
+    });
+
+    nock('https://graph.facebook.com')
+      .post('/v25.0/waba-kvstore-register/subscribed_apps')
+      .query({ access_token: 'meta-token' })
+      .reply(200, { success: true });
+
+    var res = await postAsSuperAdmin('/sadmin/health/channels/webhook/register', adminEmail, pwd, {
+      channel: 'waba',
+      integrationId: String(inserted.insertedId)
+    });
+
+    res.should.have.status(200);
+    expect(res.body.result.status).to.equal('registered');
+    expect(res.body.result.channel).to.equal('waba');
+
+    var updated = await mongoose.connection.collection('kvstore').findOne({ _id: inserted.insertedId });
+    expect(updated.value.operational.lastWebhookRegistrationStatus).to.equal('success');
+
+    var event = await OperationalEvent.findOne({
+      channel: 'waba',
+      integrationId: String(inserted.insertedId),
       event: 'channel.webhook_registered'
     }).lean();
     expect(event).to.exist;
