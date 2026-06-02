@@ -617,15 +617,28 @@ function integrationDisplayName(integration) {
 
 function integrationOperationalKey(integration) {
   if (integration.name === 'casezap') return String(integration._id);
-  return integration.value && (integration.value.waba_id || integration.value.phone_number_id || String(integration._id));
+  return integration.value && (
+    integration.value.phone_number_id ||
+    integration.value.waba_id ||
+    integration.value.business_account_id ||
+    integration.value.whatsapp_business_account_id ||
+    String(integration._id)
+  );
 }
 
 function wabaDedupeKeys(integration) {
   var value = integration.value || {};
   var projectId = integration.id_project || 'unknown';
   var keys = [];
+
+  if (value.phone_number_id) {
+    keys.push(projectId + ':phone:' + value.phone_number_id);
+    return keys;
+  }
+
   if (value.waba_id) keys.push(projectId + ':waba:' + value.waba_id);
-  if (value.phone_number_id) keys.push(projectId + ':phone:' + value.phone_number_id);
+  if (value.business_account_id) keys.push(projectId + ':business:' + value.business_account_id);
+  if (value.whatsapp_business_account_id) keys.push(projectId + ':business:' + value.whatsapp_business_account_id);
   return keys;
 }
 

@@ -243,6 +243,11 @@ function isKvstoreIntegration(integration) {
   return integration && integration._source === 'kvstore';
 }
 
+function getWabaId(value) {
+  value = value || {};
+  return value.waba_id || value.business_account_id || value.whatsapp_business_account_id;
+}
+
 function buildKvstoreWabaIntegration(row) {
   if (!row) return null;
   var value = row.value || {};
@@ -265,6 +270,8 @@ function kvstoreWabaSearchClauses(identifier) {
   var clauses = [
     { key: value },
     { 'value.waba_id': value },
+    { 'value.business_account_id': value },
+    { 'value.whatsapp_business_account_id': value },
     { 'value.phone_number_id': value }
   ];
 
@@ -275,24 +282,43 @@ function kvstoreWabaSearchClauses(identifier) {
   return clauses;
 }
 
+function activeKvstoreWabaFilter() {
+  return [
+    { trashed: { $ne: true } },
+    { 'value.trashed': { $ne: true } }
+  ];
+}
+
+function kvstoreWabaQuery(clauses) {
+  return {
+    $and: [
+      { $or: clauses }
+    ].concat(activeKvstoreWabaFilter())
+  };
+}
+
 async function findKvstoreWabaIntegration(identifier) {
   if (!identifier) return null;
-  var row = await kvstoreCollection().findOne({ $or: kvstoreWabaSearchClauses(identifier) });
+  var row = await kvstoreCollection().findOne(kvstoreWabaQuery(kvstoreWabaSearchClauses(identifier)));
   return buildKvstoreWabaIntegration(row);
 }
 
 async function listKvstoreWabaIntegrations() {
   var rows = await kvstoreCollection().find({
-    $or: [
-      { key: /^whatsapp-/ },
-      { 'value.waba_id': { $exists: true } },
-      { 'value.phone_number_id': { $exists: true } }
-    ]
+    $and: [{
+      $or: [
+        { key: /^whatsapp-/ },
+        { 'value.waba_id': { $exists: true } },
+        { 'value.business_account_id': { $exists: true } },
+        { 'value.whatsapp_business_account_id': { $exists: true } },
+        { 'value.phone_number_id': { $exists: true } }
+      ]
+    }].concat(activeKvstoreWabaFilter())
   }).toArray();
 
   return rows.map(buildKvstoreWabaIntegration).filter(function(integration) {
     var value = integration && integration.value ? integration.value : {};
-    return integration && integration.id_project && (value.waba_id || value.phone_number_id || value.wab_token || value.access_token);
+    return integration && integration.id_project && (getWabaId(value) || value.phone_number_id || value.wab_token || value.access_token);
   });
 }
 
@@ -500,6 +526,13 @@ async function findWhatsappSettings(integration) {
   if (isKvstoreIntegration(integration)) {
     if (integration._kvstoreId) clauses.push({ _id: integration._kvstoreId });
     if (integration._kvstoreKey) clauses.push({ key: integration._kvstoreKey });
+    if (value.waba_id) clauses.push({ key: 'whatsapp-' + value.waba_id });
+    if (value.waba_id) clauses.push({ 'value.waba_id': value.waba_id });
+    if (value.business_account_id) clauses.push({ 'value.business_account_id': value.business_account_id });
+    if (value.whatsapp_business_account_id) clauses.push({ 'value.whatsapp_business_account_id': value.whatsapp_business_account_id });
+    if (value.phone_number_id) clauses.push({ 'value.phone_number_id': value.phone_number_id });
+    if (!clauses.length) return null;
+    return collection.findOne(kvstoreWabaQuery(clauses));
   }
 
   if (value.waba_id) clauses.push({ key: 'whatsapp-' + value.waba_id });
@@ -509,7 +542,7 @@ async function findWhatsappSettings(integration) {
   if (integration.id_project) clauses.push({ project_id: integration.id_project });
 
   if (!clauses.length) return null;
-  return collection.findOne({ $or: clauses });
+  return collection.findOne(kvstoreWabaQuery(clauses));
 }
 
 async function requestMetaPhoneInfo(phoneNumberId, token) {
@@ -687,7 +720,8 @@ async function registerWabaWebhook(integration) {
   var settings = await findWhatsappSettings(integration);
   var value = settings && settings.value ? settings.value : {};
   var token = value.wab_token || value.access_token;
-  var wabaId = value.waba_id || (integration.value && integration.value.waba_id);
+  var integrationValue = integration.value || {};
+  var wabaId = getWabaId(value) || getWabaId(integrationValue);
 
   if (!token || !wabaId) {
     var missing = new Error(!wabaId ? 'missing_waba_id' : 'missing_waba_token');

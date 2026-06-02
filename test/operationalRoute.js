@@ -718,7 +718,7 @@ describe('OperationalRoute', function() {
     expect(channel).to.exist;
     expect(channel.channel).to.equal('waba');
     expect(channel.integrationSource).to.equal('kvstore');
-    expect(channel.integrationId).to.equal('waba-kvstore');
+    expect(channel.integrationId).to.equal('phone-kvstore');
     expect(channel.providerHealth).to.equal('ok');
 
     var updated = await mongoose.connection.collection('kvstore').findOne({ _id: inserted.insertedId });
@@ -773,6 +773,80 @@ describe('OperationalRoute', function() {
     });
     expect(channel).to.exist;
     expect(channel.lastEvent).to.equal('channel.provider_check');
+  });
+
+  it('tests the exact WABA kvstore row when a project has multiple WABAs', async function() {
+    await mongoose.connection.collection('kvstore').insertOne({
+      key: 'whatsapp-waba-kvstore-a',
+      project_id: 'operation-waba-kvstore-shared',
+      value: {
+        verified_name: 'WABA kvstore A',
+        wab_token: 'meta-token-a',
+        waba_id: 'waba-kvstore-a',
+        phone_number_id: 'phone-kvstore-a'
+      }
+    });
+
+    var inserted = await mongoose.connection.collection('kvstore').insertOne({
+      key: 'whatsapp-waba-kvstore-b',
+      project_id: 'operation-waba-kvstore-shared',
+      value: {
+        verified_name: 'WABA kvstore B',
+        wab_token: 'meta-token-b',
+        waba_id: 'waba-kvstore-b',
+        phone_number_id: 'phone-kvstore-b'
+      }
+    });
+
+    nock('https://graph.facebook.com')
+      .get('/v25.0/phone-kvstore-b')
+      .query(function(query) {
+        return query.access_token === 'meta-token-b';
+      })
+      .reply(200, {
+        id: 'phone-kvstore-b',
+        display_phone_number: '+15550000003',
+        verified_name: 'WABA kvstore B',
+        status: 'CONNECTED',
+        quality_rating: 'GREEN',
+        name_status: 'APPROVED'
+      });
+
+    var res = await postAsSuperAdmin('/sadmin/health/channels/test', adminEmail, pwd, {
+      channel: 'waba',
+      integrationId: String(inserted.insertedId)
+    });
+
+    res.should.have.status(200);
+    expect(res.body.result.providerHealth).to.equal('ok');
+    expect(res.body.result.integrationId).to.equal(String(inserted.insertedId));
+
+    var stale = await mongoose.connection.collection('kvstore').findOne({ key: 'whatsapp-waba-kvstore-a' });
+    var updated = await mongoose.connection.collection('kvstore').findOne({ _id: inserted.insertedId });
+    expect(stale.value.operational).to.equal(undefined);
+    expect(updated.value.operational.lastProviderHealth).to.equal('ok');
+  });
+
+  it('does not list WABA kvstore rows marked as trashed', async function() {
+    var inserted = await mongoose.connection.collection('kvstore').insertOne({
+      key: 'whatsapp-waba-kvstore-trashed',
+      project_id: 'operation-waba-kvstore-trashed',
+      value: {
+        verified_name: 'WABA kvstore trashed',
+        wab_token: 'meta-token',
+        waba_id: 'waba-kvstore-trashed',
+        phone_number_id: 'phone-kvstore-trashed',
+        trashed: true
+      }
+    });
+
+    var res = await getAsSuperAdmin('/sadmin/health/channels', adminEmail, pwd);
+
+    res.should.have.status(200);
+    var channel = res.body.channels.find(function(item) {
+      return item.integrationDocId === String(inserted.insertedId);
+    });
+    expect(channel).to.equal(undefined);
   });
 
   it('manually re-registers a CaseZap webhook and records the operation', async function() {
@@ -910,6 +984,36 @@ describe('OperationalRoute', function() {
     }).lean();
     expect(event).to.exist;
     expect(event.status).to.equal('success');
+  });
+
+  it('manually re-registers a WABA subscribed app stored with business account id only', async function() {
+    var inserted = await mongoose.connection.collection('kvstore').insertOne({
+      key: 'whatsapp-waba-kvstore-business-register',
+      project_id: 'operation-waba-kvstore-business-register',
+      value: {
+        verified_name: 'WABA kvstore business register',
+        wab_token: 'meta-token',
+        business_account_id: 'business-kvstore-register',
+        phone_number_id: 'phone-business-register'
+      }
+    });
+
+    nock('https://graph.facebook.com')
+      .post('/v25.0/business-kvstore-register/subscribed_apps')
+      .query({ access_token: 'meta-token' })
+      .reply(200, { success: true });
+
+    var res = await postAsSuperAdmin('/sadmin/health/channels/webhook/register', adminEmail, pwd, {
+      channel: 'waba',
+      integrationId: String(inserted.insertedId)
+    });
+
+    res.should.have.status(200);
+    expect(res.body.result.status).to.equal('registered');
+    expect(res.body.result.channel).to.equal('waba');
+
+    var updated = await mongoose.connection.collection('kvstore').findOne({ _id: inserted.insertedId });
+    expect(updated.value.operational.lastWebhookRegistrationStatus).to.equal('success');
   });
 
   it('includes Sentry environment metadata in the manual Sentry test response', async function() {
