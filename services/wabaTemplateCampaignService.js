@@ -2,6 +2,7 @@ var uuidv4 = require('uuid/v4');
 var mongoose = require('mongoose');
 var moment_tz = require('moment-timezone');
 var { Transaction } = require('../models/transaction');
+var { MessageLog } = require('../models/whatsappLog');
 var Lead = require('../models/lead');
 var LeadConstants = require('../models/leadConstants');
 var Segment = require('../models/segment');
@@ -85,6 +86,17 @@ function getMaxAttempts() {
   var maxAttempts = parseInt(process.env.WABA_TEMPLATE_CAMPAIGN_MAX_ATTEMPTS || '3', 10);
   if (isNaN(maxAttempts) || maxAttempts < 1) return 3;
   return maxAttempts;
+}
+
+function getMaxRecurrenceOccurrences(deps) {
+  deps = deps || {};
+  if (deps.maxRecurrenceOccurrences !== undefined) {
+    var injected = parseInt(deps.maxRecurrenceOccurrences, 10);
+    if (!isNaN(injected) && injected > 1) return injected;
+  }
+  var max = parseInt(process.env.WABA_TEMPLATE_CAMPAIGN_RECURRENCE_MAX_OCCURRENCES || '30', 10);
+  if (isNaN(max) || max < 2) return 30;
+  return max;
 }
 
 function parseBoolean(value) {
@@ -301,6 +313,150 @@ function serializeSendingWindow(window) {
     end: window.end,
     timezone: window.timezone
   };
+}
+
+function getRecurrenceInput(options) {
+  options = options || {};
+  return options.recurrence ||
+    options.series ||
+    options.campaignRecurrence ||
+    options.campaign_recurrence ||
+    null;
+}
+
+function normalizeCampaignRecurrence(options, timing, deps) {
+  options = options || {};
+  timing = timing || {};
+  deps = deps || {};
+
+  var raw = getRecurrenceInput(options);
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    raw = { enabled: true, frequency: raw };
+  }
+
+  var enabled = parseBoolean(raw.enabled);
+  if (enabled === false) return null;
+
+  var frequency = String(raw.frequency || raw.unit || raw.every || '').trim().toLowerCase();
+  var frequencyMap = {
+    day: 'daily',
+    days: 'daily',
+    daily: 'daily',
+    week: 'weekly',
+    weeks: 'weekly',
+    weekly: 'weekly',
+    month: 'monthly',
+    months: 'monthly',
+    monthly: 'monthly'
+  };
+  frequency = frequencyMap[frequency];
+  if (!frequency) {
+    var invalidFrequency = new Error('invalid_campaign_recurrence_frequency');
+    invalidFrequency.statusCode = 400;
+    throw invalidFrequency;
+  }
+
+  var interval = parseInt(raw.interval || raw.intervalCount || raw.interval_count || '1', 10);
+  if (isNaN(interval) || interval < 1 || interval > 365) {
+    var invalidInterval = new Error('invalid_campaign_recurrence_interval');
+    invalidInterval.statusCode = 400;
+    throw invalidInterval;
+  }
+
+  var maxOccurrences = parseInt(
+    raw.maxOccurrences ||
+    raw.max_occurrences ||
+    raw.occurrences ||
+    raw.count ||
+    '2',
+    10
+  );
+  var maxAllowed = getMaxRecurrenceOccurrences(deps);
+  if (isNaN(maxOccurrences) || maxOccurrences < 2) {
+    var invalidCount = new Error('invalid_campaign_recurrence_occurrences');
+    invalidCount.statusCode = 400;
+    throw invalidCount;
+  }
+  if (maxOccurrences > maxAllowed) {
+    var tooMany = new Error('campaign_recurrence_occurrences_limit_exceeded');
+    tooMany.statusCode = 400;
+    tooMany.limit = maxAllowed;
+    throw tooMany;
+  }
+
+  var endAt = raw.endAt || raw.end_at || raw.until || null;
+  if (endAt) {
+    endAt = new Date(endAt);
+    if (isNaN(endAt.getTime())) {
+      var invalidEndAt = new Error('invalid_campaign_recurrence_end_at');
+      invalidEndAt.statusCode = 400;
+      throw invalidEndAt;
+    }
+  }
+
+  var timezone = normalizeCampaignTimezone(raw.timezone || raw.timeZone || timing.timezone || options.timezone || options.timeZone);
+  var startsAt = timing.scheduledAt || timing.nextRunAt || getNow(deps);
+  if (endAt && endAt.getTime() <= startsAt.getTime()) {
+    var pastEndAt = new Error('campaign_recurrence_end_at_must_be_after_start');
+    pastEndAt.statusCode = 400;
+    throw pastEndAt;
+  }
+
+  return {
+    enabled: true,
+    frequency: frequency,
+    interval: interval,
+    maxOccurrences: maxOccurrences,
+    totalOccurrences: maxOccurrences,
+    occurrenceIndex: 1,
+    remainingOccurrences: maxOccurrences - 1,
+    timezone: timezone,
+    startsAt: startsAt.toISOString(),
+    endAt: endAt ? endAt.toISOString() : null
+  };
+}
+
+function addRecurrenceInterval(date, recurrence) {
+  var unit = recurrence.frequency === 'daily' ? 'day' :
+    recurrence.frequency === 'weekly' ? 'week' :
+      'month';
+  return moment_tz.tz(date, recurrence.timezone || 'America/Sao_Paulo')
+    .add(recurrence.interval || 1, unit)
+    .toDate();
+}
+
+function nextRecurrenceRunAt(transaction, deps) {
+  deps = deps || {};
+  var campaign = transaction && transaction.campaign || {};
+  var recurrence = campaign.recurrence || {};
+  if (!recurrence.enabled || recurrence.remainingOccurrences < 1) return null;
+
+  var base = recurrence.lastScheduledAt ||
+    campaign.scheduledAt ||
+    campaign.nextRunAt ||
+    recurrence.startsAt ||
+    transaction.startedAt ||
+    transaction.createdAt ||
+    getNow(deps);
+  var nextRunAt = addRecurrenceInterval(base, recurrence);
+  var now = getNow(deps);
+
+  while (nextRunAt.getTime() <= now.getTime()) {
+    nextRunAt = addRecurrenceInterval(nextRunAt, recurrence);
+  }
+
+  if (recurrence.endAt) {
+    var endAt = new Date(recurrence.endAt);
+    if (!isNaN(endAt.getTime()) && nextRunAt.getTime() > endAt.getTime()) return null;
+  }
+
+  var sendingWindow = getTransactionSendingWindow(transaction);
+  if (sendingWindow) {
+    nextRunAt = nextSendingWindowStart(nextRunAt, sendingWindow);
+  }
+
+  return nextRunAt;
 }
 
 function getLocalMinutes(date, timezone) {
@@ -762,6 +918,89 @@ function queryExec(query) {
   return query && typeof query.exec === 'function' ? query.exec() : query;
 }
 
+async function listCampaignMessageLogs(projectId, transactionId, deps) {
+  deps = deps || {};
+  var MessageLogModel = deps.MessageLog || MessageLog;
+  if (!MessageLogModel || !MessageLogModel.find) return [];
+
+  var query = MessageLogModel.find({
+    id_project: projectId,
+    transaction_id: transactionId
+  });
+  if (query && query.lean) query = query.lean();
+  var logs = await queryExec(query);
+  return Array.isArray(logs) ? logs : [];
+}
+
+function countConvertedRecipients(recipients) {
+  recipients = Array.isArray(recipients) ? recipients : [];
+  return recipients.filter(function(recipient) {
+    return recipient && (recipient.firstReplyAt || recipient.convertedRequestId || recipient.conversionMessageId);
+  }).length;
+}
+
+function calculateCampaignMetrics(transaction, logs) {
+  transaction = transaction || {};
+  logs = Array.isArray(logs) ? logs : [];
+
+  var byStatusCode = logs.reduce(function(summary, log) {
+    var code = Number(log && log.status_code);
+    if (code === 0) summary.accepted += 1;
+    if (code === 1) summary.sent += 1;
+    if (code === 2 || code === 3) summary.delivered += 1;
+    if (code === 3) summary.read += 1;
+    if (code === -1) summary.rejected += 1;
+    if (code === -2) summary.failed += 1;
+    return summary;
+  }, {
+    accepted: 0,
+    sent: 0,
+    delivered: 0,
+    read: 0,
+    rejected: 0,
+    failed: 0
+  });
+
+  var total = transaction.recipients_total || (Array.isArray(transaction.recipients) ? transaction.recipients.length : 0);
+  var accepted = Math.max(transaction.sent_count || 0, byStatusCode.accepted);
+  var failed = Math.max(transaction.failed_count || 0, byStatusCode.failed + byStatusCode.rejected);
+  var converted = countConvertedRecipients(transaction.recipients);
+  var processed = transaction.processed_count || 0;
+
+  function rate(value) {
+    if (!total) return 0;
+    return Math.round((value / total) * 100);
+  }
+
+  return {
+    total: total,
+    processed: processed,
+    accepted: accepted,
+    failed: failed,
+    ready: transaction.ready_count || 0,
+    skipped: transaction.skipped_count || 0,
+    delivered: byStatusCode.delivered,
+    read: byStatusCode.read,
+    rejected: byStatusCode.rejected,
+    conversions: converted,
+    rates: {
+      processed: rate(processed),
+      accepted: rate(accepted),
+      delivered: rate(byStatusCode.delivered),
+      read: rate(byStatusCode.read),
+      failed: rate(failed),
+      conversion: rate(converted)
+    },
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function attachCampaignMetrics(transaction, logs) {
+  if (!transaction || !transaction.campaign) return transaction;
+  transaction.campaign.metrics = calculateCampaignMetrics(transaction, logs);
+  return transaction;
+}
+
 async function acquireProcessingLease(projectId, transactionId, deps) {
   deps = deps || {};
   if (deps.disableProcessingLease === true) return true;
@@ -921,6 +1160,12 @@ function markRecipientsModified(transaction) {
   }
 }
 
+function markCampaignModified(transaction) {
+  if (transaction && typeof transaction.markModified === 'function') {
+    transaction.markModified('campaign');
+  }
+}
+
 function finalCampaignStatus(transaction) {
   applyRecipientSummary(transaction);
   var recipients = Array.isArray(transaction.recipients) ? transaction.recipients : [];
@@ -931,6 +1176,110 @@ function finalCampaignStatus(transaction) {
   if (transaction.failed_count > 0 && transaction.sent_count === 0 && transaction.ready_count === 0) return 'failed';
   if (transaction.failed_count > 0) return 'completed_with_errors';
   return 'completed';
+}
+
+function cloneRecipientsForNextOccurrence(recipients) {
+  recipients = Array.isArray(recipients) ? recipients : [];
+  return recipients.map(function(recipient) {
+    var next = Object.assign({}, recipient || {});
+    delete next.messageId;
+    delete next.providerStatus;
+    delete next.error;
+    delete next.firstReplyAt;
+    delete next.convertedRequestId;
+    delete next.conversionMessageId;
+    delete next.updatedAt;
+    next.status = 'queued';
+    next.attempts = 0;
+    return next;
+  });
+}
+
+async function createNextRecurringCampaign(transaction, deps) {
+  deps = deps || {};
+  var campaign = transaction && transaction.campaign || {};
+  var recurrence = campaign.recurrence || {};
+  if (!recurrence.enabled || recurrence.remainingOccurrences < 1) return null;
+
+  var nextRunAt = nextRecurrenceRunAt(transaction, deps);
+  if (!nextRunAt) {
+    recurrence.remainingOccurrences = 0;
+    campaign.recurrence = recurrence;
+    campaign.seriesStatus = 'finished';
+    transaction.campaign = campaign;
+    markCampaignModified(transaction);
+    await transaction.save();
+    return null;
+  }
+
+  var TransactionModel = deps.Transaction || Transaction;
+  var now = getNow(deps);
+  var seriesId = campaign.seriesId || transaction.transaction_id;
+  var occurrenceIndex = (campaign.occurrenceIndex || recurrence.occurrenceIndex || 1) + 1;
+  var nextTransactionId = seriesId + '-occ-' + occurrenceIndex + '-' + uuidv4();
+  var nextRecipients = cloneRecipientsForNextOccurrence(transaction.recipients);
+  var nextRecurrence = Object.assign({}, recurrence, {
+    occurrenceIndex: occurrenceIndex,
+    remainingOccurrences: Math.max(0, (recurrence.remainingOccurrences || 0) - 1),
+    lastScheduledAt: nextRunAt.toISOString()
+  });
+  var nextCampaign = Object.assign({}, campaign, {
+    seriesId: seriesId,
+    parentTransactionId: campaign.parentTransactionId || transaction.transaction_id,
+    previousTransactionId: transaction.transaction_id,
+    occurrenceIndex: occurrenceIndex,
+    scheduledAt: nextRunAt.toISOString(),
+    nextRunAt: nextRunAt.toISOString(),
+    recurrence: nextRecurrence,
+    processing: null,
+    metrics: null
+  });
+  delete nextCampaign.processing;
+  delete nextCampaign.metrics;
+  delete nextCampaign.nextOccurrenceAt;
+  delete nextCampaign.nextOccurrenceTransactionId;
+
+  var nextTransaction = new TransactionModel({
+    transaction_id: nextTransactionId,
+    id_project: transaction.id_project,
+    template_name: transaction.template_name,
+    status: 'scheduled',
+    channel: transaction.channel,
+    broadcast: transaction.broadcast,
+    dispatch_type: CAMPAIGN_TYPE,
+    faq_kb_id: transaction.faq_kb_id,
+    createdBy: transaction.createdBy,
+    recipients_total: nextRecipients.length,
+    processed_count: 0,
+    sent_count: 0,
+    failed_count: 0,
+    ready_count: 0,
+    skipped_count: 0,
+    dry_run: transaction.dry_run,
+    interval_ms: transaction.interval_ms,
+    recipients: nextRecipients,
+    campaign: nextCampaign,
+    createdAt: now,
+    updatedAt: now
+  });
+
+  campaign.seriesId = seriesId;
+  campaign.occurrenceIndex = campaign.occurrenceIndex || recurrence.occurrenceIndex || 1;
+  campaign.recurrence = Object.assign({}, recurrence, {
+    seriesId: seriesId,
+    occurrenceIndex: campaign.occurrenceIndex,
+    remainingOccurrences: Math.max(0, recurrence.remainingOccurrences || 0)
+  });
+  campaign.nextOccurrenceAt = nextRunAt.toISOString();
+  campaign.nextOccurrenceTransactionId = nextTransactionId;
+  campaign.seriesStatus = 'next_scheduled';
+  transaction.campaign = campaign;
+  markCampaignModified(transaction);
+
+  await nextTransaction.save();
+  await transaction.save();
+  await scheduleCampaign(transaction.id_project, nextTransactionId, deps);
+  return serializeTransaction(nextTransaction);
 }
 
 function delay(ms, deps) {
@@ -1399,6 +1748,7 @@ async function createCampaign(options, deps) {
   var throttlePolicy = buildThrottlePolicy(getDefaultIntervalMs(requestedIntervalMs), options, binding);
   var intervalMs = throttlePolicy.intervalMs;
   var timing = resolveCampaignTiming(options, deps);
+  var recurrence = normalizeCampaignRecurrence(options, timing, deps);
   var now = getNow(deps);
 
   var TransactionModel = deps.Transaction || Transaction;
@@ -1443,6 +1793,9 @@ async function createCampaign(options, deps) {
         intervalMs: intervalMs,
         minIntervalMs: throttlePolicy.minIntervalMs
       },
+      seriesId: recurrence ? transactionId : null,
+      occurrenceIndex: recurrence ? 1 : null,
+      recurrence: recurrence,
       scheduledAt: timing.scheduledAt ? timing.scheduledAt.toISOString() : null,
       nextRunAt: timing.nextRunAt ? timing.nextRunAt.toISOString() : null,
       timezone: timing.timezone,
@@ -1545,9 +1898,12 @@ async function processCampaign(options, deps) {
           return serializeTransaction(transaction);
         }
         transaction.status = finalCampaignStatus(transaction);
+        attachCampaignMetrics(transaction);
+        markCampaignModified(transaction);
         transaction.finishedAt = new Date();
         transaction.updatedAt = new Date();
         await transaction.save();
+        await createNextRecurringCampaign(transaction, deps);
         await ensureProcessingLease(projectId, transactionId, leaseOwner, deps);
         return serializeTransaction(transaction);
       }
@@ -1654,8 +2010,72 @@ async function processCampaign(options, deps) {
 
 async function getCampaign(options, deps) {
   options = options || {};
+  deps = deps || {};
   var transaction = await findTransaction(options.projectId, options.transactionId, deps);
   ensureCampaign(transaction);
+  var serialized = serializeTransaction(transaction);
+  var logs = await listCampaignMessageLogs(options.projectId, options.transactionId, deps);
+  return attachCampaignMetrics(serialized, logs);
+}
+
+async function getCampaignMetrics(options, deps) {
+  options = options || {};
+  deps = deps || {};
+  var transaction = await findTransaction(options.projectId, options.transactionId, deps);
+  ensureCampaign(transaction);
+  var logs = await listCampaignMessageLogs(options.projectId, options.transactionId, deps);
+  return calculateCampaignMetrics(serializeTransaction(transaction), logs);
+}
+
+async function markCampaignReplyConversion(options, deps) {
+  options = options || {};
+  deps = deps || {};
+
+  var projectId = options.projectId;
+  var providerMessageId = options.providerMessageId || options.contextMessageId || options.context_message_id || options.messageId;
+  if (!projectId || !providerMessageId) return null;
+
+  var TransactionModel = deps.Transaction || Transaction;
+  var transaction = await queryExec(TransactionModel.findOne({
+    id_project: projectId,
+    dispatch_type: CAMPAIGN_TYPE,
+    recipients: {
+      $elemMatch: {
+        messageId: providerMessageId
+      }
+    }
+  }));
+  if (!transaction) return null;
+
+  var now = getNow(deps);
+  var recipients = Array.isArray(transaction.recipients) ? transaction.recipients : [];
+  var changed = false;
+  recipients.forEach(function(recipient) {
+    if (!recipient || recipient.messageId !== providerMessageId) return;
+    if (!recipient.firstReplyAt) {
+      recipient.firstReplyAt = now.toISOString();
+      changed = true;
+    }
+    if (options.requestId && !recipient.convertedRequestId) {
+      recipient.convertedRequestId = options.requestId;
+      changed = true;
+    }
+    if (options.inboundMessageId && !recipient.conversionMessageId) {
+      recipient.conversionMessageId = options.inboundMessageId;
+      changed = true;
+    }
+  });
+
+  if (!changed) return serializeTransaction(transaction);
+
+  transaction.recipients = recipients;
+  markRecipientsModified(transaction);
+  transaction.campaign = transaction.campaign || {};
+  transaction.campaign.metrics = calculateCampaignMetrics(transaction);
+  transaction.campaign.metrics.lastConversionAt = now.toISOString();
+  transaction.updatedAt = now;
+  markCampaignModified(transaction);
+  await transaction.save();
   return serializeTransaction(transaction);
 }
 
@@ -1717,6 +2137,8 @@ module.exports = {
   createCampaign: createCampaign,
   processCampaign: processCampaign,
   getCampaign: getCampaign,
+  getCampaignMetrics: getCampaignMetrics,
+  markCampaignReplyConversion: markCampaignReplyConversion,
   pauseCampaign: pauseCampaign,
   resumeCampaign: resumeCampaign,
   cancelCampaign: cancelCampaign,

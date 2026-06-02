@@ -32,6 +32,7 @@ const { WhatsappLogger } = require("./tiledesk/WhatsappLogger");
 const Utils = require("./tiledesk/Utils");
 const whatsappService = require("./tiledesk/WhatsappService");
 const operationalLogger = require("../../../services/operationalLogger");
+const wabaTemplateCampaignService = require("../../../services/wabaTemplateCampaignService");
 
 // mongo
 const { KVBaseMongo } = require("./tiledesk/KVBaseMongo");
@@ -76,6 +77,32 @@ function getWebhookMessageId(body) {
   if (value.messages && value.messages[0]) return value.messages[0].id;
   if (value.statuses && value.statuses[0]) return value.statuses[0].id;
   return undefined;
+}
+
+function extractRequestIdFromSendResponse(response) {
+  if (!response) return null;
+  return response.request_id ||
+    response.requestId ||
+    response.id_request ||
+    response.request && (response.request.request_id || response.request._id) ||
+    response.message && response.message.request_id ||
+    null;
+}
+
+async function markCampaignReplyConversionSafe(settings, whatsappChannelMessage, response) {
+  const contextMessageId = whatsappChannelMessage && whatsappChannelMessage.context && whatsappChannelMessage.context.id;
+  if (!settings || !settings.project_id || !contextMessageId) return;
+
+  try {
+    await wabaTemplateCampaignService.markCampaignReplyConversion({
+      projectId: settings.project_id,
+      contextMessageId: contextMessageId,
+      inboundMessageId: whatsappChannelMessage.id,
+      requestId: extractRequestIdFromSendResponse(response)
+    });
+  } catch (err) {
+    winston.warn("(wab) unable to mark campaign reply conversion", err && err.message ? err.message : err);
+  }
 }
 
 function getWebhookKind(body) {
@@ -1020,6 +1047,7 @@ router.post('/webhook', async (req, res) => {
 
         try {
           const response = await tdChannel.send(tiledeskJsonMessage, message_info, settings.department_id);
+          await markCampaignReplyConversionSafe(settings, whatsappChannelMessage, response);
           winston.verbose("(wab) Message sent to Tiledesk!");
           winston.debug("(wab) response: ", response);
         } catch (err) {
@@ -1338,6 +1366,7 @@ router.post("/webhook/:project_id", async (req, res) => {
         if (tiledeskJsonMessage) {
           winston.verbose("(wab) tiledeskJsonMessage: ", tiledeskJsonMessage);
           const response = await tdChannel.send(tiledeskJsonMessage, message_info, settings.department_id);
+          await markCampaignReplyConversionSafe(settings, whatsappChannelMessage, response);
           winston.verbose("(wab) Message sent to Tiledesk!");
           winston.debug("(wab) response: ", response);
         } else {

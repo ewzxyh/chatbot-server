@@ -28,7 +28,10 @@ let chatbot_templates_api_url = process.env.CHATBOT_TEMPLATES_API_URL
 function bodyValue(body, primaryKey, fallbackKey) {
   if (!body) return undefined;
   if (body[primaryKey] !== undefined) return body[primaryKey];
-  if (fallbackKey && body[fallbackKey] !== undefined) return body[fallbackKey];
+  var fallbackKeys = Array.prototype.slice.call(arguments, 2);
+  for (var i = 0; i < fallbackKeys.length; i += 1) {
+    if (fallbackKeys[i] && body[fallbackKeys[i]] !== undefined) return body[fallbackKeys[i]];
+  }
   return undefined;
 }
 
@@ -420,6 +423,7 @@ router.post('/:faq_kbid/publication/waba/campaign', roleChecker.hasRole('admin')
       scheduledAt: bodyValue(req.body, 'scheduledAt', 'scheduled_at'),
       timezone: bodyValue(req.body, 'timezone', 'timeZone'),
       sendingWindow: bodyValue(req.body, 'sendingWindow', 'sending_window'),
+      recurrence: bodyValue(req.body, 'recurrence', 'series', 'campaignRecurrence', 'campaign_recurrence'),
       consentConfirmed: bodyValue(req.body, 'consentConfirmed', 'consent_confirmed'),
       transactionId: req.body && req.body.transactionId,
       dryRun: req.body && req.body.dryRun
@@ -449,6 +453,22 @@ router.get('/:faq_kbid/publication/waba/campaign/:transaction_id', roleChecker.h
     return res.status(err.statusCode || 500).send({
       success: false,
       error: err.message || 'waba_campaign_get_failed'
+    });
+  }
+});
+
+router.get('/:faq_kbid/publication/waba/campaign/:transaction_id/metrics', roleChecker.hasRole('admin'), async function(req, res) {
+  try {
+    var result = await wabaTemplateCampaignService.getCampaignMetrics({
+      projectId: req.projectid,
+      transactionId: req.params.transaction_id
+    });
+    return res.status(200).send(result);
+  } catch (err) {
+    winston.error('WABA campaign metrics error', err);
+    return res.status(err.statusCode || 500).send({
+      success: false,
+      error: err.message || 'waba_campaign_metrics_failed'
     });
   }
 });

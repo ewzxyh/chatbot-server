@@ -103,10 +103,7 @@ function fakeTransactionModel(store, capture) {
   Model.findOne = function(query) {
     return {
       exec: async () => {
-        const item = store.find((candidate) => {
-          return candidate.id_project === query.id_project &&
-            candidate.transaction_id === query.transaction_id;
-        });
+        const item = store.find((candidate) => matchesQuery(candidate, query));
         return item ? new Model(item) : null;
       }
     };
@@ -219,6 +216,19 @@ function fakeRequestModel(leadIds, capture) {
       return {
         exec: async () => leadIds
       };
+    }
+  };
+}
+
+function fakeMessageLogModel(logs) {
+  return {
+    find: (query) => {
+      let results = (logs || []).filter((candidate) => matchesQuery(candidate, query));
+      const chain = {
+        lean: () => chain,
+        exec: async () => clone(results)
+      };
+      return chain;
     }
   };
 }
@@ -1140,6 +1150,149 @@ describe('WABA template campaign service', () => {
     assert(error);
     assert.strictEqual(error.message, 'invalid_audience_segment_id');
     assert.strictEqual(error.statusCode, 400);
+  });
+
+  it('creates the next scheduled occurrence when a recurring campaign completes', async () => {
+    const store = [];
+    const Transaction = fakeTransactionModel(store);
+
+    const result = await campaignService.createCampaign({
+      projectId: 'project-1',
+      botId: 'bot-1',
+      recipients: [
+        { phoneNumber: '+55 62 98426-8492', recipientName: 'Enzo' }
+      ],
+      consentConfirmed: true,
+      intervalMs: 0,
+      recurrence: {
+        enabled: true,
+        frequency: 'daily',
+        interval: 1,
+        maxOccurrences: 2,
+        timezone: 'America/Sao_Paulo'
+      },
+      runInBackground: false
+    }, {
+      Transaction: Transaction,
+      publicationService: fakePublicationService(),
+      nowFn: () => new Date('2026-05-25T15:00:00.000Z'),
+      delayFn: async () => {}
+    });
+
+    assert.strictEqual(result.status, 'completed');
+    assert.strictEqual(store.length, 2);
+    assert.strictEqual(store[0].campaign.seriesId, result.transaction_id);
+    assert.strictEqual(store[0].campaign.nextOccurrenceAt, '2026-05-26T15:00:00.000Z');
+    assert.strictEqual(store[1].status, 'scheduled');
+    assert.strictEqual(store[1].campaign.previousTransactionId, result.transaction_id);
+    assert.strictEqual(store[1].campaign.occurrenceIndex, 2);
+    assert.strictEqual(store[1].campaign.recurrence.remainingOccurrences, 0);
+    assert.strictEqual(store[1].campaign.nextRunAt, '2026-05-26T15:00:00.000Z');
+    assert.deepStrictEqual(store[1].recipients.map((recipient) => recipient.status), ['queued']);
+  });
+
+  it('returns campaign delivery metrics from logs', async () => {
+    const store = [{
+      transaction_id: 'tx-metrics',
+      id_project: 'project-1',
+      status: 'completed',
+      channel: 'whatsapp',
+      dispatch_type: campaignService.CAMPAIGN_TYPE,
+      faq_kb_id: 'bot-1',
+      dry_run: false,
+      interval_ms: 0,
+      recipients_total: 2,
+      processed_count: 2,
+      sent_count: 2,
+      failed_count: 0,
+      ready_count: 0,
+      skipped_count: 0,
+      recipients: [{
+        phoneNumber: '5562984268492',
+        recipientName: 'Enzo',
+        status: 'accepted',
+        messageId: 'wamid-1',
+        firstReplyAt: '2026-05-25T15:02:00.000Z'
+      }, {
+        phoneNumber: '5562999999999',
+        recipientName: 'Cliente 2',
+        status: 'accepted',
+        messageId: 'wamid-2'
+      }],
+      campaign: {
+        suggestionName: 'menu_basico',
+        integrationId: 'integration-1',
+        wabaId: 'waba-1',
+        language: 'pt_BR'
+      }
+    }];
+    const Transaction = fakeTransactionModel(store);
+
+    const result = await campaignService.getCampaign({
+      projectId: 'project-1',
+      transactionId: 'tx-metrics'
+    }, {
+      Transaction: Transaction,
+      MessageLog: fakeMessageLogModel([{
+        id_project: 'project-1',
+        transaction_id: 'tx-metrics',
+        status_code: 2
+      }, {
+        id_project: 'project-1',
+        transaction_id: 'tx-metrics',
+        status_code: 3
+      }])
+    });
+
+    assert.strictEqual(result.campaign.metrics.total, 2);
+    assert.strictEqual(result.campaign.metrics.accepted, 2);
+    assert.strictEqual(result.campaign.metrics.delivered, 2);
+    assert.strictEqual(result.campaign.metrics.read, 1);
+    assert.strictEqual(result.campaign.metrics.conversions, 1);
+    assert.strictEqual(result.campaign.metrics.rates.conversion, 50);
+  });
+
+  it('marks a campaign conversion when an inbound reply quotes the sent template', async () => {
+    const store = [{
+      transaction_id: 'tx-conversion',
+      id_project: 'project-1',
+      status: 'running',
+      channel: 'whatsapp',
+      dispatch_type: campaignService.CAMPAIGN_TYPE,
+      faq_kb_id: 'bot-1',
+      recipients_total: 1,
+      processed_count: 1,
+      sent_count: 1,
+      failed_count: 0,
+      ready_count: 0,
+      skipped_count: 0,
+      recipients: [{
+        phoneNumber: '5562984268492',
+        recipientName: 'Enzo',
+        status: 'accepted',
+        messageId: 'wamid-template'
+      }],
+      campaign: {
+        suggestionName: 'menu_basico'
+      }
+    }];
+    const Transaction = fakeTransactionModel(store);
+
+    const result = await campaignService.markCampaignReplyConversion({
+      projectId: 'project-1',
+      contextMessageId: 'wamid-template',
+      inboundMessageId: 'wamid-inbound',
+      requestId: 'support-group-1'
+    }, {
+      Transaction: Transaction,
+      nowFn: () => new Date('2026-05-25T15:03:00.000Z')
+    });
+
+    assert(result);
+    assert.strictEqual(store[0].recipients[0].firstReplyAt, '2026-05-25T15:03:00.000Z');
+    assert.strictEqual(store[0].recipients[0].conversionMessageId, 'wamid-inbound');
+    assert.strictEqual(store[0].campaign.metrics.conversions, 1);
+    assert.strictEqual(store[0].campaign.metrics.rates.conversion, 100);
   });
 
   it('sweeps due scheduled campaigns after a restart window', async () => {

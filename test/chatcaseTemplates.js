@@ -70,6 +70,17 @@ describe('ChatCase chatbot templates', () => {
       assert(detail.intents.some((intent) => intent.intent_display_name === 'defaultFallback'), 'detail should include fallback intent');
       assert(detail.intents.some((intent) => getIntentButtons(intent).length > 0), 'detail should include native button metadata');
 
+      const handoffIntent = detail.intents.find((intent) => intent.intent_display_name === 'human_handoff');
+      assert(handoffIntent, `detail should include human handoff intent for ${template._id}`);
+      assert(
+        !handoffIntent.answer.includes('\\agent'),
+        `${template._id}: human handoff answer should not leak routing commands to the user`
+      );
+      assert(
+        handoffIntent.actions.some((action) => action._tdActionType === 'agent'),
+        `${template._id}: human handoff action should trigger Tiledesk agent routing`
+      );
+
       detail.intents
         .filter((intent) => /^[0-9]+$/.test(intent.question || ''))
         .forEach((intent) => {

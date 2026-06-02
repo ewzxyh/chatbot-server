@@ -268,6 +268,12 @@ function textButton(value) {
   };
 }
 
+function agentAction() {
+  return {
+    _tdActionType: 'agent'
+  };
+}
+
 function messageAction(text, buttons) {
   const message = {
     type: 'text',
@@ -299,14 +305,19 @@ function messageAction(text, buttons) {
   };
 }
 
-function intent({ id, name, question, answer, buttons, aliases, x, y }) {
+function intent({ id, name, question, answer, buttons, aliases, handoff, x, y }) {
+  const actions = [messageAction(answer, buttons)];
+  if (handoff) {
+    actions.push(agentAction());
+  }
+
   const item = {
     webhook_enabled: false,
     enabled: true,
     intent_id: id,
     intent_display_name: name,
     answer,
-    actions: [messageAction(answer, buttons)],
+    actions,
     attributes: {
       position: { x, y },
       aliases: aliases || []
@@ -485,6 +496,7 @@ const WHATSAPP_MENU_BASIC = createTemplate({
       question: '2',
       aliases: ['Falar atendente', 'Atendente'],
       answer: 'Certo, vou chamar uma atendente. Enquanto isso, descreva em uma mensagem o que voce precisa.',
+      handoff: true,
       x: 760,
       y: 360
     })
@@ -594,6 +606,7 @@ const ECOMMERCE_ORDERS = createTemplate({
       question: '3',
       aliases: ['Atendente', 'Falar com atendente'],
       answer: 'Certo, vou chamar uma atendente. Descreva sua duvida em uma mensagem para agilizar o atendimento.',
+      handoff: true,
       x: 940,
       y: 360
     })
@@ -703,6 +716,7 @@ const CLINIC_SCHEDULING = createTemplate({
       question: '3',
       aliases: ['Recepcao', 'Falar com recepcao'],
       answer: 'Certo, vou chamar a recepcao. Descreva em uma mensagem o que voce precisa.',
+      handoff: true,
       x: 940,
       y: 360
     })
@@ -822,6 +836,7 @@ const RESTAURANT_DELIVERY = createTemplate({
       question: '4',
       aliases: ['Atendente', 'Falar com atendente'],
       answer: 'Certo, vou chamar uma atendente. Descreva em uma mensagem o que voce precisa.',
+      handoff: true,
       x: 1020,
       y: 360
     })
@@ -941,6 +956,7 @@ const REAL_ESTATE_LEADS = createTemplate({
       question: '4',
       aliases: ['Corretor', 'Falar com corretor'],
       answer: 'Certo, vou chamar um corretor. Descreva em uma mensagem o que voce procura.',
+      handoff: true,
       x: 1020,
       y: 360
     })
@@ -1059,6 +1075,7 @@ const EDUCATION_COURSES = createTemplate({
       question: '4',
       aliases: ['Consultor', 'Falar com consultor'],
       answer: 'Certo, vou chamar um consultor. Descreva em uma mensagem sua duvida.',
+      handoff: true,
       x: 1020,
       y: 360
     })
