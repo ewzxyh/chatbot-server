@@ -27,6 +27,7 @@ var billingLifecycleService = require('../services/billingLifecycleService');
 var auditService = require('../services/auditService');
 var privacyService = require('../services/privacyService');
 var privacyRetentionService = require('../services/privacyRetentionService');
+var chat21GroupRepairService = require('../services/chat21GroupRepairService');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
 
@@ -367,6 +368,26 @@ router.post('/health/storage/test', auth, async function (req, res) {
   } catch (err) {
     winston.error('sadmin health storage test error', err);
     res.status(500).json({ error: 'Failed to test storage health' });
+  }
+});
+
+router.post('/chat21/groups/repair', auth, async function (req, res) {
+  try {
+    var body = req.body || {};
+    var service = chat21GroupRepairService.createChat21GroupRepairService();
+    var result = await service.repairRequestGroup({
+      request_id: body.request_id,
+      id_project: body.id_project || body.project_id,
+      dryRun: body.dryRun === true,
+      reconcileExisting: body.reconcileExisting !== false
+    });
+
+    res.json({ generatedAt: new Date().toISOString(), result: result });
+  } catch (err) {
+    winston.error('sadmin chat21 group repair error', err);
+    res.status(err.status || err.statusCode || 500).json({
+      error: err.message || 'Failed to repair Chat21 group'
+    });
   }
 });
 
