@@ -1023,6 +1023,17 @@ describe('OperationalRoute', function() {
     expect(res.body.result).to.have.property('release');
   });
 
+  it('accepts a custom manual Sentry test title and fingerprint', async function() {
+    var res = await postAsSuperAdmin('/sadmin/sentry/test', adminEmail, pwd, {
+      title: 'ChatCase manual Sentry custom validation',
+      fingerprint: 'chatcase-custom-sentry-validation'
+    });
+
+    res.should.have.status(200);
+    expect(res.body.result.title).to.equal('ChatCase manual Sentry custom validation');
+    expect(res.body.result.fingerprint).to.equal('chatcase-custom-sentry-validation');
+  });
+
   it('adds channel health alerts to summary', async function() {
     var integration = await Integration.create({
       id_project: 'operation-casezap-summary',

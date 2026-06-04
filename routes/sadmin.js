@@ -119,6 +119,23 @@ function buildNotificationTestAlert(req) {
   };
 }
 
+function normalizeSentryTestValue(value, fallback, maxLength) {
+  if (typeof value !== 'string') return fallback;
+  var trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return trimmed.slice(0, maxLength);
+}
+
+function buildSentryTestOptions(req) {
+  var body = req.body || {};
+  var title = normalizeSentryTestValue(body.title, 'ChatCase manual Sentry test event', 160);
+  var fingerprint = normalizeSentryTestValue(body.fingerprint, 'chatcase-manual-sentry-test', 120);
+  return {
+    title: title,
+    fingerprint: fingerprint
+  };
+}
+
 async function recordNotificationTest(status, result, error, req) {
   await operationalLogger.record({
     level: status === 'failed' ? 'warn' : 'info',
@@ -788,6 +805,7 @@ router.post('/operational-alerts/test-notification', auth, async function (req, 
 
 router.post('/sentry/test', auth, async function (req, res) {
   var sentryMetadata = sentryService.metadata ? sentryService.metadata() : {};
+  var testOptions = buildSentryTestOptions(req);
   if (!sentryService.isInitialized()) {
     return res.json({
       generatedAt: new Date().toISOString(),
@@ -795,19 +813,21 @@ router.post('/sentry/test', auth, async function (req, res) {
         status: 'skipped',
         enabled: sentryService.isEnabled(),
         initialized: false,
-        reason: 'sentry_not_configured'
+        reason: 'sentry_not_configured',
+        title: testOptions.title,
+        fingerprint: testOptions.fingerprint
       }, sentryMetadata)
     });
   }
 
-  var err = new Error('ChatCase manual Sentry test event');
+  var err = new Error(testOptions.title);
   sentryService.captureException(err, {
     tags: {
       area: 'operation',
       channel: 'system',
       source: 'superadmin_manual_test'
     },
-    fingerprint: ['chatcase-manual-sentry-test']
+    fingerprint: [testOptions.fingerprint]
   });
   var flushed = await sentryService.flush(2000);
 
@@ -820,7 +840,9 @@ router.post('/sentry/test', auth, async function (req, res) {
       flushed: flushed,
       environment: sentryMetadata.environment,
       release: sentryMetadata.release,
-      serverName: sentryMetadata.serverName
+      serverName: sentryMetadata.serverName,
+      title: testOptions.title,
+      fingerprint: testOptions.fingerprint
     }
   });
 });
