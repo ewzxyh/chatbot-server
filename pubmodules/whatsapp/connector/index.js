@@ -1787,17 +1787,18 @@ router.get("/direct/tiledesk", async (req, res) => {
   );
   winston.verbose("(wab) whatsappJsonMessage", whatsappJsonMessage);
 
-  twClient.sendMessage(phone_number_id, whatsappJsonMessage).then((response) => {
+  try {
+    const response = await twClient.sendMessage(phone_number_id, whatsappJsonMessage);
     winston.verbose(
       "(wab) Message sent to WhatsApp! " +
       response.status +
       " " +
       response.statusText
     );
-  }).catch((err) => {
+  } catch (err) {
     //winston.error("(wab) error send message: ", err);
     return res.status(400).send({ success: false, error: err });
-  });
+  }
 
   res.status(200).send("Message sent");
 });
