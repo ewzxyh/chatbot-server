@@ -28,11 +28,17 @@ function verifyWebhookSignature(req) {
     return false;
   }
 
-  const signature = rawSignature.replace(/^sha256=/, '');
-  const payload = JSON.stringify(req.body);
-  const expected = crypto.createHmac('sha256', WEBHOOK_SECRET).update(payload).digest('hex');
+  const signature = (Array.isArray(rawSignature) ? rawSignature[0] : rawSignature).replace(/^sha256=/, '');
+  if (!/^[a-f0-9]+$/i.test(signature)) return false;
 
-  return signature === expected;
+  const payload = req.rawBody || JSON.stringify(req.body || {});
+  const expected = crypto.createHmac('sha256', WEBHOOK_SECRET).update(payload).digest('hex');
+  const signatureBuffer = Buffer.from(signature, 'hex');
+  const expectedBuffer = Buffer.from(expected, 'hex');
+
+  if (signatureBuffer.length !== expectedBuffer.length) return false;
+
+  return crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
 }
 var { getPlan, getAllPlans } = require('./plans');
 
@@ -477,5 +483,7 @@ router.get('/history/:projectId',
     }
   }
 );
+
+router._verifyWebhookSignature = verifyWebhookSignature;
 
 module.exports = router;
