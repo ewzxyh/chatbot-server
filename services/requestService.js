@@ -50,6 +50,10 @@ class RequestService {
     return process.env.CHATCASE_AUTO_ASSIGN_SOLE_AGENT !== 'false';
   }
 
+  shouldSkipDepartmentBot(request) {
+    return Boolean(request && request.skipDepartmentBot === true);
+  }
+
   resolveOperatorsForAssignment(result) {
     if (!result) {
       return [];
@@ -522,6 +526,7 @@ class RequestService {
 
     let departmentid = request.departmentid || 'default';
     let createdBy = request.createdBy || project_user_id || "system";
+    const skipDepartmentBot = this.shouldSkipDepartmentBot(request);
 
     // Utils and flags
     let payload;
@@ -534,7 +539,7 @@ class RequestService {
         request_id, project_user_id, lead_id, id_project,
         first_text, departmentid, sourcePage, language, userAgent, status,
         createdBy, attributes, subject, preflight, channel, location,
-        participants,tags,notes,priority,auto_close,followers,contact
+        participants,tags,notes,priority,auto_close,followers,contact,skipDepartmentBot
       }
     };
 
@@ -552,7 +557,7 @@ class RequestService {
     // Getting operators
     let result;
     try {
-      result = await departmentService.getOperators(departmentid, id_project, false, undefined, context);
+      result = await departmentService.getOperators(departmentid, id_project, skipDepartmentBot, undefined, context);
       winston.debug("Get operators result: ", result);
     } catch (err) {
       throw new Error("Error getting operators", { cause: err });
@@ -2549,7 +2554,8 @@ var requestService = new RequestService();
 if (process.env.NODE_ENV === 'test') {
   requestService.__test = {
     resolveOperatorsForAssignment: requestService.resolveOperatorsForAssignment.bind(requestService),
-    shouldAutoAssignSoleAgent: requestService.shouldAutoAssignSoleAgent.bind(requestService)
+    shouldAutoAssignSoleAgent: requestService.shouldAutoAssignSoleAgent.bind(requestService),
+    shouldSkipDepartmentBot: requestService.shouldSkipDepartmentBot.bind(requestService)
   };
 }
 

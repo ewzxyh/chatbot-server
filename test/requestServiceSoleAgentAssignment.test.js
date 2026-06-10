@@ -52,4 +52,10 @@ describe('RequestService sole agent auto assignment', function() {
 
     assert.deepStrictEqual(operators, []);
   });
+
+  it('skips department bot routing only when explicitly requested', function() {
+    assert.strictEqual(requestService.__test.shouldSkipDepartmentBot({ skipDepartmentBot: true }), true);
+    assert.strictEqual(requestService.__test.shouldSkipDepartmentBot({}), false);
+    assert.strictEqual(requestService.__test.shouldSkipDepartmentBot(null), false);
+  });
 });

@@ -437,6 +437,7 @@ async function handleWebhook(integration, req, res) {
         departmentid: defaultDept ? defaultDept._id : undefined,
         integrationId: integration._id,
         channel: { name: ChannelConstants.CASEZAP },
+        skipDepartmentBot: true,
         createdBy: leadId,
         attributes: {
           casezapPhone: mapped.phone,
