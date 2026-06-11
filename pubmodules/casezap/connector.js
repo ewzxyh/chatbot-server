@@ -103,6 +103,14 @@ function isTypingPresence(presence) {
   return value === 'composing' || value === 'recording';
 }
 
+function buildLegacyWebhookIntegrationQuery(projectId, secret) {
+  return {
+    id_project: projectId,
+    name: 'casezap',
+    'value.webhookSecret': secret
+  };
+}
+
 async function emitPresenceTyping(integration, body) {
   if (!isTypingPresence(body && body.presence)) {
     return false;
@@ -546,8 +554,8 @@ router.post('/webhook/project/:project_id', async function(req, res) {
   winston.warn('CaseZap: legacy webhook route used for project ' + projectId);
 
   try {
-    var integration = await Integration.findOne({ id_project: projectId, name: 'casezap' });
-    if (!integration || !integration.value || integration.value.webhookSecret !== secret) {
+    var integration = await Integration.findOne(buildLegacyWebhookIntegrationQuery(projectId, secret));
+    if (!integration || !integration.value) {
       winston.warn('CaseZap webhook: invalid secret for project ' + projectId);
       recordOperation({
         level: 'warn',
@@ -862,6 +870,7 @@ module.exports = {
   buildRegisterWebhookUpdate: buildRegisterWebhookUpdate,
   isInternalOutboundMessage: isInternalOutboundMessage,
   isTypingPresence: isTypingPresence,
+  buildLegacyWebhookIntegrationQuery: buildLegacyWebhookIntegrationQuery,
   extractConnectionStatus: extractConnectionStatus,
   mapConnectionHealth: mapConnectionHealth,
   mapConnectionStatus: mapConnectionStatus,

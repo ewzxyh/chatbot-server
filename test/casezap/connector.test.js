@@ -4,6 +4,7 @@ process.env.LOG_LEVEL = 'critical';
 const assert = require('assert');
 
 const {
+  buildLegacyWebhookIntegrationQuery,
   buildRegisterWebhookUpdate,
   isInternalOutboundMessage,
   isTypingPresence,
@@ -12,6 +13,14 @@ const {
 } = require('../../pubmodules/casezap/connector');
 
 describe('CaseZap connector', function() {
+  it('resolves legacy project webhooks by secret so multiple instances can coexist', function() {
+    assert.deepStrictEqual(buildLegacyWebhookIntegrationQuery('project-1', 'secret-markus'), {
+      id_project: 'project-1',
+      name: 'casezap',
+      'value.webhookSecret': 'secret-markus'
+    });
+  });
+
   it('does not mark an instance active just because the webhook was registered', function() {
     const update = buildRegisterWebhookUpdate({ value: {} }, 'secret-1');
 
