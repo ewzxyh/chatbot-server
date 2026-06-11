@@ -348,18 +348,26 @@ router.post('/webhook', async function (req, res) {
       return res.status(200).json({ ok: true, ignored: true });
     }
 
-    await SubscriptionPayment.create({
-      mandate_id: paymentRequestId,
-      project_id: project._id,
-      plan_name: project.profile.pendingPlan || project.profile.name,
-      event_type: event,
-      event_id: eventId,
-      status,
-      amount,
-      provider: 'casepay',
-      external_status: status,
-      object: req.body
-    });
+    try {
+      await SubscriptionPayment.create({
+        mandate_id: paymentRequestId,
+        project_id: project._id,
+        plan_name: project.profile.pendingPlan || project.profile.name,
+        event_type: event,
+        event_id: eventId,
+        status,
+        amount,
+        provider: 'casepay',
+        external_status: status,
+        object: req.body
+      });
+    } catch (err) {
+      if (err && err.code === 11000) {
+        winston.info(`CasePay webhook already processed during concurrent delivery: ${eventId}`);
+        return res.status(200).json({ ok: true, duplicate: true });
+      }
+      throw err;
+    }
 
     if (event === 'payment_request/updated') {
       if (status === 'AUTHORIZED' || status === 'active') {
