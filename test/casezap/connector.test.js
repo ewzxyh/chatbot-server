@@ -6,6 +6,7 @@ const assert = require('assert');
 const {
   buildLegacyWebhookIntegrationQuery,
   buildRegisterWebhookUpdate,
+  ensureCaseZapChat21Group,
   isInternalOutboundMessage,
   isTypingPresence,
   mapConnectionHealth,
@@ -21,13 +22,48 @@ describe('CaseZap connector', function() {
     });
   });
 
-  it('does not mark an instance active just because the webhook was registered', function() {
+  it('keeps the current instance status when webhook registration is refreshed', function() {
+    const update = buildRegisterWebhookUpdate({ value: { status: 'active' } }, 'secret-1');
+
+    assert.deepStrictEqual(update, {
+      'value.webhookSecret': 'secret-1'
+    });
+  });
+
+  it('marks new webhook registration as pending until health check confirms state', function() {
     const update = buildRegisterWebhookUpdate({ value: {} }, 'secret-1');
 
     assert.deepStrictEqual(update, {
       'value.webhookSecret': 'secret-1',
-      'value.status': 'disconnected'
+      'value.status': 'pending'
     });
+  });
+
+  it('repairs the Chat21 group before the first CaseZap message is sent', async function() {
+    const calls = [];
+
+    const result = await ensureCaseZapChat21Group(
+      'support-group-project-1-request-1',
+      'project-1',
+      {
+        integrationId: 'integration-1',
+        messageId: 'message-1'
+      },
+      {
+        chat21GroupRepair: {
+          repairRequestGroup: async function(payload) {
+            calls.push(payload);
+            return { status: 'created' };
+          }
+        }
+      }
+    );
+
+    assert.deepStrictEqual(calls, [{
+      request_id: 'support-group-project-1-request-1',
+      id_project: 'project-1'
+    }]);
+    assert.deepStrictEqual(result, { status: 'created' });
   });
 
   it('maps current UazApi connected payloads to active', function() {

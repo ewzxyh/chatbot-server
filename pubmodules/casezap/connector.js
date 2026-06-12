@@ -18,6 +18,7 @@ var User = require('../../models/user');
 var leadService = require('../../services/leadService');
 var requestService = require('../../services/requestService');
 var messageService = require('../../services/messageService');
+var chat21GroupRepairService = require('../../services/chat21GroupRepairService');
 var messageEvent = require('../../event/messageEvent');
 var integrationEvent = require('../../event/integrationEvent');
 var mediaStorage = require('./mediaStorage');
@@ -32,6 +33,7 @@ var tdCache = null;
 var chat21AdminToken = process.env.CHAT21_ADMIN_TOKEN || chat21Config.adminToken;
 var chat21MessagesConnection = null;
 var Chat21Message = null;
+var defaultChat21GroupRepair = chat21GroupRepairService.createChat21GroupRepairService();
 
 function setRedisClient(redisClient) {
   tdCache = redisClient;
@@ -72,6 +74,40 @@ function userFullname(user) {
   if (!user) return '';
   var fullname = [user.firstname, user.lastname].filter(Boolean).join(' ').trim();
   return fullname || user.fullname || user.email || '';
+}
+
+async function ensureCaseZapChat21Group(requestId, projectId, context, services) {
+  var repairService = services && services.chat21GroupRepair ? services.chat21GroupRepair : defaultChat21GroupRepair;
+  try {
+    var result = await repairService.repairRequestGroup({
+      request_id: requestId,
+      id_project: projectId
+    });
+
+    recordOperation({
+      id_project: projectId,
+      integrationId: context && context.integrationId,
+      requestId: requestId,
+      messageId: context && context.messageId,
+      event: 'webhook.chat21_group_ready',
+      status: 'success',
+      details: { repairStatus: result && result.status }
+    });
+
+    return result;
+  } catch (err) {
+    recordOperation({
+      level: 'error',
+      id_project: projectId,
+      integrationId: context && context.integrationId,
+      requestId: requestId,
+      messageId: context && context.messageId,
+      event: 'webhook.chat21_group_ready',
+      status: 'failed',
+      errorMessage: err.message
+    });
+    throw err;
+  }
 }
 
 async function resolveExternalFromMeSender(integration, request) {
@@ -431,12 +467,14 @@ async function handleWebhook(integration, req, res) {
     }).sort({ createdAt: -1 });
 
     var requestId;
+    var newRequest;
+    var requestCreated = false;
     if (existingRequest) {
       requestId = existingRequest.request_id;
     } else {
       requestId = 'support-group-' + projectId + '-' + uuidv4();
       var defaultDept = await Department.findOne({ id_project: projectId, default: true });
-      var newRequest = {
+      newRequest = {
         request_id: requestId,
         id_project: projectId,
         lead_id: lead._id,
@@ -453,6 +491,7 @@ async function handleWebhook(integration, req, res) {
         }
       };
       await requestService.create(newRequest);
+      requestCreated = true;
     }
 
     var sender = leadId;
@@ -469,6 +508,13 @@ async function handleWebhook(integration, req, res) {
       senderFullname = fromMeSender.fullname;
       messageAttributes.casezapFromMe = true;
       messageAttributes.casezapExternalFromMe = true;
+    }
+
+    if (requestCreated) {
+      await ensureCaseZapChat21Group(requestId, projectId, {
+        integrationId: integrationId,
+        messageId: mapped.messageId
+      });
     }
 
     await messageService.send(
@@ -768,10 +814,11 @@ async function registerWebhook(integration, baseUrl) {
 }
 
 function buildRegisterWebhookUpdate(integration, webhookSecret) {
-  return {
-    'value.webhookSecret': webhookSecret,
-    'value.status': 'disconnected'
-  };
+  var update = { 'value.webhookSecret': webhookSecret };
+  if (!integration || !integration.value || !integration.value.status) {
+    update['value.status'] = 'pending';
+  }
+  return update;
 }
 
 async function cleanupWebhook(integrationId, domain, token, baseUrl) {
@@ -868,6 +915,7 @@ module.exports = {
   setupIntegrationListener: setupIntegrationListener,
   registerWebhook: registerWebhook,
   buildRegisterWebhookUpdate: buildRegisterWebhookUpdate,
+  ensureCaseZapChat21Group: ensureCaseZapChat21Group,
   isInternalOutboundMessage: isInternalOutboundMessage,
   isTypingPresence: isTypingPresence,
   buildLegacyWebhookIntegrationQuery: buildLegacyWebhookIntegrationQuery,
