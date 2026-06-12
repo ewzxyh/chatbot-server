@@ -29,6 +29,7 @@ var chat21Config = require('../../channels/chat21/chat21Config');
 var DEDUP_TTL = 3600;
 var DEDUP_PREFIX = 'czdedup:';
 var localCache = new LRU({ max: 10000, maxAge: 1000 * 60 * 60 });
+var chat21GroupReadyCache = new LRU({ max: 10000, maxAge: 1000 * 60 * 30 });
 var tdCache = null;
 var chat21AdminToken = process.env.CHAT21_ADMIN_TOKEN || chat21Config.adminToken;
 var chat21MessagesConnection = null;
@@ -77,12 +78,19 @@ function userFullname(user) {
 }
 
 async function ensureCaseZapChat21Group(requestId, projectId, context, services) {
+  var cacheKey = projectId + ':' + requestId;
+  if (chat21GroupReadyCache.has(cacheKey)) {
+    return { status: 'cached' };
+  }
+
   var repairService = services && services.chat21GroupRepair ? services.chat21GroupRepair : defaultChat21GroupRepair;
   try {
     var result = await repairService.repairRequestGroup({
       request_id: requestId,
       id_project: projectId
     });
+
+    chat21GroupReadyCache.set(cacheKey, true);
 
     recordOperation({
       id_project: projectId,
@@ -468,7 +476,6 @@ async function handleWebhook(integration, req, res) {
 
     var requestId;
     var newRequest;
-    var requestCreated = false;
     if (existingRequest) {
       requestId = existingRequest.request_id;
     } else {
@@ -491,7 +498,6 @@ async function handleWebhook(integration, req, res) {
         }
       };
       await requestService.create(newRequest);
-      requestCreated = true;
     }
 
     var sender = leadId;
@@ -510,12 +516,10 @@ async function handleWebhook(integration, req, res) {
       messageAttributes.casezapExternalFromMe = true;
     }
 
-    if (requestCreated) {
-      await ensureCaseZapChat21Group(requestId, projectId, {
-        integrationId: integrationId,
-        messageId: mapped.messageId
-      });
-    }
+    await ensureCaseZapChat21Group(requestId, projectId, {
+      integrationId: integrationId,
+      messageId: mapped.messageId
+    });
 
     await messageService.send(
       sender,

@@ -66,6 +66,38 @@ describe('CaseZap connector', function() {
     assert.deepStrictEqual(result, { status: 'created' });
   });
 
+  it('does not repair the same CaseZap Chat21 group repeatedly in the same process', async function() {
+    const calls = [];
+    const services = {
+      chat21GroupRepair: {
+        repairRequestGroup: async function(payload) {
+          calls.push(payload);
+          return { status: 'created' };
+        }
+      }
+    };
+
+    const first = await ensureCaseZapChat21Group(
+      'support-group-project-1-cached-request',
+      'project-1',
+      { integrationId: 'integration-1', messageId: 'message-1' },
+      services
+    );
+    const second = await ensureCaseZapChat21Group(
+      'support-group-project-1-cached-request',
+      'project-1',
+      { integrationId: 'integration-1', messageId: 'message-2' },
+      services
+    );
+
+    assert.deepStrictEqual(calls, [{
+      request_id: 'support-group-project-1-cached-request',
+      id_project: 'project-1'
+    }]);
+    assert.deepStrictEqual(first, { status: 'created' });
+    assert.deepStrictEqual(second, { status: 'cached' });
+  });
+
   it('maps current UazApi connected payloads to active', function() {
     const status = mapConnectionStatus({
       EventType: 'connection',
