@@ -279,7 +279,12 @@ async function applyPollUpdate(projectId, integration, mapped) {
 function extractConnectionStatus(body) {
   var rawStatus = body && (
     (body.data && body.data.state) ||
+    (body.data && body.data.status) ||
+    (body.data && body.data.connection) ||
     (body.instance && body.instance.status) ||
+    (body.instance && body.instance.state) ||
+    (body.connection && body.connection.status) ||
+    (body.connection && body.connection.state) ||
     body.status
   );
   return rawStatus ? String(rawStatus).toLowerCase() : '';
@@ -287,13 +292,20 @@ function extractConnectionStatus(body) {
 
 function mapConnectionStatus(body) {
   var rawStatus = extractConnectionStatus(body);
-  return (rawStatus === 'open' || rawStatus === 'connected') ? 'active' : 'disconnected';
+  if (['active', 'open', 'connected', 'online', 'ready', 'authenticated'].includes(rawStatus)) {
+    return 'active';
+  }
+  if (['banned', 'bannedm', 'close', 'closed', 'disconnected', 'logout', 'logged_out', 'offline', 'removed', 'unauthenticated'].includes(rawStatus)) {
+    return 'disconnected';
+  }
+  return null;
 }
 
 function mapConnectionHealth(rawStatus, connectionStatus) {
   if (connectionStatus === 'active') return 'ok';
+  if (connectionStatus === 'disconnected') return 'down';
   if (rawStatus === 'connecting' || rawStatus === 'pending' || rawStatus === 'qr') return 'degraded';
-  return 'down';
+  return 'unknown';
 }
 
 async function handleWebhook(integration, req, res) {
@@ -328,15 +340,16 @@ async function handleWebhook(integration, req, res) {
     if (body.EventType === 'connection') {
       var newStatus = mapConnectionStatus(body);
       var rawStatus = extractConnectionStatus(body);
-      await Integration.findByIdAndUpdate(integration._id, {
-        $set: {
-          'value.status': newStatus,
-          'value.operational.lastProviderCheckAt': new Date().toISOString(),
-          'value.operational.lastProviderStatus': rawStatus || newStatus,
-          'value.operational.lastProviderHealth': mapConnectionHealth(rawStatus, newStatus),
-          'value.operational.lastProviderReason': rawStatus ? 'webhook_connection_' + rawStatus : 'webhook_connection'
-        }
-      });
+      var connectionSet = {
+        'value.operational.lastProviderCheckAt': new Date().toISOString(),
+        'value.operational.lastProviderStatus': rawStatus || newStatus || 'unknown',
+        'value.operational.lastProviderHealth': mapConnectionHealth(rawStatus, newStatus),
+        'value.operational.lastProviderReason': rawStatus ? 'webhook_connection_' + rawStatus : 'webhook_connection'
+      };
+      if (newStatus) {
+        connectionSet['value.status'] = newStatus;
+      }
+      await Integration.findByIdAndUpdate(integration._id, { $set: connectionSet });
       winston.info('CaseZap connection event: integration ' + integration._id + ' status=' + newStatus);
       recordOperation({
         id_project: projectId,

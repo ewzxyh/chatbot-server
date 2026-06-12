@@ -23,6 +23,22 @@ function sanitizeIntegrations(integrations) {
     return integrations.map(sanitizeIntegration);
 }
 
+function buildIntegrationUpdate(existingIntegration, body) {
+    let update = {};
+    if (body.name != undefined) {
+        update.name = body.name;
+    }
+    if (body.value != undefined) {
+        let integrationName = body.name || (existingIntegration && existingIntegration.name);
+        if (integrationName === 'casezap') {
+            update.value = Object.assign({}, (existingIntegration && existingIntegration.value) || {}, body.value);
+        } else {
+            update.value = body.value;
+        }
+    }
+    return update;
+}
+
 // Get all integration for a project id
 router.get('/', async (req, res) => {
 
@@ -248,32 +264,33 @@ router.put('/:integration_id', async (req, res) => {
     let id_project = req.projectid;
     let integration_id = req.params.integration_id;
     
-    let update = {};
-    if (req.body.name != undefined) {
-        update.name = req.body.name;
-    }
-    if (req.body.value != undefined) {
-        update.value = req.body.value
-    }
-
-    Integration.findOneAndUpdate({ _id: integration_id, id_project: id_project }, update, { new: true }, (err, savedIntegration) => {
+    Integration.findOne({ _id: integration_id, id_project: id_project }, (err, existingIntegration) => {
         if (err) {
-            winston.error("Error find by id and update integration: ", err);
+            winston.error("Error find by id integration: ", err);
             return res.status(500).send({ success: false, error: err })
         }
-        if (!savedIntegration) {
+        if (!existingIntegration) {
             return res.status(404).send({ success: false, error: 'Integration not found in this project' })
         }
 
-        Integration.find({ id_project: id_project }, (err, integrations) => {
-            if (err) {
-                winston.error("Error getting all integrations");
-            } else {
-                integrationEvent.emit('integration.update', integrations, id_project);
-            }
-        })
+        let update = buildIntegrationUpdate(existingIntegration, req.body);
 
-        res.status(200).send(sanitizeIntegration(savedIntegration));
+        Integration.findOneAndUpdate({ _id: integration_id, id_project: id_project }, update, { new: true }, (err, savedIntegration) => {
+            if (err) {
+                winston.error("Error find by id and update integration: ", err);
+                return res.status(500).send({ success: false, error: err })
+            }
+
+            Integration.find({ id_project: id_project }, (err, integrations) => {
+                if (err) {
+                    winston.error("Error getting all integrations");
+                } else {
+                    integrationEvent.emit('integration.update', integrations, id_project);
+                }
+            })
+
+            res.status(200).send(sanitizeIntegration(savedIntegration));
+        })
     })
 })
 
@@ -304,5 +321,8 @@ router.delete('/:integration_id', async (req, res) => {
     })
 })
 
+router.__test = {
+    buildIntegrationUpdate
+};
 
 module.exports = router;

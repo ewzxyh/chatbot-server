@@ -123,8 +123,13 @@ describe('CaseZap connector', function() {
     assert.strictEqual(mapConnectionStatus({ instance: { status: 'banned' } }), 'disconnected');
   });
 
+  it('does not map unknown connection payloads to disconnected', function() {
+    assert.strictEqual(mapConnectionStatus({ status: 'server_starting' }), null);
+    assert.strictEqual(mapConnectionStatus({ data: { connection: 'connecting' } }), null);
+  });
+
   it('keeps connecting provider status degraded instead of healthy', function() {
-    assert.strictEqual(mapConnectionHealth('connecting', 'disconnected'), 'degraded');
+    assert.strictEqual(mapConnectionHealth('connecting', null), 'degraded');
     assert.strictEqual(mapConnectionHealth('bannedm', 'disconnected'), 'down');
   });
 
