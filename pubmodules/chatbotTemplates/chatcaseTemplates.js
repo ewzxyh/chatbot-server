@@ -127,7 +127,7 @@ function getDefaultChannel(template) {
   const explicitChannel = normalizeChannel(attributes.targetChannel || attributes.selectedChannel);
   const availableChannels = unique(attributes.availableChannels || Object.keys(attributes.channelCompatibility || {}));
 
-  if (explicitChannel && explicitChannel !== 'all' && templateSupportsChannel(enriched, explicitChannel)) {
+  if (isExplicitChannelScope(attributes) && explicitChannel && explicitChannel !== 'all' && templateSupportsChannel(enriched, explicitChannel)) {
     return explicitChannel;
   }
 
@@ -136,6 +136,15 @@ function getDefaultChannel(template) {
   }
 
   return availableChannels.length > 1 ? 'all' : '';
+}
+
+function isExplicitChannelScope(attributes) {
+  return !!attributes && (
+    attributes.channelScopeMode === 'exclusive' ||
+    attributes.channelScope === 'exclusive' ||
+    attributes.exclusiveChannel === true ||
+    attributes.isChannelExclusive === true
+  );
 }
 
 function templateSupportsChannel(template, channel) {
@@ -227,11 +236,16 @@ function prepareTemplateForChannel(template, channel) {
   if (!normalizedChannel || normalizedChannel === 'all') {
     delete prepared.attributes.targetChannel;
     delete prepared.attributes.selectedChannel;
+    delete prepared.attributes.channelScopeMode;
+    delete prepared.attributes.channelScope;
+    delete prepared.attributes.exclusiveChannel;
+    delete prepared.attributes.isChannelExclusive;
     return prepared;
   }
 
   prepared.attributes.targetChannel = normalizedChannel;
   prepared.attributes.selectedChannel = normalizedChannel;
+  prepared.attributes.channelScopeMode = 'exclusive';
 
   if (prepared.attributes.publication) {
     const publication = Object.assign({}, prepared.attributes.publication);

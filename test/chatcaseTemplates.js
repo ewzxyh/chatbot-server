@@ -114,6 +114,7 @@ describe('ChatCase chatbot templates', () => {
       assert.strictEqual(chatcaseTemplates.getDefaultChannel(template), 'casezap');
       assert.strictEqual(template.attributes.targetChannel, 'casezap');
       assert.strictEqual(template.attributes.selectedChannel, 'casezap');
+      assert.strictEqual(template.attributes.channelScopeMode, 'exclusive');
       assert.deepStrictEqual(template.attributes.channels, ['casezap']);
       assert.deepStrictEqual(template.attributes.availableChannels, ['casezap']);
       assert.deepStrictEqual(Object.keys(template.attributes.channelCompatibility), ['casezap']);
@@ -127,6 +128,7 @@ describe('ChatCase chatbot templates', () => {
     const wabaPayload = chatcaseTemplates.getTemplatePayloadById(casezapTemplates[0]._id, { channel: 'waba' });
     assert.strictEqual(chatcaseTemplates.getDefaultChannel(wabaPayload), 'waba');
     assert.strictEqual(wabaPayload.attributes.targetChannel, 'waba');
+    assert.strictEqual(wabaPayload.attributes.channelScopeMode, 'exclusive');
     assert.deepStrictEqual(wabaPayload.attributes.channels, ['waba']);
     assert.deepStrictEqual(wabaPayload.attributes.availableChannels, ['waba']);
     assert.deepStrictEqual(Object.keys(wabaPayload.attributes.channelCompatibility), ['waba']);
@@ -149,15 +151,18 @@ describe('ChatCase chatbot templates', () => {
     mixedTemplate.attributes.selectedChannel = 'casezap';
     mixedTemplate.intents[0].actions.push({ _tdActionType: 'whatsapp_static', attributes: { templateName: 'legacy_waba' } });
 
+    assert.strictEqual(chatcaseTemplates.getDefaultChannel(mixedTemplate), 'all', 'legacy targetChannel alone should not scope a multichannel template');
     assert.strictEqual(chatcaseTemplates.templateSupportsChannel({ attributes: { channels: ['CaseZap'] } }, 'casezap'), true);
     assert.strictEqual(chatcaseTemplates.templateSupportsChannel({ attributes: { channels: ['Telegram'] } }, 'telegram'), true);
 
     const preparedAll = chatcaseTemplates.prepareTemplateForChannel(mixedTemplate, 'all');
     assert.strictEqual(preparedAll.attributes.targetChannel, undefined, 'multichannel import should not keep stale targetChannel');
     assert.strictEqual(preparedAll.attributes.selectedChannel, undefined, 'multichannel import should not keep stale selectedChannel');
+    assert.strictEqual(preparedAll.attributes.channelScopeMode, undefined, 'multichannel import should not keep stale channelScopeMode');
     assert.strictEqual(chatcaseTemplates.getDefaultChannel(preparedAll), 'all');
 
     const preparedCasezap = chatcaseTemplates.prepareTemplateForChannel(mixedTemplate, 'casezap');
+    assert.strictEqual(preparedCasezap.attributes.channelScopeMode, 'exclusive');
     assert.deepStrictEqual(preparedCasezap.attributes.channels, ['casezap']);
     assert.deepStrictEqual(Object.keys(preparedCasezap.attributes.channelCompatibility), ['casezap']);
     assert(!preparedCasezap.intents[0].actions.some((action) => action._tdActionType === 'whatsapp_static'), 'casezap scoped import should strip WABA-only actions');
