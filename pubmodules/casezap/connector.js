@@ -18,6 +18,7 @@ var User = require('../../models/user');
 var leadService = require('../../services/leadService');
 var requestService = require('../../services/requestService');
 var messageService = require('../../services/messageService');
+var departmentService = require('../../services/departmentService');
 var chat21GroupRepairService = require('../../services/chat21GroupRepairService');
 var messageEvent = require('../../event/messageEvent');
 var integrationEvent = require('../../event/integrationEvent');
@@ -493,7 +494,11 @@ async function handleWebhook(integration, req, res) {
       requestId = existingRequest.request_id;
     } else {
       requestId = 'support-group-' + projectId + '-' + uuidv4();
-      var defaultDept = await Department.findOne({ id_project: projectId, default: true });
+      var boundDept = await departmentService.getDepartmentByChannelBinding(projectId, ChannelConstants.CASEZAP, [
+        integration._id,
+        integration.value && integration.value.number
+      ]);
+      var defaultDept = boundDept || await Department.findOne({ id_project: projectId, default: true });
       newRequest = {
         request_id: requestId,
         id_project: projectId,

@@ -37,6 +37,14 @@ var DepartmentSchema = new Schema({
     type: String,
   },
   groups: [GroupMemberSchema],
+  channel_bindings: {
+    provider: String,
+    instances: [{
+      id: String,
+      label: String,
+      number: String
+    }]
+  },
   // used??
   online_msg: {
     type: String,

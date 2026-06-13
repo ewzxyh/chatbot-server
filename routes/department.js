@@ -1,6 +1,7 @@
 var express = require('express');
 var router = express.Router({mergeParams: true});
 var Department = require("../models/department");
+var Integration = require("../models/integrations");
 var departmentService = require("../services/departmentService");
 
 var passport = require('passport');
@@ -13,10 +14,230 @@ var cacheUtil = require('../utils/cacheUtil');
 
 var departmentEvent = require("../event/departmentEvent");
 
+var CHANNEL_BINDING_PROVIDERS = ['casezap', 'whatsapp', 'waba'];
 
-router.post('/', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, roleChecker.hasRole('admin')], function (req, res) {
+function normalizeText(value) {
+  if (value === undefined || value === null) {
+    return '';
+  }
+
+  return String(value).trim();
+}
+
+function normalizeChannelBindingProvider(provider) {
+  var normalizedProvider = normalizeText(provider).toLowerCase();
+
+  if (normalizedProvider === 'waba') {
+    return 'whatsapp';
+  }
+
+  if (CHANNEL_BINDING_PROVIDERS.indexOf(normalizedProvider) === -1) {
+    return null;
+  }
+
+  return normalizedProvider;
+}
+
+function addCandidate(candidates, value) {
+  var candidate = normalizeText(value);
+  if (candidate && candidates.indexOf(candidate) === -1) {
+    candidates.push(candidate);
+  }
+}
+
+function sanitizePublicDepartment(department) {
+  if (!department) {
+    return department;
+  }
+
+  var plainDepartment = typeof department.toObject === 'function' ? department.toObject() : Object.assign({}, department);
+  delete plainDepartment.channel_bindings;
+  return plainDepartment;
+}
+
+function sanitizePublicDepartments(departments) {
+  return departments.map(function (department) {
+    return sanitizePublicDepartment(department);
+  });
+}
+
+function normalizeChannelBindings(channelBindings) {
+  if (!channelBindings || !channelBindings.provider || !Array.isArray(channelBindings.instances)) {
+    return null;
+  }
+
+  var provider = normalizeChannelBindingProvider(channelBindings.provider);
+  if (!provider) {
+    var providerError = new Error('Invalid channel binding provider.');
+    providerError.statusCode = 400;
+    throw providerError;
+  }
+
+  var seen = [];
+  var instances = channelBindings.instances.reduce(function (normalizedInstances, instance) {
+    if (!instance) {
+      return normalizedInstances;
+    }
+
+    var id = normalizeText(instance.id);
+    var number = normalizeText(instance.number);
+    var label = normalizeText(instance.label);
+
+    if (!id && !number) {
+      return normalizedInstances;
+    }
+
+    var candidates = [];
+    addCandidate(candidates, id);
+    addCandidate(candidates, number);
+
+    var alreadySeen = candidates.some(function (candidate) {
+      return seen.indexOf(candidate) > -1;
+    });
+
+    if (alreadySeen) {
+      return normalizedInstances;
+    }
+
+    candidates.forEach(function (candidate) {
+      addCandidate(seen, candidate);
+    });
+
+    normalizedInstances.push({
+      id: id,
+      label: label,
+      number: number
+    });
+
+    return normalizedInstances;
+  }, []);
+
+  if (!instances.length) {
+    return null;
+  }
+
+  return {
+    provider: provider,
+    instances: instances
+  };
+}
+
+function getIntegrationCandidateValues(integration) {
+  var candidates = [];
+  var value = integration.value || {};
+
+  addCandidate(candidates, integration._id);
+  addCandidate(candidates, value.number);
+  addCandidate(candidates, value.phone);
+  addCandidate(candidates, value.phone_number);
+  addCandidate(candidates, value.display_phone_number);
+  addCandidate(candidates, value.phone_number_id);
+  addCandidate(candidates, value.waba_id);
+  addCandidate(candidates, value.business_account_id);
+  addCandidate(candidates, value.instanceName);
+
+  return candidates;
+}
+
+async function getProjectChannelCandidates(projectid, provider) {
+  var integrationName = provider === 'waba' ? 'whatsapp' : provider;
+  var integrations = await Integration.find({
+    id_project: projectid,
+    name: integrationName
+  }).select('_id value').lean().exec();
+  var candidates = [];
+
+  integrations.forEach(function (integration) {
+    getIntegrationCandidateValues(integration).forEach(function (candidate) {
+      addCandidate(candidates, candidate);
+    });
+  });
+
+  return candidates;
+}
+
+function ensureBindingsBelongToProject(projectCandidates, channelBindings) {
+  channelBindings.instances.forEach(function (instance) {
+    var idMatches = instance.id && projectCandidates.indexOf(instance.id) > -1;
+    var numberMatches = instance.number && projectCandidates.indexOf(instance.number) > -1;
+
+    if (!idMatches && !numberMatches) {
+      var instanceError = new Error('Channel binding instance does not belong to this project.');
+      instanceError.statusCode = 400;
+      throw instanceError;
+    }
+  });
+}
+
+async function ensureBindingsAreUnique(projectid, channelBindings, currentDepartmentId) {
+  var candidates = [];
+
+  channelBindings.instances.forEach(function (instance) {
+    addCandidate(candidates, instance.id);
+    addCandidate(candidates, instance.number);
+  });
+
+  if (!candidates.length) {
+    return;
+  }
+
+  var query = {
+    id_project: projectid,
+    status: 1,
+    'channel_bindings.provider': channelBindings.provider,
+    $or: [
+      { 'channel_bindings.instances.id': { $in: candidates } },
+      { 'channel_bindings.instances.number': { $in: candidates } }
+    ]
+  };
+
+  if (currentDepartmentId) {
+    query._id = { $ne: currentDepartmentId };
+  }
+
+  var existingDepartment = await Department.findOne(query).select('_id name').lean().exec();
+  if (existingDepartment) {
+    var duplicateError = new Error('Channel binding instance already belongs to another department.');
+    duplicateError.statusCode = 409;
+    throw duplicateError;
+  }
+}
+
+async function validateChannelBindings(projectid, channelBindings, currentDepartmentId) {
+  var normalizedBindings = normalizeChannelBindings(channelBindings);
+
+  if (!normalizedBindings) {
+    return null;
+  }
+
+  var projectCandidates = await getProjectChannelCandidates(projectid, normalizedBindings.provider);
+  ensureBindingsBelongToProject(projectCandidates, normalizedBindings);
+  await ensureBindingsAreUnique(projectid, normalizedBindings, currentDepartmentId);
+
+  return normalizedBindings;
+}
+
+function sendChannelBindingError(res, err) {
+  var statusCode = err.statusCode || 500;
+  var message = statusCode === 500 ? 'Error validating channel bindings.' : err.message;
+
+  if (statusCode === 500) {
+    winston.error('Error validating department channel bindings ', err);
+  }
+
+  return res.status(statusCode).send({ success: false, msg: message });
+}
+
+router.post('/', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, roleChecker.hasRole('admin')], async function (req, res) {
 
   winston.debug("DEPT REQ BODY ", req.body);
+  var channelBindings;
+  try {
+    channelBindings = await validateChannelBindings(req.projectid, req.body.channel_bindings);
+  } catch (err) {
+    return sendChannelBindingError(res, err);
+  }
+
   var newDepartment = new Department({
       routing: req.body.routing,
       name: req.body.name,
@@ -25,6 +246,7 @@ router.post('/', [passport.authenticate(['basic', 'jwt'], { session: false }), v
       status: req.body.status,
       id_group: req.body.id_group,
       groups: req.body.groups,
+      channel_bindings: channelBindings,
       id_project: req.projectid,
       createdBy: req.user.id,
       updatedBy: req.user.id
@@ -49,7 +271,7 @@ router.post('/', [passport.authenticate(['basic', 'jwt'], { session: false }), v
 
 
 
-router.put('/:departmentid', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, roleChecker.hasRole('admin')], function (req, res) {
+router.put('/:departmentid', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, roleChecker.hasRole('admin')], async function (req, res) {
 
   winston.debug(req.body);
 
@@ -83,12 +305,22 @@ router.put('/:departmentid', [passport.authenticate(['basic', 'jwt'], { session:
   if (req.body.groups!=undefined) {
     update.groups = req.body.groups;
   }      
+  if (req.body.channel_bindings !== undefined) {
+    try {
+      update.channel_bindings = await validateChannelBindings(req.projectid, req.body.channel_bindings, req.params.departmentid);
+    } catch (err) {
+      return sendChannelBindingError(res, err);
+    }
+  }
 
 
-  Department.findByIdAndUpdate(req.params.departmentid, update, { new: true, upsert: true }, function (err, updatedDepartment) {
+  Department.findOneAndUpdate({ _id: req.params.departmentid, id_project: req.projectid }, update, { new: true }, function (err, updatedDepartment) {
       if (err) {
       winston.error('Error putting the department ', err);
       return res.status(500).send({ success: false, msg: 'Error updating object.' });
+      }
+      if (!updatedDepartment) {
+        return res.status(404).send({ success: false, msg: 'Object not found.' });
       }
       departmentEvent.emit('department.update', updatedDepartment);
       res.json(updatedDepartment);
@@ -96,7 +328,7 @@ router.put('/:departmentid', [passport.authenticate(['basic', 'jwt'], { session:
   });
 
 
-  router.patch('/:departmentid', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, roleChecker.hasRole('admin')], function (req, res) {
+  router.patch('/:departmentid', [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, roleChecker.hasRole('admin')], async function (req, res) {
 
     winston.debug(req.body);
   
@@ -127,12 +359,22 @@ router.put('/:departmentid', [passport.authenticate(['basic', 'jwt'], { session:
     if (req.body.groups!=undefined) {
       update.groups = req.body.groups;
     }      
+    if (req.body.channel_bindings !== undefined) {
+      try {
+        update.channel_bindings = await validateChannelBindings(req.projectid, req.body.channel_bindings, req.params.departmentid);
+      } catch (err) {
+        return sendChannelBindingError(res, err);
+      }
+    }
   
   
-    Department.findByIdAndUpdate(req.params.departmentid, update, { new: true, upsert: true }, function (err, updatedDepartment) {
+    Department.findOneAndUpdate({ _id: req.params.departmentid, id_project: req.projectid }, update, { new: true }, function (err, updatedDepartment) {
         if (err) {
         winston.error('Error patching the department ', err);
         return res.status(500).send({ success: false, msg: 'Error patching object.' });
+        }
+        if (!updatedDepartment) {
+          return res.status(404).send({ success: false, msg: 'Object not found.' });
         }
         departmentEvent.emit('department.update', updatedDepartment);
         res.json(updatedDepartment);
@@ -241,7 +483,7 @@ router.get('/:departmentid', function (req, res) {
     Department.findOne(query, function (err, department) {
       if (err) return (err);
 
-      return res.json(department);
+      return res.json(sanitizePublicDepartment(department));
     });
 
   } else {
@@ -252,7 +494,7 @@ router.get('/:departmentid', function (req, res) {
       if (!department) {
         return res.status(404).send({ success: false, msg: 'Object not found.' });
       }
-      res.json(department);
+      res.json(sanitizePublicDepartment(department));
     });
   }
 
@@ -291,7 +533,7 @@ router.get('/', function (req, res) {
         return res.status(500).send({ success: false, msg: 'Error getting the departments.', err: err });
       }
 
-      return res.json(departments);
+      return res.json(sanitizePublicDepartments(departments));
     });
   } else {
     return Department.find(query, function (err, departments) {
@@ -300,7 +542,7 @@ router.get('/', function (req, res) {
         return res.status(500).send({ success: false, msg: 'Error getting the departments.', err: err });
       }
 
-      return res.json(departments);
+      return res.json(sanitizePublicDepartments(departments));
     });
   }
 });
@@ -323,5 +565,13 @@ router.delete('/:departmentid', [passport.authenticate(['basic', 'jwt'], { sessi
   });
 });
 
+if (process.env.NODE_ENV === 'test') {
+  router._private = {
+    normalizeChannelBindings: normalizeChannelBindings,
+    ensureBindingsAreUnique: ensureBindingsAreUnique,
+    sanitizePublicDepartment: sanitizePublicDepartment,
+    sanitizePublicDepartments: sanitizePublicDepartments
+  };
+}
 
 module.exports = router;

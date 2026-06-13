@@ -601,6 +601,53 @@ getDefaultDepartment(projectid) {
   });
 }
 
+  normalizeChannelBindingCandidates(candidates) {
+    var values = Array.isArray(candidates) ? candidates : [candidates];
+    var normalized = [];
+
+    values.forEach(function (value) {
+      if (value === undefined || value === null) return;
+      var text = String(value).trim();
+      if (text && normalized.indexOf(text) === -1) {
+        normalized.push(text);
+      }
+    });
+
+    return normalized;
+  }
+
+  getChannelBindingProviders(provider) {
+    if (provider === 'whatsapp' || provider === 'waba') {
+      return ['whatsapp', 'waba'];
+    }
+    return [provider];
+  }
+
+  async getDepartmentByChannelBinding(projectid, provider, candidates) {
+    var candidateIds = this.normalizeChannelBindingCandidates(candidates);
+
+    if (!projectid || !provider || candidateIds.length === 0) {
+      return null;
+    }
+
+    var query = {
+      id_project: projectid,
+      status: 1,
+      'channel_bindings.provider': { $in: this.getChannelBindingProviders(provider) },
+      $or: [
+        { 'channel_bindings.instances.id': { $in: candidateIds } },
+        { 'channel_bindings.instances.number': { $in: candidateIds } }
+      ]
+    };
+
+    try {
+      return await Department.findOne(query).sort({ updatedAt: -1 }).exec();
+    } catch (err) {
+      winston.error('Error getting department by channel binding', err);
+      return null;
+    }
+  }
+
  getRandomAvailableOperator(project_users_available) {
 
   // console.log('-- > OPERATORS [ getRandomAvailableOperator ] - PROJECT USER AVAILABLE LENGHT ', project_users_available.length);

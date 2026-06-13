@@ -31,6 +31,8 @@ const { TemplateManager } = require("./tiledesk/TemplateManager");
 const { WhatsappLogger } = require("./tiledesk/WhatsappLogger");
 const Utils = require("./tiledesk/Utils");
 const whatsappService = require("./tiledesk/WhatsappService");
+const Integration = require("../../../models/integrations");
+const departmentService = require("../../../services/departmentService");
 const operationalLogger = require("../../../services/operationalLogger");
 const wabaTemplateCampaignService = require("../../../services/wabaTemplateCampaignService");
 
@@ -119,6 +121,61 @@ function recordWabaOperation(settings, wabaId, event) {
     id_project: settings && settings.project_id,
     integrationId: wabaId || (settings && (settings.waba_id || settings.phone_number_id))
   }, event));
+}
+
+async function resolveWabaDepartmentId(settings, messageInfo) {
+  if (!settings || !settings.project_id) {
+    return settings && settings.department_id;
+  }
+
+  const whatsapp = messageInfo && messageInfo.whatsapp ? messageInfo.whatsapp : {};
+  const candidates = [
+    whatsapp.phone_number_id,
+    whatsapp.waba_id,
+    settings.phone_number_id,
+    settings.waba_id,
+    settings.business_account_id,
+    settings.phone_number
+  ];
+  const integrationQuery = [];
+
+  if (whatsapp.phone_number_id || settings.phone_number_id) {
+    integrationQuery.push({ 'value.phone_number_id': whatsapp.phone_number_id || settings.phone_number_id });
+  }
+  if (whatsapp.waba_id) {
+    integrationQuery.push({ 'value.waba_id': whatsapp.waba_id });
+  }
+  if (settings.waba_id) {
+    integrationQuery.push({ 'value.waba_id': settings.waba_id });
+  }
+  if (settings.business_account_id) {
+    integrationQuery.push({ 'value.waba_id': settings.business_account_id });
+  }
+
+  try {
+    if (integrationQuery.length) {
+      const integration = await Integration.findOne({
+        id_project: settings.project_id,
+        name: 'whatsapp',
+        $or: integrationQuery
+      }).exec();
+
+      if (integration) {
+        candidates.push(integration._id);
+        if (integration.value) {
+          candidates.push(integration.value.phone_number_id);
+          candidates.push(integration.value.waba_id);
+          candidates.push(integration.value.phone_number);
+        }
+      }
+    }
+
+    const department = await departmentService.getDepartmentByChannelBinding(settings.project_id, 'whatsapp', candidates);
+    return department ? department._id : settings.department_id;
+  } catch (err) {
+    winston.warn("(wab) unable to resolve department by channel binding: " + (err.message || err));
+    return settings.department_id;
+  }
 }
 
 // Handlebars register helpers
@@ -783,10 +840,11 @@ router.post("/tiledesk", async (req, res) => {
       settings: settings,
       API_URL: API_URL,
     });
+    const departmentId = await resolveWabaDepartmentId(settings, message_info);
     const response = await tdChannel.send(
       tiledeskJsonMessage,
       message_info,
-      settings.department_id
+      departmentId
     );
     winston.verbose("(wab) Expiration message sent to Tiledesk");
     return res.sendStatus(200);
@@ -1046,7 +1104,8 @@ router.post('/webhook', async (req, res) => {
         winston.verbose("(wab) tiledeskJsonMessage: ", tiledeskJsonMessage);
 
         try {
-          const response = await tdChannel.send(tiledeskJsonMessage, message_info, settings.department_id);
+          const departmentId = await resolveWabaDepartmentId(settings, message_info);
+          const response = await tdChannel.send(tiledeskJsonMessage, message_info, departmentId);
           await markCampaignReplyConversionSafe(settings, whatsappChannelMessage, response);
           winston.verbose("(wab) Message sent to Tiledesk!");
           winston.debug("(wab) response: ", response);
@@ -1365,7 +1424,8 @@ router.post("/webhook/:project_id", async (req, res) => {
 
         if (tiledeskJsonMessage) {
           winston.verbose("(wab) tiledeskJsonMessage: ", tiledeskJsonMessage);
-          const response = await tdChannel.send(tiledeskJsonMessage, message_info, settings.department_id);
+          const departmentId = await resolveWabaDepartmentId(settings, message_info);
+          const response = await tdChannel.send(tiledeskJsonMessage, message_info, departmentId);
           await markCampaignReplyConversionSafe(settings, whatsappChannelMessage, response);
           winston.verbose("(wab) Message sent to Tiledesk!");
           winston.debug("(wab) response: ", response);

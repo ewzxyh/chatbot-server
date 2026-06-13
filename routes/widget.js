@@ -13,6 +13,20 @@ var pubModulesManager = require('../pubmodules/pubModulesManager');  // on const
 // console.log("pubModulesManager.cache", pubModulesManager.cache);
 const Faq_kb = require("../models/faq_kb");
 
+function stripDepartmentPrivateFields(departments) {
+  if (!Array.isArray(departments)) {
+    return departments;
+  }
+
+  departments.forEach(function (department) {
+    if (department) {
+      delete department.channel_bindings;
+    }
+  });
+
+  return departments;
+}
+
 router.get('/load', function(req, res, next) {
 
   winston.debug(req.projectid);
@@ -58,6 +72,7 @@ router.get('/', async (req, res, next) => {
       if (value) {
         winston.debug("Getted cache for widgets key: " + cacheKey + " value:", value);   
 
+        stripDepartmentPrivateFields(value.departments);
         value.ip = await getIp(); //calculate ip each time without getting it from cache 
         
         winston.debug("value",value);
@@ -170,7 +185,7 @@ router.get('/', async (req, res, next) => {
   
         winston.debug("query:", query);
   
-        Department.find(query).exec(function(err, result) {
+        Department.find(query).select('-channel_bindings').exec(function(err, result) {
               return resolve(result);
         });
       } else {        
