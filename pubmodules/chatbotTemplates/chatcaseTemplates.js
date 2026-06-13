@@ -140,8 +140,6 @@ function getDefaultChannel(template) {
 
 function isExplicitChannelScope(attributes) {
   return !!attributes && (
-    attributes.channelScopeMode === 'exclusive' ||
-    attributes.channelScope === 'exclusive' ||
     attributes.exclusiveChannel === true ||
     attributes.isChannelExclusive === true
   );
@@ -232,14 +230,23 @@ function filterChannelMetadata(prepared, channel) {
 function prepareTemplateForChannel(template, channel) {
   const normalizedChannel = normalizeChannel(channel);
   const prepared = enrichTemplate(template);
+  const isExplicitScope = isExplicitChannelScope(prepared.attributes);
 
   if (!normalizedChannel || normalizedChannel === 'all') {
+    if (!isExplicitScope) {
+      delete prepared.attributes.targetChannel;
+      delete prepared.attributes.selectedChannel;
+      delete prepared.attributes.channelScopeMode;
+      delete prepared.attributes.channelScope;
+    }
+    return prepared;
+  }
+
+  if (!isExplicitScope) {
     delete prepared.attributes.targetChannel;
     delete prepared.attributes.selectedChannel;
     delete prepared.attributes.channelScopeMode;
     delete prepared.attributes.channelScope;
-    delete prepared.attributes.exclusiveChannel;
-    delete prepared.attributes.isChannelExclusive;
     return prepared;
   }
 
