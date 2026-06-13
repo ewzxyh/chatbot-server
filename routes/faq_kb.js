@@ -958,8 +958,8 @@ router.post('/fork/:id_faq_kb', roleChecker.hasRole('admin'), async (req, res) =
     return res.status(500).send({ success: false, message: "Unable to get chatbot to be forked" });
   }
 
-  let targetChannel = requestedChannel || chatcaseTemplates.getDefaultChannel(chatbot);
-  winston.debug("resolved target channel " + targetChannel);
+  let targetChannel = requestedChannel;
+  winston.debug("resolved target channel " + (targetChannel || 'all'));
 
   if (targetChannel && targetChannel !== 'all') {
     if (!chatcaseTemplates.templateSupportsChannel(chatbot, targetChannel)) {
