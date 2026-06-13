@@ -225,6 +225,8 @@ function prepareTemplateForChannel(template, channel) {
   const prepared = enrichTemplate(template);
 
   if (!normalizedChannel || normalizedChannel === 'all') {
+    delete prepared.attributes.targetChannel;
+    delete prepared.attributes.selectedChannel;
     return prepared;
   }
 

@@ -145,10 +145,17 @@ describe('ChatCase chatbot templates', () => {
   it('normalizes legacy channel metadata and strips WABA-only actions outside WABA', () => {
     const mixedTemplate = chatcaseTemplates.getTemplatePayloadById(chatcaseTemplates.CHATCASE_TEMPLATE_IDS.WHATSAPP_MENU_BASIC);
     mixedTemplate.attributes.channels = ['CaseZap', 'WhatsApp'];
+    mixedTemplate.attributes.targetChannel = 'casezap';
+    mixedTemplate.attributes.selectedChannel = 'casezap';
     mixedTemplate.intents[0].actions.push({ _tdActionType: 'whatsapp_static', attributes: { templateName: 'legacy_waba' } });
 
     assert.strictEqual(chatcaseTemplates.templateSupportsChannel({ attributes: { channels: ['CaseZap'] } }, 'casezap'), true);
     assert.strictEqual(chatcaseTemplates.templateSupportsChannel({ attributes: { channels: ['Telegram'] } }, 'telegram'), true);
+
+    const preparedAll = chatcaseTemplates.prepareTemplateForChannel(mixedTemplate, 'all');
+    assert.strictEqual(preparedAll.attributes.targetChannel, undefined, 'multichannel import should not keep stale targetChannel');
+    assert.strictEqual(preparedAll.attributes.selectedChannel, undefined, 'multichannel import should not keep stale selectedChannel');
+    assert.strictEqual(chatcaseTemplates.getDefaultChannel(preparedAll), 'all');
 
     const preparedCasezap = chatcaseTemplates.prepareTemplateForChannel(mixedTemplate, 'casezap');
     assert.deepStrictEqual(preparedCasezap.attributes.channels, ['casezap']);
