@@ -971,6 +971,8 @@ router.post('/fork/:id_faq_kb', roleChecker.hasRole('admin'), async (req, res) =
     }
 
     chatbot = chatcaseTemplates.prepareTemplateForChannel(chatbot, targetChannel);
+  } else {
+    chatbot = chatcaseTemplates.prepareTemplateForChannel(chatbot, 'all');
   }
 
   if (!globals) {
