@@ -33,6 +33,9 @@ describe('ChatCase chatbot templates', () => {
       assert(template.attributes.availableChannels.includes('waba'), 'template should expose WABA as a separate publication mode');
       assert.strictEqual(template.attributes.channelCompatibility.casezap.status, 'supported');
       assert.strictEqual(template.attributes.channelCompatibility.waba.status, 'requires_approval');
+      assert.strictEqual(chatcaseTemplates.getDefaultChannel(template), 'all');
+      assert.strictEqual(template.attributes.targetChannel, undefined);
+      assert.strictEqual(template.attributes.selectedChannel, undefined);
       assert.strictEqual(template.attributes.nativeInteractions.whatsapp, 'buttons');
       assert.strictEqual(template.attributes.nativeInteractions.casezap, 'menu');
       assert(template.attributes.publication, 'template should expose publication readiness metadata');

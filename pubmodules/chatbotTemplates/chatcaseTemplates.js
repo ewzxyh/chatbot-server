@@ -126,19 +126,16 @@ function getDefaultChannel(template) {
   const attributes = enriched.attributes || {};
   const explicitChannel = normalizeChannel(attributes.targetChannel || attributes.selectedChannel);
   const availableChannels = unique(attributes.availableChannels || Object.keys(attributes.channelCompatibility || {}));
-  const preferredChannels = ['casezap', 'whatsapp', 'waba'];
 
   if (explicitChannel && explicitChannel !== 'all' && templateSupportsChannel(enriched, explicitChannel)) {
     return explicitChannel;
   }
 
-  for (const channel of preferredChannels) {
-    if (availableChannels.includes(channel) && templateSupportsChannel(enriched, channel)) {
-      return channel;
-    }
+  if (availableChannels.length === 1 && templateSupportsChannel(enriched, availableChannels[0])) {
+    return availableChannels[0];
   }
 
-  return availableChannels.find((channel) => templateSupportsChannel(enriched, channel)) || '';
+  return availableChannels.length > 1 ? 'all' : '';
 }
 
 function templateSupportsChannel(template, channel) {

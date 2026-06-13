@@ -938,11 +938,7 @@ router.post('/fork/:id_faq_kb', roleChecker.hasRole('admin'), async (req, res) =
   winston.debug("requested target channel " + requestedChannel);
 
   if (requestedChannel === 'all') {
-    return res.status(400).send({
-      success: false,
-      message: "A specific channel is required to fork a ChatCase template",
-      channel: requestedChannel
-    });
+    requestedChannel = '';
   }
 
   let globals = req.query.globals;
@@ -965,7 +961,7 @@ router.post('/fork/:id_faq_kb', roleChecker.hasRole('admin'), async (req, res) =
   let targetChannel = requestedChannel || chatcaseTemplates.getDefaultChannel(chatbot);
   winston.debug("resolved target channel " + targetChannel);
 
-  if (targetChannel) {
+  if (targetChannel && targetChannel !== 'all') {
     if (!chatcaseTemplates.templateSupportsChannel(chatbot, targetChannel)) {
       return res.status(400).send({
         success: false,
@@ -1118,11 +1114,7 @@ router.post('/importjson/:id_faq_kb', roleChecker.hasRole('admin'), upload.singl
   );
 
   if (requestedChannel === 'all') {
-    return res.status(400).send({
-      success: false,
-      message: "A specific channel is required to import a channel-scoped chatbot",
-      channel: requestedChannel
-    });
+    requestedChannel = '';
   }
 
   if (requestedChannel) {
