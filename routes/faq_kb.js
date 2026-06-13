@@ -1022,6 +1022,16 @@ function normalizeImportAlias(alias) {
   return value || null;
 }
 
+function getExplicitImportChannel(json) {
+  var attributes = json && json.attributes || {};
+  var hasExplicitScope = attributes.exclusiveChannel === true || attributes.isChannelExclusive === true;
+  if (!hasExplicitScope) {
+    return '';
+  }
+
+  return attributes.targetChannel || attributes.selectedChannel || '';
+}
+
 function aliasIntentName(intent, alias, aliasIndex, usedNames) {
   const slug = alias
     .toLowerCase()
@@ -1109,8 +1119,7 @@ router.post('/importjson/:id_faq_kb', roleChecker.hasRole('admin'), upload.singl
   winston.debug("json source " + json_string)
 
   let requestedChannel = chatcaseTemplates.normalizeChannel(
-    req.query.channel ||
-    (json.attributes && (json.attributes.targetChannel || json.attributes.selectedChannel))
+    req.query.channel || getExplicitImportChannel(json)
   );
 
   if (requestedChannel === 'all') {
