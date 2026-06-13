@@ -10,7 +10,8 @@ const {
   isInternalOutboundMessage,
   isTypingPresence,
   mapConnectionHealth,
-  mapConnectionStatus
+  mapConnectionStatus,
+  shouldSkipCaseZapDepartmentBot
 } = require('../../pubmodules/casezap/connector');
 
 describe('CaseZap connector', function() {
@@ -177,5 +178,11 @@ describe('CaseZap connector', function() {
     assert.strictEqual(isTypingPresence('available'), false);
     assert.strictEqual(isTypingPresence('unavailable'), false);
     assert.strictEqual(isTypingPresence(null), false);
+  });
+
+  it('enables a CaseZap department bot only for bound departments with a bot', function() {
+    assert.strictEqual(shouldSkipCaseZapDepartmentBot(null), true);
+    assert.strictEqual(shouldSkipCaseZapDepartmentBot({ _id: 'department-1' }), true);
+    assert.strictEqual(shouldSkipCaseZapDepartmentBot({ _id: 'department-1', id_bot: 'bot-1' }), false);
   });
 });

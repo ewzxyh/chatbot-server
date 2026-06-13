@@ -148,6 +148,10 @@ function isTypingPresence(presence) {
   return value === 'composing' || value === 'recording';
 }
 
+function shouldSkipCaseZapDepartmentBot(boundDepartment) {
+  return !(boundDepartment && boundDepartment.id_bot);
+}
+
 function buildLegacyWebhookIntegrationQuery(projectId, secret) {
   return {
     id_project: projectId,
@@ -508,7 +512,7 @@ async function handleWebhook(integration, req, res) {
         departmentid: defaultDept ? defaultDept._id : undefined,
         integrationId: integration._id,
         channel: { name: ChannelConstants.CASEZAP },
-        skipDepartmentBot: true,
+        skipDepartmentBot: shouldSkipCaseZapDepartmentBot(boundDept),
         createdBy: leadId,
         attributes: {
           casezapPhone: mapped.phone,
@@ -940,6 +944,7 @@ module.exports = {
   ensureCaseZapChat21Group: ensureCaseZapChat21Group,
   isInternalOutboundMessage: isInternalOutboundMessage,
   isTypingPresence: isTypingPresence,
+  shouldSkipCaseZapDepartmentBot: shouldSkipCaseZapDepartmentBot,
   buildLegacyWebhookIntegrationQuery: buildLegacyWebhookIntegrationQuery,
   extractConnectionStatus: extractConnectionStatus,
   mapConnectionHealth: mapConnectionHealth,
