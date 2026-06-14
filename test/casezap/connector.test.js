@@ -7,6 +7,7 @@ const {
   buildLegacyWebhookIntegrationQuery,
   buildRegisterWebhookUpdate,
   ensureCaseZapChat21Group,
+  extractWebhookReceipt,
   isInternalOutboundMessage,
   isTypingPresence,
   mapConnectionHealth,
@@ -136,6 +137,24 @@ describe('CaseZap connector', function() {
 
   it('keeps compatibility with older UazApi open-state payloads', function() {
     assert.strictEqual(mapConnectionStatus({ data: { state: 'open' } }), 'active');
+  });
+
+  it('extracts diagnostic receipt from current UazApi message payloads', function() {
+    assert.deepStrictEqual(extractWebhookReceipt({
+      EventType: 'messages',
+      message: {
+        type: 'conversation',
+        key: {
+          id: 'BAE5TEST',
+          fromMe: false
+        }
+      }
+    }), {
+      eventType: 'messages',
+      messageId: 'BAE5TEST',
+      messageType: 'conversation',
+      fromMe: false
+    });
   });
 
   it('does not send system assignment messages to the WhatsApp contact', function() {

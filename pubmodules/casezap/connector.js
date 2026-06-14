@@ -313,6 +313,40 @@ function mapConnectionHealth(rawStatus, connectionStatus) {
   return 'unknown';
 }
 
+function extractWebhookReceipt(body) {
+  body = body || {};
+  var message = body.message || (body.data && body.data.message) || body.data || {};
+  var key = message.key || body.key || {};
+  var messageId = body.messageId || body.message_id || body.id || message.id || key.id || null;
+  var messageType = body.type || body.messageType || message.type || message.messageType || null;
+  var fromMe = body.fromMe;
+
+  if (fromMe === undefined && key.fromMe !== undefined) {
+    fromMe = key.fromMe;
+  }
+
+  return {
+    eventType: body.EventType || body.event || body.type || null,
+    messageId: messageId ? String(messageId) : null,
+    messageType: messageType ? String(messageType) : null,
+    fromMe: typeof fromMe === 'boolean' ? fromMe : null
+  };
+}
+
+async function markWebhookReceived(integration, receipt) {
+  if (!integration || !integration._id) return;
+  receipt = receipt || {};
+  var set = {
+    'value.operational.lastWebhookReceivedAt': new Date().toISOString(),
+    'value.operational.lastWebhookReceivedEvent': receipt.eventType || null,
+    'value.operational.lastWebhookReceivedMessageId': receipt.messageId || null,
+    'value.operational.lastWebhookReceivedType': receipt.messageType || null,
+    'value.operational.lastWebhookReceivedFromMe': receipt.fromMe
+  };
+
+  await Integration.findByIdAndUpdate(integration._id, { $set: set });
+}
+
 async function handleWebhook(integration, req, res) {
   var projectId = integration.id_project;
   var startedAt = Date.now();
@@ -334,12 +368,16 @@ async function handleWebhook(integration, req, res) {
       return res.status(400).json({ error: 'Invalid payload' });
     }
 
+    var receipt = extractWebhookReceipt(body);
+    await markWebhookReceived(integration, receipt);
+
     recordOperation({
       id_project: projectId,
       integrationId: integrationId,
       event: 'webhook.received',
       status: 'success',
-      details: { eventType: body.EventType }
+      messageId: receipt.messageId,
+      details: { eventType: body.EventType, messageType: receipt.messageType, fromMe: receipt.fromMe }
     });
 
     if (body.EventType === 'connection') {
@@ -947,6 +985,7 @@ module.exports = {
   shouldSkipCaseZapDepartmentBot: shouldSkipCaseZapDepartmentBot,
   buildLegacyWebhookIntegrationQuery: buildLegacyWebhookIntegrationQuery,
   extractConnectionStatus: extractConnectionStatus,
+  extractWebhookReceipt: extractWebhookReceipt,
   mapConnectionHealth: mapConnectionHealth,
   mapConnectionStatus: mapConnectionStatus,
   setRedisClient: setRedisClient,

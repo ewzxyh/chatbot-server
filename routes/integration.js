@@ -6,6 +6,7 @@ const cacheEnabler = require('../services/cacheEnabler');
 var cacheUtil = require('../utils/cacheUtil');
 const integrationEvent = require('../event/integrationEvent');
 const platformUsageService = require('../services/platformUsageService');
+const channelDiagnosticsService = require('../services/channelDiagnosticsService');
 
 const PLATFORM_CHANNELS = platformUsageService.PLATFORM_CHANNELS;
 
@@ -120,6 +121,29 @@ router.get('/name/:integration_name/instances', async (req, res) => {
         }
         res.status(200).send(sanitizeIntegrations(integrations));
     })
+})
+
+router.get('/name/:integration_name/instances/:integration_id/diagnostics', async (req, res) => {
+    let integration_name = req.params.integration_name;
+
+    if (integration_name !== 'casezap') {
+        return res.status(400).send({ success: false, error: 'unsupported_channel' });
+    }
+
+    try {
+        let diagnostics = await channelDiagnosticsService.getCaseZapInstanceDiagnostics(
+            req.params.integration_id,
+            req.projectid,
+            { force: req.query.force === 'true' }
+        );
+        res.status(200).send(diagnostics);
+    } catch (err) {
+        winston.error("Error getting CaseZap integration diagnostics: ", err);
+        res.status(err.statusCode || 500).send({
+            success: false,
+            error: err.message || 'Error getting diagnostics'
+        });
+    }
 })
 
 // Add new integration

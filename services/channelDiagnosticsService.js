@@ -2,6 +2,7 @@ var axios = require('axios');
 var mongoose = require('mongoose');
 var { v4: uuidv4 } = require('uuid');
 var Integration = require('../models/integrations');
+var OperationalEvent = require('../models/operationalEvent');
 var operationalLogger = require('./operationalLogger');
 
 var DEFAULT_TIMEOUT_MS = parseInt(process.env.OPERATIONAL_PROVIDER_CHECK_TIMEOUT_MS || '8000', 10);
@@ -432,6 +433,129 @@ async function updateWebhookRegistration(integration, status, details) {
   await Integration.findByIdAndUpdate(integration._id, { $set: set });
 }
 
+function isoOrNull(value) {
+  if (!value) return null;
+  var date = value instanceof Date ? value : new Date(value);
+  return isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function redactWebhookUrl(url) {
+  if (!url) return null;
+  return String(url).replace(/\?.*$/, '?[redacted]');
+}
+
+function sanitizeDiagnosticEvent(event) {
+  event = event || {};
+  return {
+    timestamp: isoOrNull(event.timestamp),
+    level: event.level || 'info',
+    area: event.area || null,
+    event: event.event || null,
+    status: event.status || null,
+    messageId: event.messageId || null,
+    requestId: event.requestId || null,
+    latencyMs: typeof event.latencyMs === 'number' ? event.latencyMs : null,
+    errorCode: event.errorCode || null,
+    errorMessage: event.errorMessage || null,
+    details: operationalLogger.sanitize(event.details || {})
+  };
+}
+
+function firstWebhookEvent(events) {
+  events = events || [];
+  for (var i = 0; i < events.length; i++) {
+    if (events[i].area === 'webhook') return events[i];
+  }
+  return null;
+}
+
+function firstWebhookError(events) {
+  events = events || [];
+  for (var i = 0; i < events.length; i++) {
+    if (events[i].area === 'webhook' && (events[i].level === 'error' || events[i].status === 'failed')) {
+      return events[i];
+    }
+  }
+  return null;
+}
+
+function buildCaseZapInstanceDiagnostics(integration, providerResult, events) {
+  var value = integration && integration.value ? integration.value : {};
+  var operational = value.operational || {};
+  var latestWebhook = firstWebhookEvent(events);
+  var latestWebhookError = firstWebhookError(events);
+  var provider = providerResult || cachedResult(integration);
+
+  return {
+    channel: 'casezap',
+    integrationId: integration && integration._id ? String(integration._id) : null,
+    id_project: integration && integration.id_project,
+    instance: {
+      name: value.instanceName || null,
+      number: value.number || null,
+      domain: value.domain || null,
+      savedStatus: value.status || 'unknown'
+    },
+    provider: {
+      health: provider.providerHealth || provider.status || 'unknown',
+      status: provider.providerStatus || null,
+      code: provider.providerCode || null,
+      reason: provider.providerReason || null,
+      checkedAt: isoOrNull(provider.providerCheckedAt),
+      latencyMs: typeof provider.providerLatencyMs === 'number' ? provider.providerLatencyMs : null,
+      error: provider.providerError || null,
+      cached: Boolean(provider.cached),
+      canSendNewMessages: provider.canSendNewMessages
+    },
+    webhook: {
+      secretConfigured: Boolean(value.webhookSecret),
+      lastRegistrationAt: isoOrNull(operational.lastWebhookRegistrationAt),
+      lastRegistrationStatus: operational.lastWebhookRegistrationStatus || null,
+      lastRegistrationError: operational.lastWebhookRegistrationError || null,
+      lastRegistrationUrl: redactWebhookUrl(operational.lastWebhookRegistrationUrl),
+      lastReceivedAt: isoOrNull(operational.lastWebhookReceivedAt) || (latestWebhook && isoOrNull(latestWebhook.timestamp)) || null,
+      lastReceivedEvent: operational.lastWebhookReceivedEvent || (latestWebhook && latestWebhook.event) || null,
+      lastReceivedMessageId: operational.lastWebhookReceivedMessageId || (latestWebhook && latestWebhook.messageId) || null,
+      lastReceivedType: operational.lastWebhookReceivedType || null,
+      lastReceivedFromMe: typeof operational.lastWebhookReceivedFromMe === 'boolean' ? operational.lastWebhookReceivedFromMe : null,
+      lastErrorAt: latestWebhookError ? isoOrNull(latestWebhookError.timestamp) : null,
+      lastErrorEvent: latestWebhookError ? latestWebhookError.event : null,
+      lastErrorMessage: latestWebhookError ? latestWebhookError.errorMessage : null
+    },
+    recentEvents: (events || []).map(sanitizeDiagnosticEvent)
+  };
+}
+
+async function getCaseZapInstanceDiagnostics(integrationId, projectId, options) {
+  options = options || {};
+  if (!isValidObjectId(integrationId)) {
+    var invalid = new Error('Invalid integration ID');
+    invalid.statusCode = 400;
+    throw invalid;
+  }
+
+  var integration = await Integration.findOne({
+    _id: integrationId,
+    id_project: projectId,
+    name: 'casezap'
+  });
+
+  if (!integration) {
+    var notFound = new Error('CaseZap integration not found');
+    notFound.statusCode = 404;
+    throw notFound;
+  }
+
+  var provider = await checkCaseZapIntegration(integration, { force: options.force === true });
+  var currentIntegration = await Integration.findById(integration._id) || integration;
+  var events = await OperationalEvent.find({
+    integrationId: String(integration._id),
+    channel: 'casezap'
+  }).sort({ timestamp: -1 }).limit(10).lean();
+
+  return buildCaseZapInstanceDiagnostics(currentIntegration, provider, events);
+}
+
 function baseResult(integration, health, startedAt, extra) {
   extra = extra || {};
   return Object.assign({
@@ -798,7 +922,10 @@ module.exports = {
   checkCaseZapIntegration: checkCaseZapIntegration,
   checkWabaIntegration: checkWabaIntegration,
   testChannelConnection: testChannelConnection,
+  getCaseZapInstanceDiagnostics: getCaseZapInstanceDiagnostics,
   registerChannelWebhook: registerChannelWebhook,
   listKvstoreWabaIntegrations: listKvstoreWabaIntegrations,
+  buildCaseZapInstanceDiagnostics: buildCaseZapInstanceDiagnostics,
+  sanitizeDiagnosticEvent: sanitizeDiagnosticEvent,
   normalizeProviderHealth: normalizeProviderHealth
 };
