@@ -189,6 +189,58 @@ describe('ChatCase chatbot templates', () => {
     assert(!preparedCasezap.intents[0].actions.some((action) => action._tdActionType === 'whatsapp_static'), 'explicit CaseZap flow should strip WABA-only actions');
   });
 
+  it('classifies WABA-specific actions with a safe text fallback for CaseZap', () => {
+    const action = {
+      _tdActionType: 'whatsapp_static',
+      attributes: {
+        body: 'Olá, escolha uma opção no menu.'
+      }
+    };
+
+    const compatibility = chatcaseTemplates.getActionChannelCompatibility(action, 'casezap');
+    assert.strictEqual(compatibility.status, 'fallback');
+    assert.strictEqual(compatibility.channel, 'casezap');
+    assert.strictEqual(compatibility.fallbackType, 'text');
+    assert.strictEqual(compatibility.reason, 'waba_action_on_non_waba_channel');
+
+    const fallback = chatcaseTemplates.createActionFallbackForChannel(action, 'casezap');
+    assert.strictEqual(fallback._tdActionType, 'reply');
+    assert.strictEqual(fallback.text, 'Olá, escolha uma opção no menu.');
+  });
+
+  it('requires review for WABA-specific actions without text fallback on CaseZap', () => {
+    const action = {
+      _tdActionType: 'whatsapp_static',
+      attributes: {
+        templateName: 'approved_template_without_local_body'
+      }
+    };
+
+    const compatibility = chatcaseTemplates.getActionChannelCompatibility(action, 'casezap');
+    assert.strictEqual(compatibility.status, 'review_required');
+    assert.strictEqual(compatibility.channel, 'casezap');
+    assert.strictEqual(compatibility.fallbackType, null);
+    assert.strictEqual(compatibility.reason, 'waba_action_without_text_fallback');
+    assert.strictEqual(chatcaseTemplates.createActionFallbackForChannel(action, 'casezap'), null);
+  });
+
+  it('keeps generic actions native on CaseZap and WABA-specific actions native on WABA', () => {
+    const genericAction = {
+      _tdActionType: 'reply',
+      text: 'Mensagem comum'
+    };
+    const wabaAction = {
+      _tdActionType: 'whatsapp_attribute',
+      attributes: {
+        body: 'Mensagem de template'
+      }
+    };
+
+    assert.strictEqual(chatcaseTemplates.getActionChannelCompatibility(genericAction, 'casezap').status, 'native');
+    assert.strictEqual(chatcaseTemplates.getActionChannelCompatibility(wabaAction, 'waba').status, 'native');
+    assert.strictEqual(chatcaseTemplates.createActionFallbackForChannel(genericAction, 'casezap'), null);
+  });
+
   it('returns null for unknown template ids', () => {
     assert.strictEqual(chatcaseTemplates.getTemplateById('missing-template'), null);
     assert.strictEqual(chatcaseTemplates.getTemplatePayloadById('missing-template'), null);

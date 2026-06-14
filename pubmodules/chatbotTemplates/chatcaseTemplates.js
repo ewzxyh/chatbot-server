@@ -169,6 +169,69 @@ function isWabaOnlyAction(action) {
   return ['whatsapp_static', 'whatsapp_attribute', 'whatsapp_segment'].includes(type);
 }
 
+function isWabaCompatibleChannel(channel) {
+  const normalizedChannel = normalizeChannel(channel);
+  return normalizedChannel === 'waba' || normalizedChannel === 'whatsapp';
+}
+
+function extractActionFallbackText(action) {
+  const attributes = action && action.attributes || {};
+  const message = attributes.message || {};
+  const body = attributes.body || {};
+  const template = attributes.template || {};
+  const candidates = [
+    attributes.fallbackText,
+    attributes.text,
+    attributes.body,
+    attributes.message,
+    message.text,
+    body.text,
+    template.text,
+    action && action.text,
+    action && action.message
+  ];
+
+  const text = candidates.find((candidate) => typeof candidate === 'string' && candidate.trim());
+  return text ? text.trim() : '';
+}
+
+function getActionChannelCompatibility(action, channel) {
+  const normalizedChannel = normalizeChannel(channel) || 'all';
+
+  if (!action || !isWabaOnlyAction(action) || normalizedChannel === 'all' || isWabaCompatibleChannel(normalizedChannel)) {
+    return {
+      status: 'native',
+      channel: normalizedChannel
+    };
+  }
+
+  if (extractActionFallbackText(action)) {
+    return {
+      status: 'fallback',
+      channel: normalizedChannel,
+      fallbackType: 'text',
+      reason: 'waba_action_on_non_waba_channel'
+    };
+  }
+
+  return {
+    status: 'review_required',
+    channel: normalizedChannel,
+    fallbackType: null,
+    reason: 'waba_action_without_text_fallback'
+  };
+}
+
+function createActionFallbackForChannel(action, channel) {
+  const compatibility = getActionChannelCompatibility(action, channel);
+
+  if (compatibility.status !== 'fallback') {
+    return null;
+  }
+
+  return messageAction(extractActionFallbackText(action));
+}
+
 function sanitizeIntentsForChannel(intents, channel) {
   const normalizedChannel = normalizeChannel(channel);
 
@@ -1190,5 +1253,7 @@ module.exports = {
   normalizeChannel,
   getDefaultChannel,
   templateSupportsChannel,
-  prepareTemplateForChannel
+  prepareTemplateForChannel,
+  getActionChannelCompatibility,
+  createActionFallbackForChannel
 };
