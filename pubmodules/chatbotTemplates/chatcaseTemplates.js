@@ -166,7 +166,7 @@ function templateSupportsChannel(template, channel) {
 
 function isWabaOnlyAction(action) {
   const type = normalizeChannel(action && (action._tdActionType || action.type));
-  return ['whatsapp_static', 'whatsapp_attribute', 'whatsapp_segment'].includes(type);
+  return ['whatsapp_static', 'whatsapp_attribute', 'whatsapp_segment', 'send_whatsapp'].includes(type);
 }
 
 function isWabaCompatibleChannel(channel) {
@@ -176,9 +176,11 @@ function isWabaCompatibleChannel(channel) {
 
 function extractActionFallbackText(action) {
   const attributes = action && action.attributes || {};
+  const payload = action && action.payload || {};
   const message = attributes.message || {};
   const body = attributes.body || {};
   const template = attributes.template || {};
+  const payloadTemplate = payload.template || {};
   const candidates = [
     attributes.fallbackText,
     attributes.text,
@@ -187,6 +189,11 @@ function extractActionFallbackText(action) {
     message.text,
     body.text,
     template.text,
+    payload.fallbackText,
+    payload.text,
+    payload.body,
+    payload.message,
+    payloadTemplate.text,
     action && action.text,
     action && action.message
   ];

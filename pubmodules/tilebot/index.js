@@ -1,3 +1,7 @@
+const { installTilebotActionCompatibilityPatch } = require("./channelActionCompatibility");
+
+installTilebotActionCompatibilityPatch();
+
 const listener = require("./listener");
 
 const tilebot = require("@tiledesk/tiledesk-tybot-connector");

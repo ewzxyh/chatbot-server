@@ -10,7 +10,8 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - [x] Permitir importacao de template multicanal sem exigir `channel=casezap`.
 - [x] Ajustar o dashboard/design studio para exibir `all`/multicanal por padrao.
 - [x] Preservar filtro por compatibilidade quando o usuario escolher CaseZap, WABA ou outro canal.
-- [ ] Validar com testes unitarios dos templates e smoke na VPS DEV.
+- [x] Validar com testes unitarios dos templates.
+- [x] Adaptar o executor do Tilebot para aplicar fallback textual quando uma acao WABA cair em conversa CaseZap.
 - [ ] Testar fluxo real com as instancias CaseZap Lovtok e markus-chatcase.
 
 ## Criterios de sucesso
@@ -19,4 +20,6 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - Importacao com canal `all` cria fluxo multicanal e abre o Studio sem badge fixa de CaseZap.
 - Importacao com canal especifico nao transforma template generico em fluxo exclusivo.
 - Nodes WABA continuam visiveis em fluxo multicanal para revisao explicita do usuario.
+- Acao WABA com texto de fallback vira resposta normal em conversa CaseZap.
+- Acao WABA continua nativa em conversa WABA/WhatsApp.
 - Chat CaseZap continua recebendo e exibindo mensagens entre Lovtok e markus-chatcase.

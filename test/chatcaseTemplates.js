@@ -208,6 +208,23 @@ describe('ChatCase chatbot templates', () => {
     assert.strictEqual(fallback.text, 'Olá, escolha uma opção no menu.');
   });
 
+  it('classifies WABA send actions with payload fallback text for CaseZap', () => {
+    const action = {
+      _tdActionType: 'send_whatsapp',
+      payload: {
+        fallbackText: 'Mensagem alternativa para conversa CaseZap.'
+      }
+    };
+
+    const compatibility = chatcaseTemplates.getActionChannelCompatibility(action, 'casezap');
+    assert.strictEqual(compatibility.status, 'fallback');
+    assert.strictEqual(compatibility.fallbackType, 'text');
+
+    const fallback = chatcaseTemplates.createActionFallbackForChannel(action, 'casezap');
+    assert.strictEqual(fallback._tdActionType, 'reply');
+    assert.strictEqual(fallback.text, 'Mensagem alternativa para conversa CaseZap.');
+  });
+
   it('requires review for WABA-specific actions without text fallback on CaseZap', () => {
     const action = {
       _tdActionType: 'whatsapp_static',

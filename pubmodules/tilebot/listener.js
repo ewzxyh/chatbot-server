@@ -2,6 +2,9 @@ const botEvent = require('../../event/botEvent');
 var Faq_kb = require("../../models/faq_kb");
 var winston = require('../../config/winston');
 var configGlobal = require('../../config/global');
+const { installTilebotActionCompatibilityPatch } = require("./channelActionCompatibility");
+
+installTilebotActionCompatibilityPatch();
 
 var port = process.env.PORT || '3000';
 
