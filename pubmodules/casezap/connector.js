@@ -119,6 +119,58 @@ async function ensureCaseZapChat21Group(requestId, projectId, context, services)
   }
 }
 
+function plainMessage(message) {
+  if (!message) return null;
+  if (typeof message.toObject === 'function') return message.toObject();
+  if (typeof message.toJSON === 'function') return message.toJSON();
+  return message;
+}
+
+async function syncCaseZapChat21LastMessage(requestId, projectId, message, context, services) {
+  if (!requestId || !message) {
+    return { status: 'skipped' };
+  }
+
+  var chatClient = services && services.chat21 ? services.chat21 : chat21;
+  if (!chatClient || !chatClient.groups || typeof chatClient.groups.updateAttributes !== 'function') {
+    return { status: 'skipped' };
+  }
+
+  try {
+    if (chatClient.auth && typeof chatClient.auth.setAdminToken === 'function') {
+      chatClient.auth.setAdminToken(chat21AdminToken);
+    }
+
+    var result = await chatClient.groups.updateAttributes({
+      last_message: plainMessage(message)
+    }, requestId);
+
+    recordOperation({
+      id_project: projectId,
+      integrationId: context && context.integrationId,
+      requestId: requestId,
+      messageId: context && context.messageId,
+      event: 'webhook.chat21_last_message_synced',
+      status: 'success'
+    });
+
+    return { status: 'updated', result: result };
+  } catch (err) {
+    winston.warn('CaseZap Chat21 last message sync failed: ' + err.message);
+    recordOperation({
+      level: 'error',
+      id_project: projectId,
+      integrationId: context && context.integrationId,
+      requestId: requestId,
+      messageId: context && context.messageId,
+      event: 'webhook.chat21_last_message_synced',
+      status: 'failed',
+      errorMessage: err.message
+    });
+    return { status: 'failed', error: err.message };
+  }
+}
+
 async function resolveExternalFromMeSender(integration, request) {
   var participantId = firstParticipantId(request);
   if (participantId) {
@@ -576,12 +628,16 @@ async function handleWebhook(integration, req, res) {
       messageAttributes.casezapExternalFromMe = true;
     }
 
-    await ensureCaseZapChat21Group(requestId, projectId, {
+    var messageContext = {
       integrationId: integrationId,
       messageId: mapped.messageId
-    });
+    };
 
-    await messageService.send(
+    if (!existingRequest) {
+      await ensureCaseZapChat21Group(requestId, projectId, messageContext);
+    }
+
+    var savedMessage = await messageService.send(
       sender,
       senderFullname,
       requestId,
@@ -593,6 +649,8 @@ async function handleWebhook(integration, req, res) {
       mapped.metadata,
       null
     );
+
+    await syncCaseZapChat21LastMessage(requestId, projectId, savedMessage, messageContext);
 
     recordOperation({
       id_project: projectId,
@@ -980,6 +1038,7 @@ module.exports = {
   registerWebhook: registerWebhook,
   buildRegisterWebhookUpdate: buildRegisterWebhookUpdate,
   ensureCaseZapChat21Group: ensureCaseZapChat21Group,
+  syncCaseZapChat21LastMessage: syncCaseZapChat21LastMessage,
   isInternalOutboundMessage: isInternalOutboundMessage,
   isTypingPresence: isTypingPresence,
   shouldSkipCaseZapDepartmentBot: shouldSkipCaseZapDepartmentBot,

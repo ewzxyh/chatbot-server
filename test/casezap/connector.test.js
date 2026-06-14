@@ -12,7 +12,8 @@ const {
   isTypingPresence,
   mapConnectionHealth,
   mapConnectionStatus,
-  shouldSkipCaseZapDepartmentBot
+  shouldSkipCaseZapDepartmentBot,
+  syncCaseZapChat21LastMessage
 } = require('../../pubmodules/casezap/connector');
 
 describe('CaseZap connector', function() {
@@ -98,6 +99,47 @@ describe('CaseZap connector', function() {
     }]);
     assert.deepStrictEqual(first, { status: 'created' });
     assert.deepStrictEqual(second, { status: 'cached' });
+  });
+
+  it('syncs the Chat21 group preview after a CaseZap message is saved', async function() {
+    const updates = [];
+
+    const result = await syncCaseZapChat21LastMessage(
+      'support-group-project-1-request-1',
+      'project-1',
+      {
+        toObject: function() {
+          return {
+            _id: 'message-1',
+            text: 'Mensagem nova',
+            recipient: 'support-group-project-1-request-1'
+          };
+        }
+      },
+      { integrationId: 'integration-1', messageId: 'message-1' },
+      {
+        chat21: {
+          groups: {
+            updateAttributes: async function(attributes, groupId) {
+              updates.push({ attributes, groupId });
+              return { success: true };
+            }
+          }
+        }
+      }
+    );
+
+    assert.strictEqual(result.status, 'updated');
+    assert.deepStrictEqual(updates, [{
+      groupId: 'support-group-project-1-request-1',
+      attributes: {
+        last_message: {
+          _id: 'message-1',
+          text: 'Mensagem nova',
+          recipient: 'support-group-project-1-request-1'
+        }
+      }
+    }]);
   });
 
   it('maps current UazApi connected payloads to active', function() {

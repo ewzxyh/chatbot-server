@@ -12,6 +12,7 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - [x] Preservar filtro por compatibilidade quando o usuario escolher CaseZap, WABA ou outro canal.
 - [x] Validar com testes unitarios dos templates.
 - [x] Adaptar o executor do Tilebot para aplicar fallback textual quando uma acao WABA cair em conversa CaseZap.
+- [ ] Corrigir visibilidade no `/chat/` quando mensagens CaseZap chegam mas o grupo Chat21 fica com preview antigo.
 - [ ] Testar fluxo real com as instancias CaseZap Lovtok e markus-chatcase.
 
 ## Criterios de sucesso
