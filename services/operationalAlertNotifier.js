@@ -5,6 +5,7 @@ var superAdminService = require('./superAdminService');
 var winston = require('../config/winston');
 
 var DEFAULT_EVENTS = 'alert.opened,alert.reopened,alert.still_open';
+var DEFAULT_EMAIL_EVENTS = 'alert.opened,alert.reopened';
 var DEFAULT_TIMEOUT_MS = 5000;
 var MAX_TEXT_LENGTH = 500;
 var SEVERITY_RANK = {
@@ -43,7 +44,12 @@ function passesSeverity(alert, env) {
 }
 
 function isEventEnabled(eventName, envKey, env) {
-  var events = parseList(env[envKey] || env.OPERATIONAL_ALERT_EVENTS || DEFAULT_EVENTS);
+  var fallbackEvents = envKey === 'OPERATIONAL_ALERT_EMAIL_EVENTS' ? DEFAULT_EMAIL_EVENTS : DEFAULT_EVENTS;
+  var configuredEvents = env[envKey];
+  if (!configuredEvents && envKey !== 'OPERATIONAL_ALERT_EMAIL_EVENTS') {
+    configuredEvents = env.OPERATIONAL_ALERT_EVENTS;
+  }
+  var events = parseList(configuredEvents || fallbackEvents);
   return events.indexOf('*') !== -1 || events.indexOf(eventName) !== -1;
 }
 

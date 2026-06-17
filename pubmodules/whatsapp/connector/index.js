@@ -35,6 +35,7 @@ const Integration = require("../../../models/integrations");
 const departmentService = require("../../../services/departmentService");
 const operationalLogger = require("../../../services/operationalLogger");
 const wabaTemplateCampaignService = require("../../../services/wabaTemplateCampaignService");
+const { hasStoredWabaMessage, setWabaMessageId } = require("./dedupe");
 
 // mongo
 const { KVBaseMongo } = require("./tiledesk/KVBaseMongo");
@@ -1016,6 +1017,17 @@ router.post('/webhook', async (req, res) => {
       winston.verbose("(wab) Skip system message");
       return res.sendStatus(200);
     }
+    if (await hasStoredWabaMessage(settings.project_id, whatsappChannelMessage.id)) {
+      winston.verbose("(wab) Skip duplicate message " + whatsappChannelMessage.id);
+      recordWabaOperation(settings, waba_id, {
+        event: 'webhook.deduplicated',
+        status: 'deduplicated',
+        messageId: whatsappChannelMessage.id,
+        latencyMs: Date.now() - webhookStartedAt,
+        details: { kind: 'message', route: 'oauth' }
+      });
+      return res.sendStatus(200);
+    }
 
     const tlr = new TiledeskWhatsappTranslator();
     const tdChannel = new TiledeskChannel({ settings: settings, API_URL: API_URL });
@@ -1101,6 +1113,7 @@ router.post('/webhook', async (req, res) => {
       }
 
       if (tiledeskJsonMessage) {
+        setWabaMessageId(tiledeskJsonMessage, whatsappChannelMessage.id);
         winston.verbose("(wab) tiledeskJsonMessage: ", tiledeskJsonMessage);
 
         try {
@@ -1247,6 +1260,17 @@ router.post("/webhook/:project_id", async (req, res) => {
 
       if (!settings) {
         winston.verbose("(wab) No settings found. Exit..");
+        return res.sendStatus(200);
+      }
+      if (await hasStoredWabaMessage(settings.project_id || project_id, whatsappChannelMessage.id)) {
+        winston.verbose("(wab) Skip duplicate message " + whatsappChannelMessage.id);
+        recordWabaOperation(settings, req.body.entry && req.body.entry[0] && req.body.entry[0].id, {
+          event: 'webhook.deduplicated',
+          status: 'deduplicated',
+          messageId: whatsappChannelMessage.id,
+          latencyMs: Date.now() - webhookStartedAt,
+          details: { kind: 'message', route: 'legacy' }
+        });
         return res.sendStatus(200);
       }
 
@@ -1423,6 +1447,7 @@ router.post("/webhook/:project_id", async (req, res) => {
         }
 
         if (tiledeskJsonMessage) {
+          setWabaMessageId(tiledeskJsonMessage, whatsappChannelMessage.id);
           winston.verbose("(wab) tiledeskJsonMessage: ", tiledeskJsonMessage);
           const departmentId = await resolveWabaDepartmentId(settings, message_info);
           const response = await tdChannel.send(tiledeskJsonMessage, message_info, departmentId);
@@ -2243,4 +2268,4 @@ async function getUserToken(tdChannel, whatsappChannel, settings) {
   });
 }
 
-module.exports = { router: router, startApp: startApp };
+module.exports = { router: router, startApp: startApp, hasStoredWabaMessage: hasStoredWabaMessage, setWabaMessageId: setWabaMessageId };

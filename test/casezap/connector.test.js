@@ -9,6 +9,7 @@ const {
   buildRegisterWebhookUpdate,
   ensureCaseZapChat21Group,
   extractWebhookReceipt,
+  hasStoredCaseZapMessage,
   isInternalOutboundMessage,
   isTypingPresence,
   mapConnectionHealth,
@@ -362,6 +363,34 @@ describe('CaseZap connector', function() {
         casezapExternalFromMe: true
       }
     }), true);
+  });
+
+  it('detects a CaseZap message already stored in Mongo', async function() {
+    const calls = [];
+    const exists = await hasStoredCaseZapMessage('project-1', 'casezap-message-1', {
+      findOne: function(query) {
+        calls.push(query);
+        return {
+          select: function(field) {
+            calls.push({ select: field });
+            return {
+              lean: async function() {
+                return { _id: 'message-1' };
+              }
+            };
+          }
+        };
+      }
+    });
+
+    assert.strictEqual(exists, true);
+    assert.deepStrictEqual(calls, [
+      {
+        id_project: 'project-1',
+        'attributes.casezapMessageId': 'casezap-message-1'
+      },
+      { select: '_id' }
+    ]);
   });
 
   it('allows normal agent outbound messages', function() {

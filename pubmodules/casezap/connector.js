@@ -55,6 +55,16 @@ async function checkAndMarkProcessed(messageId) {
   localCache.set(messageId, true);
   return false;
 }
+
+async function hasStoredCaseZapMessage(projectId, messageId, model) {
+  if (!messageId) return false;
+  model = model || Message;
+  var existing = await model.findOne({
+    id_project: projectId,
+    'attributes.casezapMessageId': messageId
+  }).select('_id').lean();
+  return Boolean(existing);
+}
 var casezapProjects = new Map();
 var casezapEnabled = process.env.CASEZAP_ENABLED !== 'false';
 
@@ -696,6 +706,19 @@ async function handleWebhook(integration, req, res) {
       return res.status(200).json({ success: true, deduplicated: true });
     }
 
+    if (await hasStoredCaseZapMessage(projectId, mapped.messageId)) {
+      recordOperation({
+        id_project: projectId,
+        integrationId: integrationId,
+        messageId: mapped.messageId,
+        event: 'webhook.skipped',
+        status: 'skipped',
+        latencyMs: Date.now() - startedAt,
+        details: { reason: 'stored_duplicate' }
+      });
+      return res.status(200).json({ success: true, deduplicated: true });
+    }
+
     if (mapped.type === 'casezap_poll_update') {
       var updatedPollMessage = await applyPollUpdate(projectId, integration, mapped);
       recordOperation({
@@ -1207,6 +1230,7 @@ module.exports = {
   buildLegacyWebhookIntegrationQuery: buildLegacyWebhookIntegrationQuery,
   extractConnectionStatus: extractConnectionStatus,
   extractWebhookReceipt: extractWebhookReceipt,
+  hasStoredCaseZapMessage: hasStoredCaseZapMessage,
   mapConnectionHealth: mapConnectionHealth,
   mapConnectionStatus: mapConnectionStatus,
   setRedisClient: setRedisClient,

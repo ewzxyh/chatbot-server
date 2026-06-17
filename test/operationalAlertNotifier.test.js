@@ -103,6 +103,29 @@ describe('OperationalAlertNotifier', function() {
     expect(sent[0].text).to.contain('Evento: alert.reopened');
   });
 
+  it('does not send repeated still-open alerts by email unless email events opt in', async function() {
+    var sent = [];
+    var env = {
+      BRAND_NAME: 'ChatCase',
+      OPERATIONAL_ALERT_EMAIL_ENABLED: 'true',
+      OPERATIONAL_ALERT_EMAIL_TO: 'redacted@example.invalid',
+      OPERATIONAL_ALERT_EVENTS: 'alert.opened,alert.reopened,alert.still_open',
+      OPERATIONAL_ALERT_MIN_SEVERITY: 'critical'
+    };
+
+    var result = await operationalAlertNotifier.notify('alert.still_open', sampleAlert(), {
+      env: env,
+      emailService: {
+        send: async function(mail) {
+          sent.push(mail);
+        }
+      }
+    });
+
+    expect(result.email.status).to.equal('disabled');
+    expect(sent).to.have.lengthOf(0);
+  });
+
   it('skips resolved alerts unless explicitly enabled', async function() {
     var calls = [];
     var env = {
