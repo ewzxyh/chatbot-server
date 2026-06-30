@@ -54,6 +54,12 @@ body {
   border: solid 1px #e7e0e0;
 }
 
+.tabler-icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+}
+
 .green-circle {
   color: green;
   margin-right: 6px;
@@ -216,13 +222,13 @@ body {
   margin-top: 2px;
 }
 
-.select-btn i {
+.select-btn .select-chevron {
   font-size: 18px;
   color: #d6d6d6;
   transition: 0.3s; 
 }
 
-.select-menu.active .select-btn i {
+.select-menu.active .select-btn .select-chevron {
   transform: rotate(-180deg);
 }
 
@@ -258,5 +264,4 @@ body {
 .option .option-text {
   font-size: 
 }
-
 
