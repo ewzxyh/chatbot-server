@@ -386,6 +386,25 @@ describe('CaseZap messageMapper', function() {
       assert.strictEqual(result.text, 'Falar atendente');
     });
 
+    it('should map list response message to selected item id', function() {
+      var webhook = {
+        EventType: 'messages',
+        message: {
+          messageid: 'list-response-001',
+          chatid: 'redacted@example.invalid',
+          fromMe: false,
+          isGroup: false,
+          messageType: 'listResponseMessage',
+          buttonOrListid: 'Plano mensal',
+          senderName: 'User'
+        },
+        chat: {}
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'text');
+      assert.strictEqual(result.text, 'Plano mensal');
+    });
+
     it('should map button message without leaking provider type', function() {
       var webhook = {
         EventType: 'messages',
@@ -402,6 +421,24 @@ describe('CaseZap messageMapper', function() {
       var result = messageMapper.mapInbound(webhook);
       assert.strictEqual(result.type, 'text');
       assert.strictEqual(result.text, 'Mensagem com botões');
+    });
+
+    it('should map list message without leaking provider type', function() {
+      var webhook = {
+        EventType: 'messages',
+        message: {
+          messageid: 'list-message-001',
+          chatid: 'redacted@example.invalid',
+          fromMe: false,
+          isGroup: false,
+          messageType: 'listMessage',
+          senderName: 'User'
+        },
+        chat: {}
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'text');
+      assert.strictEqual(result.text, 'Mensagem de lista');
     });
 
     it('should show one confirmed attendee for event payloads without provider attendance count', function() {

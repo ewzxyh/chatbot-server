@@ -479,6 +479,16 @@ function mapInbound(webhookData) {
       result.text = applyStructuredMarker('event', eventPayload(message));
       break;
 
+    case 'listmessage':
+      result.type = 'text';
+      result.text = getText(message) || 'Mensagem de lista';
+      break;
+
+    case 'listresponsemessage':
+      result.type = 'text';
+      result.text = firstTruthy([message.buttonOrListid, contentObject(message).buttonOrListid, getButtonText(message)]) || 'Resposta de lista';
+      break;
+
     case 'buttonsmessage':
       result.type = 'text';
       result.text = getButtonText(message) || 'Mensagem com botões';
