@@ -367,6 +367,43 @@ describe('CaseZap messageMapper', function() {
       assert.ok(result.text.endsWith('Evento: teste'));
     });
 
+    it('should map button response message to selected button id', function() {
+      var webhook = {
+        EventType: 'messages',
+        message: {
+          messageid: 'button-response-001',
+          chatid: 'redacted@example.invalid',
+          fromMe: false,
+          isGroup: false,
+          messageType: 'buttonsResponseMessage',
+          buttonOrListid: 'Falar atendente',
+          senderName: 'User'
+        },
+        chat: {}
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'text');
+      assert.strictEqual(result.text, 'Falar atendente');
+    });
+
+    it('should map button message without leaking provider type', function() {
+      var webhook = {
+        EventType: 'messages',
+        message: {
+          messageid: 'button-message-001',
+          chatid: 'redacted@example.invalid',
+          fromMe: false,
+          isGroup: false,
+          messageType: 'buttonsMessage',
+          senderName: 'User'
+        },
+        chat: {}
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'text');
+      assert.strictEqual(result.text, 'Mensagem com botões');
+    });
+
     it('should show one confirmed attendee for event payloads without provider attendance count', function() {
       var webhook = {
         EventType: 'messages',

@@ -31,6 +31,22 @@ function getText(message) {
   return '';
 }
 
+function getButtonText(message) {
+  var content = contentObject(message);
+  var button = content.buttonsResponseMessage || content.buttonsMessage || content.templateButtonReplyMessage || content;
+  return firstTruthy([
+    getText(message),
+    message.buttonOrListid,
+    content.buttonOrListid,
+    button.selectedDisplayText,
+    button.selectedButtonId,
+    button.displayText,
+    button.contentText,
+    button.title,
+    button.text
+  ]);
+}
+
 function getDocumentName(message) {
   var content = contentObject(message);
   return message.fileName || message.filename || message.docName || message.name || content.fileName || content.filename || content.docName || content.name || 'document';
@@ -461,6 +477,16 @@ function mapInbound(webhookData) {
       result.type = 'text';
       result.metadata = { type: 'casezap/event', event: eventPayload(message) };
       result.text = applyStructuredMarker('event', eventPayload(message));
+      break;
+
+    case 'buttonsmessage':
+      result.type = 'text';
+      result.text = getButtonText(message) || 'Mensagem com botões';
+      break;
+
+    case 'buttonsresponsemessage':
+      result.type = 'text';
+      result.text = getButtonText(message) || 'Resposta de botão';
       break;
 
     case 'reactionmessage':
