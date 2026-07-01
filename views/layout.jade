@@ -2,6 +2,13 @@ doctype html
 html
   head
     style(type="text/css").
+      @font-face {
+        font-family: "Geist Sans";
+        src: url("/fonts/geist/Geist-Variable.woff2") format("woff2");
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: swap;
+      }
     
       body{
         background-color: #eeeeee;
@@ -22,13 +29,13 @@ html
         border-radius: 5px;
       }
       .transcript-title {
-        font: 28px "Lucida Grande", Helvetica, Arial, sans-serif;
+        font: 28px "Geist Sans", "Lucida Grande", Helvetica, Arial, sans-serif;
         font-weight: bold;
         color: #ee7467;
         text-align: center;
       }
       .transcript-p {
-        font: 14px "Lucida Grande", Helvetica, Arial, sans-serif;
+        font: 14px "Geist Sans", "Lucida Grande", Helvetica, Arial, sans-serif;
         background-color: #ffffff;
         padding: 10px;
         border-bottom: 1px solid #e1eef4;
@@ -50,7 +57,7 @@ html
         font-weight: 400;
       }
       .transcript-powered-by{
-        font: 12px "Lucida Grande", Helvetica, Arial, sans-serif;
+        font: 12px "Geist Sans", "Lucida Grande", Helvetica, Arial, sans-serif;
         color:#7695a5;
         font-weight: 600;
         text-align: right;

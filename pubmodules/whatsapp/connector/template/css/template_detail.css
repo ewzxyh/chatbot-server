@@ -1,4 +1,10 @@
-@import url('[REDACTED_BASIC_AUTH_URL]');
+@font-face {
+  font-family: "Geist Sans";
+  src: url("/fonts/geist/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
 
 body {
   padding: 20px 0px;
@@ -264,4 +270,3 @@ body {
 .option .option-text {
   font-size: 
 }
-

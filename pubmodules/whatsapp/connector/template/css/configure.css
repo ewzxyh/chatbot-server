@@ -1,4 +1,10 @@
-@import url('[REDACTED_BASIC_AUTH_URL]');
+@font-face {
+  font-family: "Geist Sans";
+  src: url("/fonts/geist/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
 
 body {
   padding: 20px 0px;
@@ -202,7 +208,7 @@ textarea[readonly] {
 
 /* Tooltip text */
 .custom-tooltip .custom-tooltiptext {
-  font-family: 'Poppins';
+  font-family: "Geist Sans", Poppins, Arial, sans-serif;
   visibility: hidden;
   width: 300px;
   background-color: #8c8e8fbd;

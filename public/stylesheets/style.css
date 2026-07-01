@@ -1,6 +1,14 @@
+@font-face {
+  font-family: "Geist Sans";
+  src: url("/fonts/geist/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 body {
   padding: 50px;
-  font: 14px "Lucida Grande", Helvetica, Arial, sans-serif;
+  font: 14px "Geist Sans", "Lucida Grande", Helvetica, Arial, sans-serif;
 }
 
 a {
