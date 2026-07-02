@@ -6,6 +6,11 @@
   font-display: swap;
 }
 
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
   padding: 50px;
   font: 14px "Geist Sans", "Lucida Grande", Helvetica, Arial, sans-serif;
