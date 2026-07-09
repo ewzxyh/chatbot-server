@@ -44,6 +44,10 @@ class PubSub {
     wss.on('connection', async (ws,req) => {
 
       ws.isAlive = true;
+      if (this.isRequestExpired(req)) {
+        this.closeExpiredSocket(ws);
+        return;
+      }
 
       const id = this.autoId()
 
@@ -78,6 +82,8 @@ class PubSub {
         winston.debug('Client is disconnected')
 
         clearInterval(ws.timer);
+        clearTimeout(ws.expirationTimer);
+        clearTimeout(ws.expirationTerminateTimer);
         
         // Find user subscriptions and remove
         const userSubscriptions = this.subscription.getSubscriptions(
@@ -104,6 +110,7 @@ class PubSub {
         this.removeClient(id)
 
       })
+      this.scheduleExpiration(ws, req);
       //https://stackoverflow.com/questions/46755493/websocket-ping-with-node-js
      // ws.on('pong',function(mess) { winston.debug(ws.id+' receive a pong : '+mess); });
 
@@ -113,6 +120,40 @@ class PubSub {
 
     })
 
+  }
+
+  isRequestExpired(req) {
+    return Boolean(req && typeof req.jwtExp === 'number' && isFinite(req.jwtExp) && Date.now() >= req.jwtExp * 1000);
+  }
+
+  scheduleExpiration(ws, req) {
+    if (!req || typeof req.jwtExp !== 'number' || !isFinite(req.jwtExp)) return;
+    var delay = req.jwtExp * 1000 - Date.now();
+    if (delay <= 0) {
+      this.closeExpiredSocket(ws);
+      return;
+    }
+    var maxDelay = 2147483647;
+    ws.expirationTimer = setTimeout(() => {
+      if (this.isRequestExpired(req)) {
+        this.closeExpiredSocket(ws);
+      } else {
+        this.scheduleExpiration(ws, req);
+      }
+    }, Math.min(delay, maxDelay));
+  }
+
+  closeExpiredSocket(ws) {
+    if (!ws || ws.tokenExpired) return;
+    ws.tokenExpired = true;
+    if (typeof ws.close === 'function') {
+      if (typeof ws.terminate === 'function') {
+        ws.expirationTerminateTimer = setTimeout(function() { ws.terminate(); }, 1000);
+      }
+      ws.close(1008, 'Token expired');
+    } else if (typeof ws.terminate === 'function') {
+      ws.terminate();
+    }
   }
 
   ping(ws) {
@@ -292,6 +333,12 @@ class PubSub {
    * @param message
    */
   async handleReceivedClientMessage (clientId, message, req) {
+    const client = this.getClient(clientId)
+    if (!client) return 0;
+    if (this.isRequestExpired(req)) {
+      this.closeExpiredSocket(client.ws);
+      return 0;
+    }
 /*
     if (this.onMessageCallback ) {
       this.onMessageCallback(clientId, message);
@@ -306,7 +353,6 @@ class PubSub {
       }
     }
 
-    const client = this.getClient(clientId)
     // winston.debug('clientId',clientId, message);
 
       //heartbeat

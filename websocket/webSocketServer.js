@@ -124,6 +124,9 @@ class WebSocketServer {
             } else {
               // uncomment it
               const identifier = decoded._id || decoded._doc._id;
+              if (decoded.exp !== undefined) {
+                info.req.jwtExp = decoded.exp;
+              }
 
 
               winston.debug('valid token:' + identifier);

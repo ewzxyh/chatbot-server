@@ -21,7 +21,14 @@ var AuditEventSchema = new Schema({
     id: { type: String },
     email: { type: String, index: true },
     role: { type: String },
-    type: { type: String }
+    type: { type: String },
+    impersonation: {
+      adminId: { type: String },
+      adminEmail: { type: String },
+      targetType: { type: String },
+      targetId: { type: String },
+      projectId: { type: String }
+    }
   },
   requestId: { type: String, index: true },
   integrationId: { type: String },

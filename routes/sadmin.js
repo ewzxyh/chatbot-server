@@ -1,9 +1,12 @@
 var express = require('express');
 var router = express.Router();
 var passport = require('passport');
+var jwt = require('jsonwebtoken');
 var validtoken = require('../middleware/valid-token');
 var superAdminCheck = require('../middleware/super-admin-check');
 var winston = require('../config/winston');
+var config = require('../config/database');
+var uuidv4 = require('uuid/v4');
 
 var Project = require('../models/project');
 var User = require('../models/user');
@@ -25,11 +28,35 @@ var usageMeteringService = require('../services/usageMeteringService');
 var usageMeteringSnapshotService = require('../services/usageMeteringSnapshotService');
 var billingLifecycleService = require('../services/billingLifecycleService');
 var auditService = require('../services/auditService');
+var superAdminService = require('../services/superAdminService');
 var privacyService = require('../services/privacyService');
 var privacyRetentionService = require('../services/privacyRetentionService');
 var chat21GroupRepairService = require('../services/chat21GroupRepairService');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
+
+var configSecret = process.env.GLOBAL_SECRET || config.secret;
+var privateKey = process.env.GLOBAL_SECRET_OR_PRIVATE_KEY;
+if (privateKey) {
+  configSecret = REDACTED_SECRET(/\\n/g, '\n');
+}
+
+var IMPERSONATION_USER_FIELDS = [
+  '_id', 'email', 'firstname', 'lastname', 'emailverified', 'description',
+  'public_email', 'public_website', 'status', 'createdAt', 'updatedAt'
+];
+var IMPERSONATION_USER_SELECT = IMPERSONATION_USER_FIELDS.join(' ');
+
+function buildImpersonationUser(user) {
+  var result = {};
+  for (var i = 0; i < IMPERSONATION_USER_FIELDS.length; i++) {
+    var field = IMPERSONATION_USER_FIELDS[i];
+    if (user[field] !== undefined) {
+      result[field] = field === '_id' ? String(user[field]) : user[field];
+    }
+  }
+  return result;
+}
 
 var CHANNEL_NAMES = ['whatsapp', 'telegram', 'messenger', 'sms', 'voice', 'voice_twilio', 'casezap'];
 
@@ -268,6 +295,120 @@ router.get('/users', auth, async function (req, res) {
   } catch (err) {
     winston.error('sadmin users error', err);
     res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+router.post('/impersonation', auth, async function (req, res) {
+  try {
+    var body = req.body || {};
+    var targetType = body.targetType;
+    var targetId = body.targetId;
+
+    if (['user', 'project'].indexOf(targetType) === -1 ||
+        typeof targetId !== 'string' ||
+        !/^[a-f0-9]{24}$/i.test(targetId)) {
+      return res.status(400).json({ error: 'Valid targetType and targetId are required' });
+    }
+
+    var targetUser;
+    var projectId;
+    var role;
+
+    if (targetType === 'user') {
+      targetUser = await User.findOne({ _id: targetId, status: 100 })
+        .select(IMPERSONATION_USER_SELECT)
+        .lean();
+      if (!targetUser) {
+        return res.status(404).json({ error: 'Active target user not found' });
+      }
+    } else {
+      var project = await Project.findOne({ _id: targetId, status: 100 }).select('_id').lean();
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      var owners = await Project_user.find({
+        id_project: project._id,
+        role: 'owner',
+        status: 'active'
+      }).select('id_user').sort({ id_user: 1, _id: 1 }).lean();
+      var ownerIds = owners.map(function(owner) { return owner.id_user; }).filter(Boolean);
+      if (ownerIds.length === 0) {
+        return res.status(409).json({ error: 'Active project owner unavailable' });
+      }
+
+      var ownerUsers = await User.find({ _id: { $in: ownerIds }, status: 100 })
+        .select(IMPERSONATION_USER_SELECT)
+        .lean();
+      var ownerUsersById = {};
+      for (var ownerUserIndex = 0; ownerUserIndex < ownerUsers.length; ownerUserIndex++) {
+        ownerUsersById[String(ownerUsers[ownerUserIndex]._id)] = ownerUsers[ownerUserIndex];
+      }
+      for (var ownerIndex = 0; ownerIndex < owners.length; ownerIndex++) {
+        var ownerUser = ownerUsersById[String(owners[ownerIndex].id_user)];
+        if (ownerUser &&
+            String(ownerUser._id) !== String(req.user._id) &&
+            !superAdminService.isSuperAdminEmail(ownerUser.email)) {
+          targetUser = ownerUser;
+          break;
+        }
+      }
+      if (!targetUser) {
+        return res.status(409).json({ error: 'Active project owner unavailable' });
+      }
+
+      projectId = String(project._id);
+      role = 'owner';
+    }
+
+    if (String(targetUser._id) === String(req.user._id) ||
+        superAdminService.isSuperAdminEmail(targetUser.email)) {
+      return res.status(403).json({ error: 'Superadmins cannot be impersonated' });
+    }
+
+    var userJson = buildImpersonationUser(targetUser);
+
+    var impersonation = {
+      adminId: String(req.user._id),
+      adminEmail: req.user.email,
+      targetType: targetType,
+      targetId: targetId,
+      userId: String(targetUser._id)
+    };
+
+    var tokenPayload = Object.assign({}, userJson, {
+      token_use: 'impersonation',
+      impersonation: impersonation
+    });
+    if (projectId) {
+      tokenPayload.id_project = projectId;
+      tokenPayload.projectId = projectId;
+      tokenPayload.role = role;
+      impersonation.projectId = projectId;
+    }
+
+    var signOptions = {
+      issuer: 'https://tiledesk.com',
+      subject: 'user',
+      audience: 'https://tiledesk.com',
+      expiresIn: '15m',
+      jwtid: uuidv4()
+    };
+    if (process.env.GLOBAL_SECRET_ALGORITHM) {
+      signOptions.algorithm = process.env.GLOBAL_SECRET_ALGORITHM;
+    }
+
+    var token = jwt.sign(tokenPayload, configSecret, signOptions);
+
+    var response = { success: true, token: 'JWT ' + token, user: userJson, expiresIn: 900 };
+    if (projectId) {
+      response.projectId = projectId;
+      response.role = role;
+    }
+    return res.json(response);
+  } catch (err) {
+    winston.error('sadmin impersonation error', err);
+    return res.status(500).json({ error: 'Failed to create impersonation' });
   }
 });
 

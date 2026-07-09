@@ -18,6 +18,7 @@ var Subscription = require('../models/subscription');
 
 var Auth = require('../models/auth');
 var userService = require('../services/userService');
+var superAdminService = require('../services/superAdminService');
 
 var UserUtil = require('../utils/userUtil');
 var jwt = require('jsonwebtoken');
@@ -26,6 +27,56 @@ var cacheUtil = require('../utils/cacheUtil');
 var cacheEnabler = require("../services/cacheEnabler");
 
 var uniqid = require('uniqid');
+
+var GLOBAL_AUDIENCE = 'https://tiledesk.com';
+var OBJECT_ID_PATTERN = /^[a-f0-9]{24}$/i;
+var IMPERSONATION_KEYS = ['adminEmail', 'adminId', 'projectId', 'targetId', 'targetType', 'userId'];
+
+function isValidImpersonation(jwtPayload, user) {
+  if (!jwtPayload || jwtPayload.token_use !== 'impersonation' ||
+      jwtPayload.aud !== GLOBAL_AUDIENCE || jwtPayload.iss !== GLOBAL_AUDIENCE ||
+      jwtPayload.sub !== 'user') {
+    return false;
+  }
+
+  var impersonation = jwtPayload.impersonation;
+  if (!impersonation || typeof impersonation !== 'object' || Array.isArray(impersonation)) {
+    return false;
+  }
+  var keys = Object.keys(impersonation);
+  if (keys.some(function(key) { return IMPERSONATION_KEYS.indexOf(key) === -1; })) {
+    return false;
+  }
+
+  var userId = String(user._id);
+  if (!OBJECT_ID_PATTERN.test(String(impersonation.adminId || '')) ||
+      !OBJECT_ID_PATTERN.test(String(impersonation.userId || '')) ||
+      !OBJECT_ID_PATTERN.test(String(impersonation.targetId || '')) ||
+      typeof impersonation.adminEmail !== 'string' ||
+      !superAdminService.isSuperAdminEmail(impersonation.adminEmail) ||
+      String(impersonation.adminId) === userId ||
+      String(impersonation.userId) !== userId) {
+    return false;
+  }
+
+  if (impersonation.targetType === 'user') {
+    return String(impersonation.targetId) === userId &&
+      impersonation.projectId === undefined &&
+      jwtPayload.id_project === undefined &&
+      jwtPayload.projectId === undefined &&
+      jwtPayload.role === undefined;
+  }
+
+  if (impersonation.targetType === 'project') {
+    return OBJECT_ID_PATTERN.test(String(impersonation.projectId || '')) &&
+      String(impersonation.targetId) === String(impersonation.projectId) &&
+      String(jwtPayload.id_project) === String(impersonation.projectId) &&
+      String(jwtPayload.projectId) === String(impersonation.projectId) &&
+      jwtPayload.role === 'owner';
+  }
+
+  return false;
+}
 
 
 const MaskData = require("maskdata");
@@ -398,7 +449,8 @@ module.exports = function(passport) {
           }
           if (user) {
             winston.debug("Passport JWT generic user ", user);
-            return done(null, user);
+            var authInfo = isValidImpersonation(jwt_payload, user) ? { impersonation: jwt_payload.impersonation } : undefined;
+            return done(null, user, authInfo);
           } else {
             winston.debug("Passport JWT generic not user");
             return done(null, false);

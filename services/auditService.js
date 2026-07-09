@@ -93,12 +93,25 @@ function cleanBody(body) {
 
 function getActor(req) {
   var user = req && req.user ? req.user : {};
-  return {
+  var actor = {
     id: user._id ? String(user._id) : (user.id ? String(user.id) : undefined),
     email: user.email || (user._json && user._json.email) || undefined,
     role: user.role || user.roles || undefined,
     type: user.type || undefined
   };
+
+  var impersonation = req && req.authInfo && req.authInfo.impersonation;
+  if (impersonation) {
+    actor.impersonation = {
+      adminId: impersonation.adminId ? String(impersonation.adminId) : undefined,
+      adminEmail: impersonation.adminEmail,
+      targetType: impersonation.targetType,
+      targetId: impersonation.targetId ? String(impersonation.targetId) : undefined,
+      projectId: impersonation.projectId ? String(impersonation.projectId) : undefined
+    };
+  }
+
+  return actor;
 }
 
 function firstValue() {
@@ -114,6 +127,7 @@ function inferAction(method, path) {
   method = (method || '').toUpperCase();
   path = path || '';
 
+  if (path.split('?')[0] === '/sadmin/impersonation' && method === 'POST') return 'admin.impersonation';
   if (path.indexOf('/sadmin') === 0 && method === 'GET') return 'admin.read';
   if (path.indexOf('/auth') === 0 && method === 'POST') return 'auth.write';
   if (method === 'POST') return 'api.create';
@@ -227,10 +241,13 @@ async function record(event) {
 
 function middleware() {
   return function auditMiddleware(req, res, next) {
-    if (!shouldAuditRequest(req)) return next();
+    if (!isEnabled()) return next();
 
     var startedAt = Date.now();
     res.on('finish', function() {
+      var isImpersonatedRequest = Boolean(req.authInfo && req.authInfo.impersonation);
+      if (!isImpersonatedRequest && !shouldAuditRequest(req)) return;
+
       var entity = inferEntity(req);
       record({
         action: inferAction(req.method, req.originalUrl || req.url),

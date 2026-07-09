@@ -24,3 +24,32 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - Acao WABA com texto de fallback vira resposta normal em conversa CaseZap.
 - Acao WABA continua nativa em conversa WABA/WhatsApp.
 - Chat CaseZap continua recebendo e exibindo mensagens entre Lovtok e markus-chatcase.
+
+# Plano: impersonacao segura de superadmin
+
+- [x] Mapear e reutilizar os contratos existentes de JWT, auth e auditoria.
+- [x] Implementar `POST /sadmin/impersonation` para usuario e projeto.
+- [x] Preservar as claims de impersonacao no `req.authInfo` e no ator de auditoria.
+- [x] Cobrir autorizacao, validacoes, claims, expiracao e auditoria com testes focados.
+- [x] Executar testes, checks de sintaxe e revisar o diff.
+
+## Revisao
+
+- `node --check` passou nos cinco arquivos JavaScript alterados/adicionados.
+- `git diff --check` passou.
+- `npx mocha test/sadminImpersonation.test.js test/auditRoute.test.js --exit`: 10 testes passando.
+
+# Auditoria final: impersonacao e WebSocket
+
+- [x] Reservar `token_use=impersonation` e validar origem/shape no Passport.
+- [x] Auditar requisicoes impersonadas depois da autenticacao, inclusive GET comum.
+- [x] Selecionar owner elegivel de forma deterministica e aplicar allowlist de usuario.
+- [x] Encerrar WebSockets existentes no `exp` e bloquear mensagens expiradas.
+- [x] Executar testes focados, regressao de auditoria e checks finais.
+
+## Revisao final
+
+- `test/websocketTokenExpiry.test.js`: 4 testes passando.
+- `test/sadminImpersonation.test.js` + `test/auditRoute.test.js`: 12 testes passando.
+- `node --check` passou nos oito arquivos JavaScript alterados/adicionados.
+- `git diff --check` passou.
