@@ -427,12 +427,12 @@ if (process.env.DISABLE_SESSION_STRATEGY==true ||  process.env.DISABLE_SESSION_S
           }
         })
       )
-      winston.info("Express Session with Redis enabled with Secret: " + sessionSecret);
+      winston.info("Express Session with Redis enabled");
 
 
   } else {
     app.use(session({ secret: sessionSecret}));
-    winston.info("Express Session enabled with Secret: " + sessionSecret);
+    winston.info("Express Session enabled");
 
   }
 
