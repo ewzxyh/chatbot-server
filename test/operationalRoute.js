@@ -215,6 +215,8 @@ describe('OperationalRoute', function() {
     var originalCheckRabbit = operationalHealthService.checkRabbit;
     var originalBulkWrite = OperationalChannelDiagnostic.bulkWrite;
     var originalDeleteMany = OperationalChannelDiagnostic.deleteMany;
+    var originalCountDocuments = OperationalChannelDiagnostic.countDocuments;
+    var originalFind = OperationalChannelDiagnostic.find;
 
     try {
       operationalHealthService.getServices = function() {
@@ -232,6 +234,12 @@ describe('OperationalRoute', function() {
       OperationalChannelDiagnostic.deleteMany = function() {
         throw new Error('GET /health/channels deleted diagnostics');
       };
+      OperationalChannelDiagnostic.countDocuments = function() {
+        throw new Error('GET /health/channels used a separate count query');
+      };
+      OperationalChannelDiagnostic.find = function() {
+        throw new Error('GET /health/channels used a separate data query');
+      };
 
       var summary = await getAsSuperAdmin('/sadmin/health/summary', adminEmail, pwd);
       var services = await getAsSuperAdmin('/sadmin/health/services', adminEmail, pwd);
@@ -248,6 +256,67 @@ describe('OperationalRoute', function() {
       operationalHealthService.checkRabbit = originalCheckRabbit;
       OperationalChannelDiagnostic.bulkWrite = originalBulkWrite;
       OperationalChannelDiagnostic.deleteMany = originalDeleteMany;
+      OperationalChannelDiagnostic.countDocuments = originalCountDocuments;
+      OperationalChannelDiagnostic.find = originalFind;
+    }
+  });
+
+  it('keeps facet count and data consistent when cleanup runs during the aggregate read', async function() {
+    var originalAggregate = OperationalHealthSnapshot.aggregate;
+    var originalCountDocuments = OperationalChannelDiagnostic.countDocuments;
+    var originalFind = OperationalChannelDiagnostic.find;
+    var liveRows = [{
+      _id: 'published-cycle:diagnostic-1',
+      integrationId: 'diagnostic-1',
+      id_project: 'operation-aggregate-consistency',
+      name: 'Published diagnostic',
+      product: 'waba',
+      channel: 'waba',
+      status: 'ok',
+      cause: 'provider_status_ok',
+      checkedAt: new Date('2026-07-10T12:00:00.000Z'),
+      cycleId: 'published-cycle',
+      generation: 1
+    }];
+    var aggregateCalls = 0;
+    var cleanupRan = false;
+
+    try {
+      OperationalChannelDiagnostic.countDocuments = function() {
+        throw new Error('separate count query must not run');
+      };
+      OperationalChannelDiagnostic.find = function() {
+        throw new Error('separate data query must not run');
+      };
+      OperationalHealthSnapshot.aggregate = async function(pipeline) {
+        aggregateCalls += 1;
+        expect(pipeline[0].$match._id).to.equal('singleton');
+        expect(pipeline[2].$lookup.from).to.equal('operational_channel_diagnostics');
+        expect(pipeline[2].$lookup.pipeline.some(function(stage) { return Boolean(stage.$facet); })).to.equal(true);
+
+        var readView = liveRows.slice();
+        await operationalHealthService.cleanupChannelDiagnosticGenerations(2, 'published-cycle', {
+          deleteMany: async function(filter) {
+            cleanupRan = true;
+            liveRows = liveRows.filter(function(row) {
+              return !(row.generation < filter.generation.$lt);
+            });
+          }
+        });
+        return [{ diagnostics: { count: [{ value: readView.length }], data: readView } }];
+      };
+
+      var result = await operationalHealthService.listChannels({ page: 1, limit: 100 });
+
+      expect(aggregateCalls).to.equal(1);
+      expect(cleanupRan).to.equal(true);
+      expect(liveRows).to.deep.equal([]);
+      expect(result.count).to.equal(1);
+      expect(result.data.map(function(item) { return item.id; })).to.deep.equal(['diagnostic-1']);
+    } finally {
+      OperationalHealthSnapshot.aggregate = originalAggregate;
+      OperationalChannelDiagnostic.countDocuments = originalCountDocuments;
+      OperationalChannelDiagnostic.find = originalFind;
     }
   });
 

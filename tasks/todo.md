@@ -127,3 +127,17 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - Suite operacional: 106 testes passando.
 - Materializacao bounded, fencing do lease, ponteiro ativo e cleanup monotonicamente anterior cobertos por testes focais.
 - `node --check` e `git diff --check` passaram.
+
+# Correcao: leitura atomica da geracao publicada
+
+- [x] Substituir snapshot pointer + count + find por um unico aggregate com `$lookup` e `$facet`.
+- [x] Preservar filtros, sort deterministico, paginacao, projecao e contrato vazio.
+- [x] Intercalar cleanup no teste e provar count/data consistentes sem queries separadas.
+- [x] Corrigir o mock de lease expirado para observar o pointer persistido.
+- [x] Rodar suite operacional, checks finais, atualizar relatorio e criar commit separado.
+
+## Revisao: leitura atomica
+
+- Suite operacional: 107 testes passando.
+- O GET usa um comando Mongo e continua sem writes, probes ou scans de Integration/kvstore.
+- `node --check` e `git diff --check` passaram.

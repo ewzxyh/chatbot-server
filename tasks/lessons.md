@@ -7,3 +7,4 @@
 - Claims privilegiadas so devem chegar ao contexto da requisicao depois de validar uso reservado, audiencia, formato e consistencia com a identidade efetiva; assinatura valida sozinha nao define a procedencia da claim.
 - Antes de criar um plano em `tasks/todo.md`, verificar se o arquivo ja tem historico local e acrescentar uma secao sem substituir tarefas anteriores.
 - Para snapshots materializados em batches, a geracao precisa ser imutavel e invisivel ate um ponteiro publicado sob fencing do lease; cleanup temporal isolado pode apagar a geracao ativa de outro ciclo.
+- Ponteiro, count e pagina de uma geracao precisam sair do mesmo aggregate; queries separadas continuam sujeitas a cleanup concorrente mesmo quando cada query e indexada.

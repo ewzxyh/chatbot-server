@@ -42,7 +42,18 @@ var MAX_OPERATIONAL_LIMIT = 200;
 var MAX_OPERATIONAL_PAGE = 10000;
 var MAX_OPERATIONAL_OFFSET = 200000;
 var CHANNEL_DIAGNOSTIC_BATCH_SIZE = 500;
-var CHANNEL_DIAGNOSTIC_PROJECTION = '_id integrationId id_project name product channel status cause checkedAt cycleId';
+var CHANNEL_DIAGNOSTIC_PROJECTION = {
+  _id: 1,
+  integrationId: 1,
+  id_project: 1,
+  name: 1,
+  product: 1,
+  channel: 1,
+  status: 1,
+  cause: 1,
+  checkedAt: 1,
+  cycleId: 1
+};
 var OPERATIONAL_CHANNELS = ['casezap', 'waba', 'webhook'];
 var CHANNEL_FILTERS = {
   page: true,
@@ -1374,13 +1385,6 @@ async function cleanupChannelDiagnosticGenerations(generation, cycleId, model) {
   return model.deleteMany({ generation: { $lt: generation } });
 }
 
-async function activeDiagnosticCycleId() {
-  var query = OperationalHealthSnapshot.findOne({ _id: SNAPSHOT_ID });
-  if (query && typeof query.select === 'function') query = query.select('activeDiagnosticCycleId');
-  var snapshot = query && typeof query.lean === 'function' ? await query.lean() : await query;
-  return snapshot && snapshot.activeDiagnosticCycleId ? snapshot.activeDiagnosticCycleId : null;
-}
-
 function diagnosticResponseId(row) {
   var id = String(row._id);
   var prefix = row.cycleId ? String(row.cycleId) + ':' : '';
@@ -1389,13 +1393,7 @@ function diagnosticResponseId(row) {
 
 async function listChannels(filters) {
   filters = validateChannelFilters(filters);
-  var cycleId = await activeDiagnosticCycleId();
-  if (!cycleId) {
-    return { data: [], count: 0, page: filters.page, limit: filters.limit };
-  }
-
   var query = {};
-  query.cycleId = cycleId;
   if (filters.product) query.product = filters.product;
   if (filters.channel) query.channel = filters.channel;
   if (filters.status) query.status = filters.status;
@@ -1409,13 +1407,38 @@ async function listChannels(filters) {
   var page = filters.page;
   var limit = filters.limit;
   var start = (page - 1) * limit;
-  var count = await OperationalChannelDiagnostic.countDocuments(query);
-  var rows = await OperationalChannelDiagnostic.find(query)
-    .select(CHANNEL_DIAGNOSTIC_PROJECTION)
-    .sort({ checkedAt: -1, integrationId: 1, _id: 1 })
-    .skip(start)
-    .limit(limit)
-    .lean();
+  var lookupPipeline = [{ $match: { $expr: { $eq: ['$cycleId', '$$activeCycleId'] } } }];
+  if (Object.keys(query).length) lookupPipeline.push({ $match: query });
+  lookupPipeline.push(
+    { $project: CHANNEL_DIAGNOSTIC_PROJECTION },
+    {
+      $facet: {
+        count: [{ $count: 'value' }],
+        data: [
+          { $sort: { checkedAt: -1, integrationId: 1, _id: 1 } },
+          { $skip: start },
+          { $limit: limit }
+        ]
+      }
+    }
+  );
+
+  var aggregation = await OperationalHealthSnapshot.aggregate([
+    { $match: { _id: SNAPSHOT_ID, activeDiagnosticCycleId: { $type: 'string', $ne: '' } } },
+    { $limit: 1 },
+    {
+      $lookup: {
+        from: OperationalChannelDiagnostic.collection.name,
+        let: { activeCycleId: '$activeDiagnosticCycleId' },
+        pipeline: lookupPipeline,
+        as: 'diagnostics'
+      }
+    },
+    { $project: { _id: 0, diagnostics: { $arrayElemAt: ['$diagnostics', 0] } } }
+  ]);
+  var diagnostics = aggregation[0] && aggregation[0].diagnostics;
+  var rows = diagnostics && Array.isArray(diagnostics.data) ? diagnostics.data : [];
+  var count = diagnostics && diagnostics.count && diagnostics.count[0] ? diagnostics.count[0].value : 0;
 
   return {
     data: rows.map(function(row) {

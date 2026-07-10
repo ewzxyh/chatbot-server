@@ -1240,14 +1240,27 @@ describe('OperationalMonitorService', function() {
       new Date('2026-07-10T12:00:00.000Z'),
       new Date('2026-07-10T12:02:00.000Z')
     ];
-    var published = false;
     var materialized = false;
+    var document = {
+      activeDiagnosticCycleId: 'published-cycle',
+      diagnosticGeneration: 0,
+      monitorLease: null
+    };
     var snapshotModel = {
       findOneAndUpdate: async function(filter, update) {
         if (update.$set && update.$set.monitorLease) {
-          return { monitorLease: update.$set.monitorLease, diagnosticGeneration: 1 };
+          document.monitorLease = update.$set.monitorLease;
+          if (update.$inc) document.diagnosticGeneration += update.$inc.diagnosticGeneration;
+          return document;
         }
         if (update.$set && update.$set.activeDiagnosticCycleId) {
+          if (document.monitorLease.owner !== filter['monitorLease.owner'] ||
+            document.monitorLease.expiresAt <= filter['monitorLease.expiresAt'].$gt) return null;
+          document.activeDiagnosticCycleId = update.$set.activeDiagnosticCycleId;
+          return document;
+        }
+        if (update.$unset && document.monitorLease && document.monitorLease.owner === filter['monitorLease.owner']) {
+          document.monitorLease = null;
           return null;
         }
         return null;
@@ -1273,7 +1286,7 @@ describe('OperationalMonitorService', function() {
 
     expect(result.error).to.equal('Operational monitor lease lost');
     expect(materialized).to.equal(true);
-    expect(published).to.equal(false);
+    expect(document.activeDiagnosticCycleId).to.equal('published-cycle');
   });
 
   it('cleans only generations older than the published generation', async function() {
