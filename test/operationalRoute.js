@@ -1160,6 +1160,8 @@ describe('OperationalRoute', function() {
       { query: 'queue=jobs&queue=other', field: 'queue' },
       { query: 'queue%5B%24ne%5D=jobs', field: 'queue' },
       { query: 'page=0', field: 'page' },
+      { query: 'page=10001', field: 'page' },
+      { query: 'page=1002&limit=200', field: 'page' },
       { query: 'limit=201', field: 'limit' }
     ];
 

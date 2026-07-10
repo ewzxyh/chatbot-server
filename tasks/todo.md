@@ -141,3 +141,15 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - Suite operacional: 107 testes passando.
 - O GET usa um comando Mongo e continua sem writes, probes ou scans de Integration/kvstore.
 - `node --check` e `git diff --check` passaram.
+
+# Correcao: limite de paginacao dos alertas operacionais
+
+- [x] Reusar os tetos de page/offset adotados para canais na listagem de alertas.
+- [x] Cobrir page e offset acima do teto no teste de rota.
+- [x] Rodar suite operacional completa, `node --check` e revisar o diff.
+
+## Revisao
+
+- Suite operacional completa: 103 testes passando.
+- `page=10001` e `page=1002&limit=200` retornam 400 `invalid_operational_filter` sem alterar count, limit ou filtros validos.
+- `node --check` e `git diff --check` passaram.

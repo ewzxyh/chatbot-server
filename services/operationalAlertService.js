@@ -12,6 +12,8 @@ if (isNaN(ALERT_EVENT_COOLDOWN_MINUTES) || ALERT_EVENT_COOLDOWN_MINUTES < 1) {
 var DEFAULT_PAGE = 1;
 var DEFAULT_LIMIT = 100;
 var MAX_LIMIT = 200;
+var MAX_OPERATIONAL_PAGE = 10000;
+var MAX_OPERATIONAL_OFFSET = 200000;
 var ALERT_STATUSES = ['open', 'resolved'];
 var ALERT_SEVERITIES = ['info', 'warning', 'critical'];
 var PRODUCTS = ['casezap', 'waba', 'unknown'];
@@ -222,9 +224,10 @@ function validateListFilters(filters) {
   });
 
   var normalized = {
-    page: integerFilter(filters.page, 'page', DEFAULT_PAGE, Number.MAX_SAFE_INTEGER),
+    page: integerFilter(filters.page, 'page', DEFAULT_PAGE, MAX_OPERATIONAL_PAGE),
     limit: integerFilter(filters.limit, 'limit', DEFAULT_LIMIT, MAX_LIMIT)
   };
+  if ((normalized.page - 1) * normalized.limit > MAX_OPERATIONAL_OFFSET) throw invalidFilter('page');
   var status = stringFilter(filters.status, 'status');
   if (status && ALERT_STATUSES.indexOf(status) === -1) throw invalidFilter('status');
   normalized.status = status;
