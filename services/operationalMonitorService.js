@@ -71,36 +71,6 @@ function plainSnapshot(snapshot) {
   return output;
 }
 
-function statusCounts() {
-  return { ok: 0, degraded: 0, down: 0, unknown: 0 };
-}
-
-function leaseSeed(now, expiresAt) {
-  return {
-    version: 2,
-    overallStatus: 'unknown',
-    generatedAt: now,
-    expiresAt: expiresAt,
-    services: [],
-    queues: [],
-    channels: {
-      count: 0,
-      byStatus: statusCounts(),
-      byProduct: {
-        casezap: statusCounts(),
-        waba: statusCounts(),
-        unknown: statusCounts()
-      },
-      topCauses: []
-    },
-    alerts: {
-      count: 0,
-      byStatus: statusCounts(),
-      topCauses: []
-    }
-  };
-}
-
 function runDate(value) {
   if (typeof value === 'function') value = value();
   var date = value ? new Date(value) : new Date();
@@ -133,11 +103,8 @@ async function acquireLease(snapshotModel, owner, now, durationMs) {
   try {
     result = await snapshotModel.findOneAndUpdate(
       leaseFilter(owner, now),
-      {
-        $set: { monitorLease: { owner: owner, expiresAt: expiresAt } },
-        $setOnInsert: leaseSeed(now, expiresAt)
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { $set: { monitorLease: { owner: owner, expiresAt: expiresAt } } },
+      { upsert: true, new: true, setDefaultsOnInsert: false }
     );
   } catch (err) {
     if (hasDuplicateKeyError(err)) return null;

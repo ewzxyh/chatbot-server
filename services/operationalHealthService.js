@@ -133,9 +133,10 @@ function stableCause(value) {
   return Object.prototype.hasOwnProperty.call(STABLE_CAUSES, candidate) ? candidate : null;
 }
 
-function firstValue(values) {
+function firstStableCause(values) {
   for (var i = 0; i < values.length; i++) {
-    if (values[i] !== undefined && values[i] !== null && values[i] !== '') return values[i];
+    var cause = stableCause(values[i]);
+    if (cause) return cause;
   }
   return null;
 }
@@ -143,15 +144,16 @@ function firstValue(values) {
 function normalizeCause(item) {
   item = item || {};
   var details = item.details || {};
-  var cause = stableCause(firstValue([
+  return firstStableCause([
     item.cause,
     item.providerReason,
     item.reason,
     item.providerCode,
     details.cause,
-    details.reason
-  ]));
-  return cause || stableCause(item.type);
+    details.reason,
+    details.providerReason,
+    item.type
+  ]);
 }
 
 function normalizeSnapshotItem(item, now, fallbackName) {
@@ -393,12 +395,27 @@ function isAlertsAggregate(value) {
     isTopCauses(value.topCauses) && value.count === sumStatusCounts(value.byStatus);
 }
 
+function statusFromCounts(value) {
+  if (value.down > 0) return 'down';
+  if (value.degraded > 0) return 'degraded';
+  if (value.unknown > 0) return 'unknown';
+  return 'ok';
+}
+
+function effectiveSnapshotStatus(snapshot) {
+  return mergeOverall(snapshot.services.concat(snapshot.queues).concat([
+    { status: statusFromCounts(snapshot.channels.byStatus) },
+    { status: statusFromCounts(snapshot.alerts.byStatus) }
+  ]));
+}
+
 function isSnapshotValid(snapshot) {
   return snapshot && snapshot.version === 2 && SNAPSHOT_STATUSES.indexOf(snapshot.overallStatus) !== -1 &&
     isDate(snapshot.generatedAt) && isDate(snapshot.expiresAt) && Array.isArray(snapshot.services) &&
     Array.isArray(snapshot.queues) && snapshot.services.length <= MAX_SNAPSHOT_ITEMS &&
     snapshot.queues.length <= MAX_SNAPSHOT_ITEMS && snapshot.services.every(isSnapshotItem) && snapshot.queues.every(isSnapshotItem) &&
-    isChannelsAggregate(snapshot.channels) && isAlertsAggregate(snapshot.alerts);
+    isChannelsAggregate(snapshot.channels) && isAlertsAggregate(snapshot.alerts) &&
+    snapshot.overallStatus === effectiveSnapshotStatus(snapshot);
 }
 
 function snapshotUnavailableError() {
@@ -408,15 +425,60 @@ function snapshotUnavailableError() {
   return error;
 }
 
-function plainSnapshot(snapshot) {
-  if (snapshot && typeof snapshot.toObject === 'function') snapshot = snapshot.toObject();
-  if (!snapshot) return snapshot;
-  var output = Object.assign({}, snapshot);
-  delete output._id;
-  delete output.createdAt;
-  delete output.updatedAt;
-  delete output.monitorLease;
-  return output;
+function copyStatusCounts(value) {
+  return {
+    ok: value.ok,
+    degraded: value.degraded,
+    down: value.down,
+    unknown: value.unknown
+  };
+}
+
+function copyTopCauses(value) {
+  return value.map(function(item) {
+    return { cause: item.cause, count: item.count };
+  });
+}
+
+function copySnapshotItem(item) {
+  return {
+    name: item.name,
+    status: item.status,
+    cause: item.cause,
+    checkedAt: item.checkedAt
+  };
+}
+
+function snapshotResponse(snapshot) {
+  return {
+    version: snapshot.version,
+    overallStatus: snapshot.overallStatus,
+    generatedAt: snapshot.generatedAt,
+    expiresAt: snapshot.expiresAt,
+    services: snapshot.services.map(copySnapshotItem),
+    queues: snapshot.queues.map(copySnapshotItem),
+    channels: {
+      count: snapshot.channels.count,
+      byStatus: copyStatusCounts(snapshot.channels.byStatus),
+      byProduct: {
+        casezap: copyStatusCounts(snapshot.channels.byProduct.casezap),
+        waba: copyStatusCounts(snapshot.channels.byProduct.waba),
+        unknown: copyStatusCounts(snapshot.channels.byProduct.unknown)
+      },
+      topCauses: copyTopCauses(snapshot.channels.topCauses)
+    },
+    alerts: {
+      count: snapshot.alerts.count,
+      byStatus: copyStatusCounts(snapshot.alerts.byStatus),
+      topCauses: copyTopCauses(snapshot.alerts.topCauses)
+    }
+  };
+}
+
+function hasSnapshotPayload(snapshot) {
+  return ['version', 'overallStatus', 'generatedAt', 'expiresAt', 'services', 'queues', 'channels', 'alerts'].some(function(field) {
+    return Object.prototype.hasOwnProperty.call(snapshot, field);
+  });
 }
 
 async function collectSnapshotInput(app) {
@@ -1301,10 +1363,10 @@ async function getSummary() {
   try {
     var query = OperationalHealthSnapshot.findOne({ _id: SNAPSHOT_ID });
     var snapshot = query && typeof query.lean === 'function' ? await query.lean() : await query;
-    if (!snapshot) return emptySnapshot();
+    if (!snapshot || !hasSnapshotPayload(snapshot)) return emptySnapshot();
     if (!isSnapshotValid(snapshot)) throw snapshotUnavailableError();
 
-    var summary = plainSnapshot(snapshot);
+    var summary = snapshotResponse(snapshot);
     summary.snapshotState = deriveSnapshotState(summary);
     return summary;
   } catch (err) {

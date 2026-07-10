@@ -102,6 +102,8 @@ describe('OperationalMonitorService', function() {
             expect(update.$set.monitorLease.owner).to.equal(leaseOwner);
             expect(options.upsert).to.equal(true);
             expect(options.new).to.equal(true);
+            expect(options.setDefaultsOnInsert).to.equal(false);
+            expect(update.$setOnInsert).to.equal(undefined);
             return { monitorLease: update.$set.monitorLease };
           }
           expect(filter._id).to.equal('singleton');
@@ -301,6 +303,31 @@ describe('OperationalMonitorService', function() {
     expect(JSON.stringify(snapshot)).to.not.contain(secret);
   });
 
+  it('maps allowlisted channel provider reasons without leaking arbitrary values', function() {
+    var secret = 'REDACTED_SECRET';
+    var snapshot = operationalHealthService.buildSnapshot({
+      services: [],
+      channels: [],
+      alerts: [
+        {
+          type: 'channel_health',
+          status: 'open',
+          severity: 'warning',
+          details: { reason: secret, providerReason: 'provider_timeout', error: secret }
+        },
+        {
+          type: 'channel_health',
+          status: 'open',
+          severity: 'warning',
+          details: { providerReason: secret, error: secret }
+        }
+      ]
+    }, new Date('2026-07-10T12:00:00.000Z'));
+
+    expect(snapshot.alerts.topCauses).to.deep.equal([{ cause: 'provider_timeout', count: 1 }]);
+    expect(JSON.stringify(snapshot)).to.not.contain(secret);
+  });
+
   it('derives fresh, stale, and missing snapshot states without writing', function() {
     var now = new Date('2026-07-10T12:00:00.000Z');
     var fresh = { generatedAt: '2026-07-10T11:59:00.000Z', expiresAt: '2026-07-10T12:05:00.000Z' };
@@ -351,6 +378,51 @@ describe('OperationalMonitorService', function() {
       expect(filter).to.deep.equal({ _id: 'singleton' });
       expect(summary.snapshotState).to.equal('fresh');
       expect(summary._id).to.equal(undefined);
+    } finally {
+      OperationalHealthSnapshot.findOne = originalFindOne;
+    }
+  });
+
+  it('returns an explicit summary contract without lean document extras', async function() {
+    var originalFindOne = OperationalHealthSnapshot.findOne;
+    var secret = 'REDACTED_SECRET';
+    var persistedSnapshot = operationalHealthService.buildSnapshot({
+      services: [{ name: 'server', status: 'ok' }],
+      queues: [{ name: 'jobs', status: 'ok' }],
+      channels: [{ product: 'casezap', status: 'degraded', cause: 'provider_timeout' }],
+      alerts: [{ type: 'webhook_failure', status: 'down' }]
+    }, new Date('2026-07-10T12:00:00.000Z'));
+    persistedSnapshot.rootSecret = secret;
+    persistedSnapshot.services[0].secret = secret;
+    persistedSnapshot.queues[0].secret = secret;
+    persistedSnapshot.channels.secret = secret;
+    persistedSnapshot.channels.byStatus.secret = secret;
+    persistedSnapshot.channels.byProduct.casezap.secret = secret;
+    persistedSnapshot.channels.topCauses[0].secret = secret;
+    persistedSnapshot.alerts.secret = secret;
+    persistedSnapshot.alerts.byStatus.secret = secret;
+    persistedSnapshot.alerts.topCauses[0].secret = secret;
+    OperationalHealthSnapshot.findOne = function() {
+      return { lean: async function() { return persistedSnapshot; } };
+    };
+
+    try {
+      var summary = await operationalHealthService.getSummary();
+      expect(JSON.stringify(summary)).to.not.contain(secret);
+      expect(Object.keys(summary).sort()).to.deep.equal([
+        'alerts',
+        'channels',
+        'expiresAt',
+        'generatedAt',
+        'overallStatus',
+        'queues',
+        'services',
+        'snapshotState',
+        'version'
+      ]);
+      expect(Object.keys(summary.services[0])).to.deep.equal(['name', 'status', 'cause', 'checkedAt']);
+      expect(Object.keys(summary.channels.topCauses[0])).to.deep.equal(['cause', 'count']);
+      expect(Object.keys(summary.alerts.topCauses[0])).to.deep.equal(['cause', 'count']);
     } finally {
       OperationalHealthSnapshot.findOne = originalFindOne;
     }
@@ -431,6 +503,134 @@ describe('OperationalMonitorService', function() {
       throw new Error('expected product aggregate validation to fail');
     } catch (err) {
       expect(err.code).to.equal('health_snapshot_unavailable');
+    } finally {
+      OperationalHealthSnapshot.findOne = originalFindOne;
+    }
+  });
+
+  it('rejects overall status inconsistent with component severity', async function() {
+    var originalFindOne = OperationalHealthSnapshot.findOne;
+    var persistedSnapshot = operationalHealthService.buildSnapshot({
+      services: [{ name: 'server', status: 'down' }],
+      channels: [],
+      alerts: []
+    }, new Date('2026-07-10T12:00:00.000Z'));
+    persistedSnapshot.overallStatus = 'ok';
+    OperationalHealthSnapshot.findOne = function() {
+      return { lean: async function() { return persistedSnapshot; } };
+    };
+
+    try {
+      await operationalHealthService.getSummary();
+      throw new Error('expected overall status validation to fail');
+    } catch (err) {
+      expect(err.code).to.equal('health_snapshot_unavailable');
+    } finally {
+      OperationalHealthSnapshot.findOne = originalFindOne;
+    }
+  });
+
+  it('accepts coherent ok, degraded, down, and unknown overall statuses', async function() {
+    var originalFindOne = OperationalHealthSnapshot.findOne;
+    var persistedSnapshot;
+    var cases = [{
+      expected: 'ok',
+      input: { services: [{ name: 'server', status: 'ok' }], channels: [], alerts: [] }
+    }, {
+      expected: 'degraded',
+      input: { services: [], channels: [{ product: 'casezap', status: 'degraded' }], alerts: [] }
+    }, {
+      expected: 'down',
+      input: { services: [], channels: [], alerts: [{ type: 'webhook_failure', status: 'down' }] }
+    }, {
+      expected: 'unknown',
+      input: { services: [], queues: [{ name: 'jobs', status: 'unknown' }], channels: [], alerts: [] }
+    }];
+    OperationalHealthSnapshot.findOne = function() {
+      return { lean: async function() { return persistedSnapshot; } };
+    };
+
+    try {
+      for (var i = 0; i < cases.length; i++) {
+        persistedSnapshot = operationalHealthService.buildSnapshot(cases[i].input, new Date('2026-07-10T12:00:00.000Z'));
+        var summary = await operationalHealthService.getSummary();
+        expect(summary.overallStatus).to.equal(cases[i].expected);
+      }
+    } finally {
+      OperationalHealthSnapshot.findOne = originalFindOne;
+    }
+  });
+
+  it('keeps summary missing when the first monitored probe fails', async function() {
+    var originalFindOne = OperationalHealthSnapshot.findOne;
+    var document = null;
+    var snapshotModel = {
+      findOneAndUpdate: async function(filter, update) {
+        if (!document) {
+          document = Object.assign({ _id: 'singleton' }, update.$setOnInsert || {});
+        }
+        if (update.$set && update.$set.monitorLease) document.monitorLease = update.$set.monitorLease;
+        if (update.$unset && update.$unset.monitorLease) delete document.monitorLease;
+        return document;
+      }
+    };
+    OperationalHealthSnapshot.findOne = function() {
+      return { lean: async function() { return document; } };
+    };
+
+    try {
+      var result = await operationalMonitorService.runOnce({
+        now: new Date('2030-07-10T12:00:00.000Z'),
+        leaseOwner: 'first-probe-owner',
+        snapshotModel: snapshotModel,
+        healthService: {
+          collectSnapshotInput: async function() { throw new Error('first probe failed'); }
+        },
+        logger: { recordSafe: function() {} }
+      });
+      var summary = await operationalHealthService.getSummary();
+
+      expect(result.error).to.equal('first probe failed');
+      expect(summary.snapshotState).to.equal('missing');
+      expect(summary.overallStatus).to.equal('unknown');
+    } finally {
+      OperationalHealthSnapshot.findOne = originalFindOne;
+    }
+  });
+
+  it('preserves an existing snapshot when a monitored probe fails', async function() {
+    var originalFindOne = OperationalHealthSnapshot.findOne;
+    var document = operationalHealthService.buildSnapshot({
+      services: [{ name: 'server', status: 'ok' }], channels: [], alerts: []
+    }, new Date('2030-07-10T12:00:00.000Z'));
+    document._id = 'singleton';
+    var generatedAt = document.generatedAt;
+    var snapshotModel = {
+      findOneAndUpdate: async function(filter, update) {
+        if (update.$set && update.$set.monitorLease) document.monitorLease = update.$set.monitorLease;
+        if (update.$unset && update.$unset.monitorLease) delete document.monitorLease;
+        return document;
+      }
+    };
+    OperationalHealthSnapshot.findOne = function() {
+      return { lean: async function() { return document; } };
+    };
+
+    try {
+      await operationalMonitorService.runOnce({
+        now: new Date('2030-07-10T12:01:00.000Z'),
+        leaseOwner: 'existing-snapshot-owner',
+        snapshotModel: snapshotModel,
+        healthService: {
+          collectSnapshotInput: async function() { throw new Error('probe failed'); }
+        },
+        logger: { recordSafe: function() {} }
+      });
+      var summary = await operationalHealthService.getSummary();
+
+      expect(summary.generatedAt).to.equal(generatedAt);
+      expect(summary.overallStatus).to.equal('ok');
+      expect(summary.snapshotState).to.equal('fresh');
     } finally {
       OperationalHealthSnapshot.findOne = originalFindOne;
     }
