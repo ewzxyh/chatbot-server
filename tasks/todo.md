@@ -97,3 +97,18 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - `npx mocha test/operationalMonitorService.test.js --exit`: 38 testes passando.
 - Suite operacional completa: 93 testes passando.
 - O predicado legado usa somente `channels.byStatus.down > 0 || alerts.byStatus.down > 0`.
+
+# Finalizacao: paginacao persistida de diagnosticos de canal
+
+- [x] Revisar o diff contra `c4681bcf` sem reverter o worktree.
+- [x] Manter materializacao somente no ciclo writer apos renovacao do lease.
+- [x] Manter GET somente-leitura com consultas paginadas, projecao e DTO redacted.
+- [x] Corrigir cleanup de ciclos stale e ordenar empates deterministamente.
+- [x] Rodar suite operacional, sintaxe e `git diff --check`.
+- [x] Escrever `.superpowers/sdd/final-pagination-fix-report.md` e criar o commit solicitado.
+
+## Revisao: finalizacao da paginacao persistida
+
+- Suite solicitada: 101 testes passando.
+- `node --check` passou nos cinco arquivos JavaScript alterados/adicionados.
+- `git diff --check` passou.

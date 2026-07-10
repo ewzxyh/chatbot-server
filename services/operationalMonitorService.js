@@ -97,6 +97,12 @@ function hasDuplicateKeyError(error) {
   return error && (error.code === 11000 || /duplicate key/i.test(error.message || ''));
 }
 
+function leaseLostError() {
+  var lost = new Error('Operational monitor lease lost');
+  lost.code = 'operational_monitor_lease_lost';
+  return lost;
+}
+
 async function acquireLease(snapshotModel, owner, now, durationMs) {
   var expiresAt = new Date(now.getTime() + durationMs);
   var result;
@@ -125,6 +131,23 @@ async function releaseLease(snapshotModel, owner) {
   );
 }
 
+async function renewLease(snapshotModel, owner, now, durationMs) {
+  var expiresAt = new Date(now.getTime() + durationMs);
+  var result = await snapshotModel.findOneAndUpdate(
+    {
+      _id: 'singleton',
+      'monitorLease.owner': owner,
+      'monitorLease.expiresAt': { $gt: now }
+    },
+    { $set: { monitorLease: { owner: owner, expiresAt: expiresAt } } },
+    { new: true }
+  );
+  if (!result) return null;
+  var lease = result.monitorLease;
+  if (!lease && typeof result.toObject === 'function') lease = result.toObject().monitorLease;
+  return lease && lease.owner === owner ? { owner: owner, expiresAt: expiresAt } : null;
+}
+
 async function persistSnapshot(snapshotModel, owner, snapshot, now) {
   var stored = await snapshotModel.findOneAndUpdate(
     {
@@ -136,9 +159,7 @@ async function persistSnapshot(snapshotModel, owner, snapshot, now) {
     { new: true }
   );
   if (!stored) {
-    var lost = new Error('Operational monitor lease lost');
-    lost.code = 'operational_monitor_lease_lost';
-    throw lost;
+    throw leaseLostError();
   }
   return plainSnapshot(stored) || snapshot;
 }
@@ -192,6 +213,12 @@ async function runOnce(options) {
     }
     leaseAcquired = true;
     var input = await collectInput(healthService, options.app);
+    if (typeof healthService.materializeChannelDiagnostics === 'function') {
+      var materializationNow = runDate(options.now);
+      var renewedLease = await renewLease(snapshotModel, owner, materializationNow, leaseDurationMs(options));
+      if (!renewedLease) throw leaseLostError();
+      await healthService.materializeChannelDiagnostics(input && input.channels, materializationNow);
+    }
     var buildSnapshot = healthService.buildSnapshot || operationalHealthService.buildSnapshot;
     var snapshot = buildSnapshot(input, now);
     snapshot = await persistSnapshot(snapshotModel, owner, snapshot, runDate(options.now));

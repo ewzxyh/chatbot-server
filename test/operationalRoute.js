@@ -30,7 +30,9 @@ var operationalMonitorService = require('../services/operationalMonitorService')
 var OperationalEvent = require('../models/operationalEvent');
 var OperationalAlert = require('../models/operationalAlert');
 var OperationalHealthSnapshot = require('../models/operationalHealthSnapshot');
+var OperationalChannelDiagnostic = require('../models/operationalChannelDiagnostic');
 var Integration = require('../models/integrations');
+var channelDiagnosticsService = require('../services/channelDiagnosticsService');
 
 chai.use(chaiHttp);
 chai.should();
@@ -61,6 +63,13 @@ function postAsSuperAdmin(path, email, password, body) {
   });
 }
 
+function insertChannelDiagnostic(input) {
+  return mongoose.connection.collection('operational_channel_diagnostics').insertOne(Object.assign({
+    integrationId: input.id,
+    cycleId: 'test-cycle'
+  }, input));
+}
+
 describe('OperationalRoute', function() {
   var pwd = 'Pwd1234!';
 
@@ -76,6 +85,7 @@ describe('OperationalRoute', function() {
     await OperationalEvent.deleteMany({});
     await OperationalAlert.deleteMany({});
     await OperationalHealthSnapshot.deleteMany({});
+    await mongoose.connection.collection('operational_channel_diagnostics').deleteMany({});
     await Integration.deleteMany({ id_project: /^operation-/ });
     await mongoose.connection.collection('kvstore').deleteMany({ project_id: /^operation-/ });
   });
@@ -190,6 +200,8 @@ describe('OperationalRoute', function() {
     var originalGetServices = operationalHealthService.getServices;
     var originalGetChannels = operationalHealthService.getChannels;
     var originalCheckRabbit = operationalHealthService.checkRabbit;
+    var originalBulkWrite = OperationalChannelDiagnostic.bulkWrite;
+    var originalDeleteMany = OperationalChannelDiagnostic.deleteMany;
 
     try {
       operationalHealthService.getServices = function() {
@@ -200,6 +212,12 @@ describe('OperationalRoute', function() {
       };
       operationalHealthService.checkRabbit = function() {
         throw new Error('GET /health/queues executed a probe');
+      };
+      OperationalChannelDiagnostic.bulkWrite = function() {
+        throw new Error('GET /health/channels wrote diagnostics');
+      };
+      OperationalChannelDiagnostic.deleteMany = function() {
+        throw new Error('GET /health/channels deleted diagnostics');
       };
 
       var summary = await getAsSuperAdmin('/sadmin/health/summary', adminEmail, pwd);
@@ -215,6 +233,8 @@ describe('OperationalRoute', function() {
       operationalHealthService.getServices = originalGetServices;
       operationalHealthService.getChannels = originalGetChannels;
       operationalHealthService.checkRabbit = originalCheckRabbit;
+      OperationalChannelDiagnostic.bulkWrite = originalBulkWrite;
+      OperationalChannelDiagnostic.deleteMany = originalDeleteMany;
     }
   });
 
@@ -270,7 +290,18 @@ describe('OperationalRoute', function() {
         }
       }
     });
-    await Integration.create({
+    await insertChannelDiagnostic({
+      _id: String(first._id),
+      id: String(first._id),
+      id_project: first.id_project,
+      name: 'First',
+      product: 'casezap',
+      channel: 'casezap',
+      status: 'degraded',
+      cause: 'upstream_timeout',
+      checkedAt: new Date('2026-07-10T11:00:00.000Z')
+    });
+    var second = await Integration.create({
       id_project: 'operation-channel-second',
       name: 'casezap',
       value: {
@@ -284,7 +315,18 @@ describe('OperationalRoute', function() {
         }
       }
     });
-    await Integration.create({
+    await insertChannelDiagnostic({
+      _id: String(second._id),
+      id: String(second._id),
+      id_project: second.id_project,
+      name: 'Second',
+      product: 'casezap',
+      channel: 'casezap',
+      status: 'degraded',
+      cause: 'provider_check_failed',
+      checkedAt: new Date('2026-07-10T11:05:00.000Z')
+    });
+    var ok = await Integration.create({
       id_project: 'operation-channel-ok',
       name: 'whatsapp',
       value: {
@@ -296,6 +338,17 @@ describe('OperationalRoute', function() {
           lastProviderCheckAt: '2026-07-10T11:10:00.000Z'
         }
       }
+    });
+    await insertChannelDiagnostic({
+      _id: String(ok._id),
+      id: String(ok._id),
+      id_project: ok.id_project,
+      name: 'WABA',
+      product: 'waba',
+      channel: 'waba',
+      status: 'ok',
+      cause: 'provider_status_ok',
+      checkedAt: new Date('2026-07-10T11:10:00.000Z')
     });
 
     var res = await getAsSuperAdmin(
@@ -328,6 +381,119 @@ describe('OperationalRoute', function() {
     causeRes.should.have.status(200);
     expect(causeRes.body.count).to.equal(1);
     expect(causeRes.body.data[0].cause).to.equal('provider_check_failed');
+  });
+
+  it('pages materialized diagnostics without reading source collections', async function() {
+    await mongoose.connection.collection('operational_channel_diagnostics').insertMany([
+      {
+        _id: 'diagnostic-casezap',
+        integrationId: 'diagnostic-casezap',
+        id_project: 'operation-diagnostic-casezap',
+        name: 'CaseZap',
+        product: 'casezap',
+        channel: 'casezap',
+        status: 'down',
+        cause: 'provider_check_failed',
+        checkedAt: new Date('2026-07-10T12:00:00.000Z'),
+        providerError: 'must-not-leak',
+        token: 'must-not-leak'
+      },
+      {
+        _id: 'diagnostic-waba-a',
+        integrationId: 'diagnostic-waba-a',
+        id_project: 'operation-diagnostic-shared',
+        name: 'WABA A',
+        product: 'waba',
+        channel: 'waba',
+        status: 'ok',
+        cause: 'provider_status_ok',
+        checkedAt: new Date('2026-07-10T11:00:00.000Z')
+      },
+      {
+        _id: 'diagnostic-waba-b',
+        integrationId: 'diagnostic-waba-b',
+        id_project: 'operation-diagnostic-shared',
+        name: 'WABA B',
+        product: 'waba',
+        channel: 'waba',
+        status: 'degraded',
+        cause: 'provider_timeout',
+        checkedAt: new Date('2026-07-10T11:00:00.000Z')
+      }
+    ]);
+
+    var originalFind = Integration.find;
+    var originalListKvstoreWabaIntegrations = channelDiagnosticsService.listKvstoreWabaIntegrations;
+    try {
+      Integration.find = function() {
+        throw new Error('GET loaded Integration source collection');
+      };
+      channelDiagnosticsService.listKvstoreWabaIntegrations = async function() {
+        throw new Error('GET loaded kvstore source collection');
+      };
+
+      var res = await getAsSuperAdmin('/sadmin/health/channels?page=1&limit=3', adminEmail, pwd);
+
+      res.should.have.status(200);
+      expect(res.body.count).to.equal(3);
+      expect(res.body.data.map(function(item) { return item.id; })).to.deep.equal([
+        'diagnostic-casezap',
+        'diagnostic-waba-a',
+        'diagnostic-waba-b'
+      ]);
+      expect(res.body.data[1].product).to.equal('waba');
+      expect(JSON.stringify(res.body)).to.not.contain('must-not-leak');
+
+      var page = await getAsSuperAdmin('/sadmin/health/channels?page=2&limit=2', adminEmail, pwd);
+      page.should.have.status(200);
+      expect(page.body.count).to.equal(3);
+      expect(page.body.data.map(function(item) { return item.id; })).to.deep.equal(['diagnostic-waba-b']);
+
+      var filtered = await getAsSuperAdmin('/sadmin/health/channels?product=waba&status=degraded', adminEmail, pwd);
+      filtered.should.have.status(200);
+      expect(filtered.body.count).to.equal(1);
+      expect(filtered.body.data[0].id).to.equal('diagnostic-waba-b');
+    } finally {
+      Integration.find = originalFind;
+      channelDiagnosticsService.listKvstoreWabaIntegrations = originalListKvstoreWabaIntegrations;
+    }
+  });
+
+  it('orders equal diagnostic timestamps and integration ids by document id', async function() {
+    await mongoose.connection.collection('operational_channel_diagnostics').insertMany([
+      {
+        _id: 'diagnostic-order-b',
+        integrationId: 'same-integration',
+        id_project: 'operation-order',
+        name: 'B',
+        product: 'waba',
+        channel: 'waba',
+        status: 'ok',
+        cause: null,
+        checkedAt: new Date('2026-07-10T12:00:00.000Z'),
+        cycleId: 'test-cycle'
+      },
+      {
+        _id: 'diagnostic-order-a',
+        integrationId: 'same-integration',
+        id_project: 'operation-order',
+        name: 'A',
+        product: 'waba',
+        channel: 'waba',
+        status: 'ok',
+        cause: null,
+        checkedAt: new Date('2026-07-10T12:00:00.000Z'),
+        cycleId: 'test-cycle'
+      }
+    ]);
+
+    var res = await getAsSuperAdmin('/sadmin/health/channels?limit=2', adminEmail, pwd);
+
+    res.should.have.status(200);
+    expect(res.body.data.map(function(item) { return item.id; })).to.deep.equal([
+      'diagnostic-order-a',
+      'diagnostic-order-b'
+    ]);
   });
 
   it('returns an empty paginated channel result for unmatched filters', async function() {
@@ -409,6 +575,28 @@ describe('OperationalRoute', function() {
         }
       }
     });
+    await insertChannelDiagnostic({
+      _id: String(stable._id),
+      id: String(stable._id),
+      id_project: stable.id_project,
+      name: 'WABA missing phone',
+      product: 'waba',
+      channel: 'webhook',
+      status: 'unknown',
+      cause: 'missing_waba_phone_number_id',
+      checkedAt: new Date('2026-07-10T11:00:00.000Z')
+    });
+    await insertChannelDiagnostic({
+      _id: String(arbitrary._id),
+      id: String(arbitrary._id),
+      id_project: arbitrary.id_project,
+      name: 'WABA arbitrary cause',
+      product: 'waba',
+      channel: 'webhook',
+      status: 'unknown',
+      cause: null,
+      checkedAt: new Date('2026-07-10T10:00:00.000Z')
+    });
 
     var allRes = await getAsSuperAdmin('/sadmin/health/channels?channel=webhook', adminEmail, pwd);
     allRes.should.have.status(200);
@@ -448,7 +636,7 @@ describe('OperationalRoute', function() {
   });
 
   it('applies date-only end bounds inclusively to channels and alerts', async function() {
-    await Integration.create({
+    var dateChannel = await Integration.create({
       id_project: 'operation-date-channel',
       name: 'whatsapp',
       value: {
@@ -459,6 +647,17 @@ describe('OperationalRoute', function() {
           lastProviderCheckAt: '2026-07-10T23:59:59.999Z'
         }
       }
+    });
+    await insertChannelDiagnostic({
+      _id: String(dateChannel._id),
+      id: String(dateChannel._id),
+      id_project: dateChannel.id_project,
+      name: 'Date channel',
+      product: 'waba',
+      channel: 'waba',
+      status: 'ok',
+      cause: null,
+      checkedAt: new Date('2026-07-10T23:59:59.999Z')
     });
     await OperationalAlert.create([
       {
@@ -1331,6 +1530,17 @@ describe('OperationalRoute', function() {
         }
       }
     });
+    await insertChannelDiagnostic({
+      _id: String(inserted.insertedId),
+      id: String(inserted.insertedId),
+      id_project: 'operation-waba-kvstore',
+      name: 'WABA kvstore',
+      product: 'waba',
+      channel: 'waba',
+      status: 'ok',
+      cause: 'provider_status_ok',
+      checkedAt: new Date('2026-07-10T11:00:00.000Z')
+    });
 
     var res = await getAsSuperAdmin('/sadmin/health/channels', adminEmail, pwd);
 
@@ -1406,6 +1616,19 @@ describe('OperationalRoute', function() {
     expect(event.status).to.equal('success');
 
     var channelsRes = await getAsSuperAdmin('/sadmin/health/channels', adminEmail, pwd);
+    channelsRes.should.have.status(200);
+    await insertChannelDiagnostic({
+      _id: String(inserted.insertedId),
+      id: String(inserted.insertedId),
+      id_project: 'operation-waba-kvstore-test',
+      name: 'WABA kvstore test',
+      product: 'waba',
+      channel: 'waba',
+      status: 'ok',
+      cause: 'provider_status_ok',
+      checkedAt: new Date('2026-07-10T11:00:00.000Z')
+    });
+    channelsRes = await getAsSuperAdmin('/sadmin/health/channels', adminEmail, pwd);
     channelsRes.should.have.status(200);
     var channel = channelsRes.body.data.find(function(item) {
       return item.id === String(inserted.insertedId);

@@ -122,6 +122,48 @@ describe('OperationalMonitorService', function() {
     expect(operationalMonitorService.status().lastStatus).to.equal('ok');
   });
 
+  it('materializes channel diagnostics only after renewing the monitor lease', async function() {
+    var timeline = [];
+    var materializedChannels;
+    var materializedAt;
+    var owner = 'materializer-owner';
+    var now = new Date('2026-07-10T12:00:00.000Z');
+    var result = await operationalMonitorService.runOnce({
+      leaseOwner: owner,
+      now: now,
+      healthService: {
+        collectSnapshotInput: async function() {
+          timeline.push('collect');
+          return {
+            services: [{ name: 'server', status: 'ok' }],
+            channels: [{ integrationDocId: 'diagnostic-1', channel: 'waba', status: 'ok' }],
+            alerts: []
+          };
+        },
+        materializeChannelDiagnostics: async function(channels, materializationNow) {
+          timeline.push('materialize');
+          materializedChannels = channels;
+          materializedAt = materializationNow;
+        }
+      },
+      snapshotModel: {
+        findOneAndUpdate: async function(filter, update) {
+          if (update.$set.monitorLease) {
+            timeline.push(timeline.indexOf('acquire') === -1 ? 'acquire' : 'renew');
+            return { monitorLease: update.$set.monitorLease };
+          }
+          timeline.push('persist');
+          return update.$set;
+        }
+      }
+    });
+
+    expect(result.overallStatus).to.equal('ok');
+    expect(timeline).to.deep.equal(['acquire', 'collect', 'renew', 'materialize', 'persist']);
+    expect(materializedChannels[0].integrationDocId).to.equal('diagnostic-1');
+    expect(materializedAt).to.deep.equal(now);
+  });
+
   it('persists a down queue with an overall down status', async function() {
     var persistedStatus;
     var result = await operationalMonitorService.runOnce({
@@ -916,11 +958,15 @@ describe('OperationalMonitorService', function() {
 
   it('skips the periodic probe when another process owns the lease', async function() {
     var probes = 0;
+    var materializations = 0;
     var result = await operationalMonitorService.runOnce({
       healthService: {
         collectSnapshotInput: async function() {
           probes += 1;
           return { services: [], channels: [], alerts: [] };
+        },
+        materializeChannelDiagnostics: async function() {
+          materializations += 1;
         }
       },
       snapshotModel: {
@@ -933,6 +979,7 @@ describe('OperationalMonitorService', function() {
     expect(result.skipped).to.equal(true);
     expect(result.reason).to.equal('lease_occupied');
     expect(probes).to.equal(0);
+    expect(materializations).to.equal(0);
   });
 
   it('acquires an expired lease', async function() {
@@ -1073,5 +1120,49 @@ describe('OperationalMonitorService', function() {
 
     expect(result.providerHealth).to.equal('ok');
     expect(calls).to.deep.equal(['integration-1']);
+  });
+
+  it('materializes only the redacted channel DTO during a monitor cycle', async function() {
+    var bulkCalls = [];
+    var deleteFilter;
+    var model = {
+      bulkWrite: async function(operations, options) {
+        bulkCalls.push({ operations: operations, options: options });
+      },
+      deleteMany: async function(filter) {
+        deleteFilter = filter;
+      }
+    };
+
+    await operationalHealthService.materializeChannelDiagnostics([{
+      integrationDocId: 'diagnostic-1',
+      integrationId: 'phone-1',
+      id_project: 'project-1',
+      name: 'WABA 1',
+      channel: 'waba',
+      diagnosticChannel: 'waba',
+      status: 'degraded',
+      providerReason: 'provider_timeout',
+      providerCheckedAt: '2026-07-10T12:00:00.000Z',
+      providerError: 'secret-provider-error',
+      token: 'secret-token'
+    }], new Date('2026-07-10T12:00:00.000Z'), model);
+
+    expect(bulkCalls).to.have.lengthOf(1);
+    expect(bulkCalls[0].options).to.deep.equal({ ordered: false });
+    expect(bulkCalls[0].operations[0].replaceOne.filter).to.deep.equal({ _id: 'diagnostic-1' });
+    expect(bulkCalls[0].operations[0].replaceOne.replacement).to.include({
+      _id: 'diagnostic-1',
+      integrationId: 'diagnostic-1',
+      product: 'waba',
+      channel: 'waba',
+      status: 'degraded',
+      cause: 'provider_timeout'
+    });
+    expect(bulkCalls[0].operations[0].replaceOne.replacement.cycleAt).to.deep.equal(new Date('2026-07-10T12:00:00.000Z'));
+    expect(bulkCalls[0].operations[0].replaceOne.replacement).to.not.have.property('providerError');
+    expect(bulkCalls[0].operations[0].replaceOne.replacement).to.not.have.property('token');
+    expect(deleteFilter.$or[0].cycleAt.$lt).to.deep.equal(new Date('2026-07-10T12:00:00.000Z'));
+    expect(deleteFilter.$or[1].cycleAt.$exists).to.equal(false);
   });
 });

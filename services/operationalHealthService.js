@@ -7,6 +7,7 @@ var pjson = require('../package.json');
 var Integration = require('../models/integrations');
 var OperationalEvent = require('../models/operationalEvent');
 var OperationalHealthSnapshot = require('../models/operationalHealthSnapshot');
+var OperationalChannelDiagnostic = require('../models/operationalChannelDiagnostic');
 var operationalAlertService = require('./operationalAlertService');
 var operationalCause = require('./operationalCause');
 var operationalDate = require('./operationalDate');
@@ -38,6 +39,8 @@ var storageHealthCache = {
 var DEFAULT_OPERATIONAL_PAGE = 1;
 var DEFAULT_OPERATIONAL_LIMIT = 100;
 var MAX_OPERATIONAL_LIMIT = 200;
+var CHANNEL_DIAGNOSTIC_BATCH_SIZE = 500;
+var CHANNEL_DIAGNOSTIC_PROJECTION = '_id integrationId id_project name product channel status cause checkedAt';
 var OPERATIONAL_CHANNELS = ['casezap', 'waba', 'webhook'];
 var CHANNEL_FILTERS = {
   page: true,
@@ -1275,6 +1278,7 @@ async function getChannels() {
 
     return {
       channel: channel,
+      diagnosticChannel: integration.value && integration.value.operational && integration.value.operational.channel,
       integrationId: key,
       integrationDocId: String(integration._id),
       integrationSource: integration._source || 'integration',
@@ -1302,62 +1306,96 @@ async function getChannels() {
   });
 }
 
-function persistedChannelRecord(integration) {
-  var value = integration && integration.value ? integration.value : {};
-  var operational = value.operational;
-  if (!operational || typeof operational !== 'object' || !Object.keys(operational).length || !integration._id) return null;
-
-  var product = integration.name === 'casezap' ? 'casezap' : 'waba';
-  var status = operational.lastProviderHealth || operational.status;
-  if (!status && value.status === 'disconnected') status = 'down';
-  var id = String(integration._id);
+function channelDiagnosticRecord(channel) {
+  if (!channel) return null;
+  var id = channel.integrationDocId || channel.integrationId;
+  if (!id) return null;
+  var product = channel.channel === 'casezap' ? 'casezap' : 'waba';
 
   return {
-    id: id,
-    integrationId: id,
-    id_project: integration.id_project,
-    name: integrationDisplayName(integration),
+    _id: String(id),
+    integrationId: String(id),
+    id_project: channel.id_project,
+    name: channel.name,
     product: product,
-    channel: String(operational.channel || product).toLowerCase(),
-    status: normalizeStatus(status),
-    cause: stableCause(operational.lastProviderReason || operational.providerReason || operational.cause),
-    checkedAt: dateOrNull(operational.lastProviderCheckAt || operational.checkedAt)
+    channel: String(channel.diagnosticChannel || channel.channel || product).toLowerCase(),
+    status: normalizeStatus(channel.status),
+    cause: stableCause(channel.providerReason || channel.cause),
+    checkedAt: channel.providerCheckedAt || null
   };
 }
 
-function matchesChannelFilters(record, filters) {
-  if (filters.product && record.product !== filters.product) return false;
-  if (filters.channel && record.channel !== filters.channel) return false;
-  if (filters.status && record.status !== filters.status) return false;
-  if (filters.cause && record.cause !== filters.cause) return false;
+function diagnosticCycleId(now) {
+  return new Date(now || Date.now()).getTime() + '-' + crypto.randomBytes(8).toString('hex');
+}
 
-  var checkedAt = record.checkedAt ? new Date(record.checkedAt) : null;
-  if (filters.from && (!checkedAt || checkedAt < filters.from)) return false;
-  if (filters.to && (!checkedAt || checkedAt > filters.to)) return false;
-  return true;
+async function materializeChannelDiagnostics(channels, now, model) {
+  model = model || OperationalChannelDiagnostic;
+  var cycleAt = new Date(now || Date.now());
+  if (isNaN(cycleAt.getTime())) cycleAt = new Date();
+  var cycleId = diagnosticCycleId(cycleAt);
+  var records = (Array.isArray(channels) ? channels : []).map(channelDiagnosticRecord).filter(Boolean);
+  var operations = records.map(function(record) {
+    return {
+      replaceOne: {
+        filter: { _id: record._id },
+        replacement: Object.assign({}, record, { cycleId: cycleId, cycleAt: cycleAt }),
+        upsert: true
+      }
+    };
+  });
+
+  for (var i = 0; i < operations.length; i += CHANNEL_DIAGNOSTIC_BATCH_SIZE) {
+    await model.bulkWrite(operations.slice(i, i + CHANNEL_DIAGNOSTIC_BATCH_SIZE), { ordered: false });
+  }
+  await model.deleteMany({
+    $or: [
+      { cycleAt: { $lt: cycleAt } },
+      { cycleAt: { $exists: false }, cycleId: { $ne: cycleId } }
+    ]
+  });
+  return records.length;
 }
 
 async function listChannels(filters) {
   filters = validateChannelFilters(filters);
-  var integrations = await Integration.find({ name: { $in: ['whatsapp', 'casezap'] } }).lean();
-  var kvstoreWabas = await channelDiagnosticsService.listKvstoreWabaIntegrations();
-  integrations = mergeKvstoreWabaIntegrations(integrations, kvstoreWabas);
-
-  var records = integrations.map(persistedChannelRecord).filter(Boolean).filter(function(record) {
-    return matchesChannelFilters(record, filters);
-  });
-  records.sort(function(left, right) {
-    var rightDate = right.checkedAt ? new Date(right.checkedAt).getTime() : 0;
-    var leftDate = left.checkedAt ? new Date(left.checkedAt).getTime() : 0;
-    return rightDate - leftDate || left.id.localeCompare(right.id);
-  });
+  var query = {};
+  if (filters.product) query.product = filters.product;
+  if (filters.channel) query.channel = filters.channel;
+  if (filters.status) query.status = filters.status;
+  if (filters.cause) query.cause = filters.cause;
+  if (filters.from || filters.to) {
+    query.checkedAt = {};
+    if (filters.from) query.checkedAt.$gte = filters.from;
+    if (filters.to) query.checkedAt.$lte = filters.to;
+  }
 
   var page = filters.page;
   var limit = filters.limit;
   var start = (page - 1) * limit;
+  var count = await OperationalChannelDiagnostic.countDocuments(query);
+  var rows = await OperationalChannelDiagnostic.find(query)
+    .select(CHANNEL_DIAGNOSTIC_PROJECTION)
+    .sort({ checkedAt: -1, integrationId: 1, _id: 1 })
+    .skip(start)
+    .limit(limit)
+    .lean();
+
   return {
-    data: records.slice(start, start + limit),
-    count: records.length,
+    data: rows.map(function(row) {
+      return {
+        id: String(row._id),
+        integrationId: row.integrationId,
+        id_project: row.id_project,
+        name: row.name,
+        product: row.product,
+        channel: row.channel,
+        status: row.status,
+        cause: row.cause || null,
+        checkedAt: dateOrNull(row.checkedAt)
+      };
+    }),
+    count: count,
     page: page,
     limit: limit
   };
@@ -1539,6 +1577,7 @@ module.exports = {
   getSummary: getSummary,
   getServices: getServices,
   getChannels: getChannels,
+  materializeChannelDiagnostics: materializeChannelDiagnostics,
   listChannels: listChannels,
   getAlerts: getAlerts,
   testChannelConnection: channelDiagnosticsService.testChannelConnection,
