@@ -53,3 +53,17 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - `test/sadminImpersonation.test.js` + `test/auditRoute.test.js`: 12 testes passando.
 - `node --check` passou nos oito arquivos JavaScript alterados/adicionados.
 - `git diff --check` passou.
+
+# Plano: semântica do Status geral
+
+- [x] Cobrir a classificação de canais, core, alertas e snapshot incoerente com testes focais.
+- [x] Reusar a mesma regra na geração e na validação do snapshot.
+- [x] Rodar suíte operacional completa, sintaxe e revisão do diff.
+- [x] Escrever `.superpowers/sdd/status-semantics-report.md` e criar o commit solicitado.
+
+## Revisao: semantica do Status geral
+
+- `npx mocha test/operationalMonitorService.test.js --exit`: 33 testes passando.
+- `npx mocha test/operationalAlertNotifier.test.js test/operationalDate.test.js test/operationalMonitorService.test.js test/operationalRoute.js --exit`: 88 testes passando.
+- `node --check` passou no servico e no teste focal; `git diff --check` passou.
+- O modelo nao mudou; boundedness e redaction existentes foram preservados.

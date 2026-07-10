@@ -155,17 +155,6 @@ function highestStatus(current, candidate) {
   return statusWeight(candidate) > statusWeight(current) ? candidate : current;
 }
 
-function mergeOverall(items) {
-  var max = 0;
-  (items || []).forEach(function(item) {
-    max = Math.max(max, statusWeight(item.status));
-  });
-  if (max >= 3) return 'down';
-  if (max >= 2) return 'degraded';
-  if (max >= 1) return 'unknown';
-  return 'ok';
-}
-
 function toIso(value, fallback) {
   var date = value ? new Date(value) : null;
   if (!date || isNaN(date.getTime())) date = fallback instanceof Date ? fallback : new Date(fallback);
@@ -339,10 +328,14 @@ function buildSnapshot(input, now) {
     addStatus(alertByStatus, item.status);
   });
 
-  var overallItems = services.concat(queues).concat(normalizedChannels).concat(normalizedAlerts);
   return {
     version: 2,
-    overallStatus: mergeOverall(overallItems),
+    overallStatus: classifyOverallStatus({
+      services: services,
+      queues: queues,
+      channels: { count: normalizedChannels.length, byStatus: channelByStatus },
+      alerts: { count: normalizedAlerts.length, byStatus: alertByStatus }
+    }),
     generatedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + snapshotTtlMs()).toISOString(),
     services: services,
@@ -463,11 +456,36 @@ function statusFromCounts(value) {
   return 'ok';
 }
 
+function statusCountsFromItems(items) {
+  var counts = statusCounts();
+  (items || []).forEach(function(item) {
+    addStatus(counts, item && item.status);
+  });
+  return counts;
+}
+
+function classifyOverallStatus(snapshot) {
+  snapshot = snapshot || {};
+  var coreCounts = statusCountsFromItems((snapshot.services || []).concat(snapshot.queues || []));
+  var coreStatus = statusFromCounts(coreCounts);
+  if (coreStatus === 'down') return 'down';
+
+  var channels = snapshot.channels || {};
+  var channelCounts = channels.byStatus || statusCountsFromItems(channels);
+  var channelCount = isCount(channels.count) ? channels.count : sumStatusCounts(channelCounts);
+  if (channelCount > 0 && channelCounts.down === channelCount) return 'down';
+  if (channelCounts.down > 0 || channelCounts.degraded > 0) return 'degraded';
+  if (coreStatus === 'degraded') return 'degraded';
+
+  var alerts = snapshot.alerts || {};
+  var alertCounts = alerts.byStatus || statusCountsFromItems(alerts);
+  if (alertCounts.down > 0 || alertCounts.degraded > 0) return 'degraded';
+  if (coreStatus === 'unknown' || channelCounts.unknown > 0 || alertCounts.unknown > 0) return 'unknown';
+  return 'ok';
+}
+
 function effectiveSnapshotStatus(snapshot) {
-  return mergeOverall(snapshot.services.concat(snapshot.queues).concat([
-    { status: statusFromCounts(snapshot.channels.byStatus) },
-    { status: statusFromCounts(snapshot.alerts.byStatus) }
-  ]));
+  return classifyOverallStatus(snapshot);
 }
 
 function isSnapshotValid(snapshot) {
@@ -902,7 +920,7 @@ async function checkRabbit(options) {
     }
 
     try { conn.close(); } catch (closeErr) {}
-    var status = queues.length ? mergeOverall(queues) : 'ok';
+    var status = queues.length ? statusFromCounts(statusCountsFromItems(queues)) : 'ok';
     return service('rabbitmq', 'RabbitMQ', status, Date.now() - startedAt, {
       queues: queues,
       queueSource: managementConfig ? 'management' : 'amqp',

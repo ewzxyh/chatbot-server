@@ -219,6 +219,52 @@ describe('OperationalMonitorService', function() {
     expect(snapshot.alerts.byStatus.degraded).to.equal(1);
   });
 
+  it('classifies a partial channel outage as degraded', function() {
+    var snapshot = operationalHealthService.buildSnapshot({
+      services: [{ name: 'server', status: 'ok' }],
+      channels: [
+        { product: 'casezap', status: 'down' },
+        { product: 'waba', status: 'ok' }
+      ],
+      alerts: []
+    }, new Date('2026-07-10T12:00:00.000Z'));
+
+    expect(snapshot.overallStatus).to.equal('degraded');
+  });
+
+  it('classifies a total monitored channel outage as down', function() {
+    var snapshot = operationalHealthService.buildSnapshot({
+      services: [{ name: 'server', status: 'ok' }],
+      channels: [
+        { product: 'casezap', status: 'down' },
+        { product: 'waba', status: 'down' }
+      ],
+      alerts: []
+    }, new Date('2026-07-10T12:00:00.000Z'));
+
+    expect(snapshot.overallStatus).to.equal('down');
+  });
+
+  it('classifies a central service outage as down', function() {
+    var snapshot = operationalHealthService.buildSnapshot({
+      services: [{ name: 'server', status: 'down' }],
+      channels: [{ product: 'casezap', status: 'ok' }],
+      alerts: []
+    }, new Date('2026-07-10T12:00:00.000Z'));
+
+    expect(snapshot.overallStatus).to.equal('down');
+  });
+
+  it('classifies a critical alert as degraded when core components are healthy', function() {
+    var snapshot = operationalHealthService.buildSnapshot({
+      services: [{ name: 'server', status: 'ok' }],
+      channels: [{ product: 'casezap', status: 'ok' }],
+      alerts: [{ type: 'webhook_failure', status: 'open', severity: 'critical' }]
+    }, new Date('2026-07-10T12:00:00.000Z'));
+
+    expect(snapshot.overallStatus).to.equal('degraded');
+  });
+
   it('preserves only allowlisted queue metrics in the snapshot', function() {
     var secret = 'REDACTED_SECRET';
     var snapshot = operationalHealthService.buildSnapshot({
@@ -550,13 +596,17 @@ describe('OperationalMonitorService', function() {
     }
   });
 
-  it('rejects overall status inconsistent with component severity', async function() {
+  it('rejects an incoherent overall status for a partial channel outage', async function() {
     var originalFindOne = OperationalHealthSnapshot.findOne;
     var persistedSnapshot = operationalHealthService.buildSnapshot({
-      services: [{ name: 'server', status: 'down' }],
-      channels: [],
+      services: [{ name: 'server', status: 'ok' }],
+      channels: [
+        { product: 'casezap', status: 'down' },
+        { product: 'waba', status: 'ok' }
+      ],
       alerts: []
     }, new Date('2026-07-10T12:00:00.000Z'));
+    expect(persistedSnapshot.overallStatus).to.equal('degraded');
     persistedSnapshot.overallStatus = 'ok';
     OperationalHealthSnapshot.findOne = function() {
       return { lean: async function() { return persistedSnapshot; } };
@@ -582,7 +632,7 @@ describe('OperationalMonitorService', function() {
       expected: 'degraded',
       input: { services: [], channels: [{ product: 'casezap', status: 'degraded' }], alerts: [] }
     }, {
-      expected: 'down',
+      expected: 'degraded',
       input: { services: [], channels: [], alerts: [{ type: 'webhook_failure', status: 'down' }] }
     }, {
       expected: 'unknown',
