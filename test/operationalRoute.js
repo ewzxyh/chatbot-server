@@ -1058,7 +1058,9 @@ describe('OperationalRoute', function() {
     var res = await getAsSuperAdmin('/sadmin/health/summary', adminEmail, pwd);
     res.should.have.status(200);
     expect(res.body.alerts.some(function(alert) {
-      return alert.key === 'channel:casezap:' + String(integration._id) && alert.severity === 'critical';
+      return alert.key === 'channel:casezap:' + String(integration._id) &&
+        alert.severity === 'critical' &&
+        alert.title === 'CaseZap (CaseZap summary) indisponivel';
     })).to.equal(true);
   });
 });

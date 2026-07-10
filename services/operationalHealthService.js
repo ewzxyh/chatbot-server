@@ -892,13 +892,14 @@ function getChannelAlerts(channels) {
     return channel.status === 'down' || channel.status === 'degraded';
   }).map(function(channel) {
     var providerLabel = channel.channel === 'casezap' ? 'CaseZap' : 'WABA';
+    var integrationLabel = channel.name ? ' (' + channel.name + ')' : '';
     var reason = channel.providerReason || channel.lastError || channel.providerStatus || channel.status;
     return {
       key: ['channel', channel.channel, channel.integrationDocId || channel.integrationId || 'unknown'].join(':'),
       type: 'channel_health',
       severity: channel.status === 'down' ? 'critical' : 'warning',
       status: 'open',
-      title: providerLabel + ' ' + (channel.status === 'down' ? 'indisponivel' : 'degradado'),
+      title: providerLabel + integrationLabel + ' ' + (channel.status === 'down' ? 'indisponivel' : 'degradado'),
       message: reason,
       channel: channel.channel,
       id_project: channel.id_project,
@@ -907,6 +908,7 @@ function getChannelAlerts(channels) {
       lastError: channel.providerError || channel.lastError,
       details: {
         providerStatus: channel.providerStatus,
+        name: channel.name,
         providerHealth: channel.providerHealth,
         providerReason: channel.providerReason,
         providerCode: channel.providerCode,
