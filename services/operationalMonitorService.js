@@ -2,6 +2,8 @@ var winston = require('../config/winston');
 var backgroundWorkers = require('../utils/backgroundWorkers');
 var operationalHealthService = require('./operationalHealthService');
 var operationalLogger = require('./operationalLogger');
+var Integration = require('../models/integrations');
+var OperationalHealthSnapshot = require('../models/operationalHealthSnapshot');
 
 var DEFAULT_INTERVAL_SECONDS = 300;
 var DEFAULT_START_DELAY_SECONDS = 60;
@@ -56,6 +58,29 @@ function safeUnref(timer) {
   }
 }
 
+function plainSnapshot(snapshot) {
+  if (snapshot && typeof snapshot.toObject === 'function') snapshot = snapshot.toObject();
+  if (!snapshot) return snapshot;
+  var output = Object.assign({}, snapshot);
+  delete output._id;
+  delete output.createdAt;
+  delete output.updatedAt;
+  return output;
+}
+
+async function collectInput(healthService, app) {
+  if (typeof healthService.collectSnapshotInput === 'function') {
+    return healthService.collectSnapshotInput(app);
+  }
+  if (typeof healthService.getProbeInput === 'function') {
+    return healthService.getProbeInput(app);
+  }
+  if (typeof healthService.getSummary === 'function') {
+    return healthService.getSummary(app);
+  }
+  throw new Error('Operational health probe collector is unavailable');
+}
+
 async function runOnce(options) {
   options = options || {};
   if (state.running) {
@@ -69,6 +94,7 @@ async function runOnce(options) {
 
   var healthService = options.healthService || operationalHealthService;
   var logger = options.logger || operationalLogger;
+  var snapshotModel = options.snapshotModel || OperationalHealthSnapshot;
   var startedAt = Date.now();
 
   state.running = true;
@@ -76,16 +102,20 @@ async function runOnce(options) {
   state.lastError = null;
 
   try {
-    var summary = await healthService.getSummary(options.app);
+    var input = await collectInput(healthService, options.app);
+    var buildSnapshot = healthService.buildSnapshot || operationalHealthService.buildSnapshot;
+    var snapshot = input && input.version === 2 ? input : buildSnapshot(input, options.now || new Date());
+    var stored = await snapshotModel.findOneAndUpdate(
+      { _id: 'singleton' },
+      { $set: snapshot },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    snapshot = plainSnapshot(stored) || snapshot;
     state.lastSuccessAt = new Date().toISOString();
-    state.lastStatus = summary && summary.overallStatus ? summary.overallStatus : 'unknown';
+    state.lastStatus = snapshot && snapshot.overallStatus ? snapshot.overallStatus : 'unknown';
     state.runCount += 1;
     winston.info('Operational monitor completed with status: ' + state.lastStatus);
-    return {
-      ok: true,
-      durationMs: Date.now() - startedAt,
-      summary: summary
-    };
+    return snapshot;
   } catch (err) {
     state.lastFailureAt = new Date().toISOString();
     state.lastStatus = 'failed';
@@ -108,6 +138,26 @@ async function runOnce(options) {
   } finally {
     state.running = false;
   }
+}
+
+async function integrationChannel(integrationId) {
+  if (!/^[0-9a-f]{24}$/i.test(String(integrationId))) return 'waba';
+  var query = Integration.findById(integrationId).select('name');
+  var integration = query && typeof query.lean === 'function' ? await query.lean() : await query;
+  return integration && integration.name === 'casezap' ? 'casezap' : 'waba';
+}
+
+async function testIntegration(integrationId, options) {
+  options = options || {};
+  var healthService = options.healthService || operationalHealthService;
+  if (typeof healthService.testIntegration === 'function') {
+    return healthService.testIntegration(integrationId);
+  }
+  if (typeof healthService.testChannelConnection !== 'function') {
+    throw new Error('Operational integration tester is unavailable');
+  }
+  var channel = options.channel || await integrationChannel(integrationId);
+  return healthService.testChannelConnection(channel, integrationId);
 }
 
 function scheduleRun(options) {
@@ -191,5 +241,6 @@ module.exports = {
   start: start,
   stop: stop,
   runOnce: runOnce,
+  testIntegration: testIntegration,
   status: status
 };

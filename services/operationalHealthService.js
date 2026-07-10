@@ -6,6 +6,7 @@ var https = require('https');
 var pjson = require('../package.json');
 var Integration = require('../models/integrations');
 var OperationalEvent = require('../models/operationalEvent');
+var OperationalHealthSnapshot = require('../models/operationalHealthSnapshot');
 var operationalAlertService = require('./operationalAlertService');
 var operationalLogger = require('./operationalLogger');
 var channelDiagnosticsService = require('./channelDiagnosticsService');
@@ -18,6 +19,11 @@ var QUEUE_READY_ALERT_THRESHOLD = parseInt(process.env.OPERATIONAL_QUEUE_READY_A
 var QUEUE_UNACKED_ALERT_THRESHOLD = parseInt(process.env.OPERATIONAL_QUEUE_UNACKED_ALERT_THRESHOLD || '100', 10);
 var PROVIDER_CHECK_CONCURRENCY = parseInt(process.env.OPERATIONAL_PROVIDER_CHECK_CONCURRENCY || '10', 10);
 if (isNaN(PROVIDER_CHECK_CONCURRENCY) || PROVIDER_CHECK_CONCURRENCY < 1) PROVIDER_CHECK_CONCURRENCY = 10;
+
+var SNAPSHOT_ID = 'singleton';
+var DEFAULT_SNAPSHOT_TTL_SECONDS = 300;
+var DEFAULT_SERVICE_NAMES = ['server', 'mongo', 'redis', 'rabbitmq', 'storage'];
+var SNAPSHOT_STATUSES = ['ok', 'degraded', 'down', 'unknown'];
 
 var storageHealthCache = {
   expiresAt: 0,
@@ -68,6 +74,255 @@ function mergeOverall(items) {
   if (max >= 2) return 'degraded';
   if (max >= 1) return 'unknown';
   return 'ok';
+}
+
+function toIso(value, fallback) {
+  var date = value ? new Date(value) : null;
+  if (!date || isNaN(date.getTime())) date = fallback instanceof Date ? fallback : new Date(fallback);
+  return date.toISOString();
+}
+
+function normalizeStatus(status) {
+  return SNAPSHOT_STATUSES.indexOf(status) !== -1 ? status : 'unknown';
+}
+
+function firstValue(values) {
+  for (var i = 0; i < values.length; i++) {
+    if (values[i] !== undefined && values[i] !== null && values[i] !== '') return values[i];
+  }
+  return null;
+}
+
+function normalizeCause(item) {
+  item = item || {};
+  var details = item.details || {};
+  var cause = firstValue([
+    item.cause,
+    item.providerReason,
+    item.reason,
+    item.providerCode,
+    details.cause,
+    details.reason,
+    item.providerError,
+    item.lastError,
+    details.error
+  ]);
+  return cause === null ? null : String(cause);
+}
+
+function normalizeSnapshotItem(item, now, fallbackName) {
+  item = item || {};
+  var details = item.details || {};
+  return {
+    name: String(item.name || item.queue || item.channel || item.integrationId || fallbackName || 'unknown'),
+    status: normalizeStatus(item.status || item.providerHealth),
+    cause: normalizeCause(item),
+    checkedAt: toIso(item.checkedAt || item.providerCheckedAt || item.lastAt || details.checkedAt, now)
+  };
+}
+
+function namesFrom(input, key, envName, fallback) {
+  if (Array.isArray(input[key])) return input[key].map(String).filter(Boolean);
+  if (process.env[envName] !== undefined) {
+    return process.env[envName].split(',').map(function(item) {
+      return item.trim();
+    }).filter(Boolean);
+  }
+  return fallback || [];
+}
+
+function boundedItems(items, names, maxItems) {
+  items = Array.isArray(items) ? items : [];
+  if (names.length) {
+    return items.filter(function(item) {
+      var name = item && (item.name || item.queue || item.channel);
+      return names.indexOf(String(name)) !== -1;
+    }).slice(0, names.length);
+  }
+  return items.slice(0, maxItems);
+}
+
+function statusCounts() {
+  return { ok: 0, degraded: 0, down: 0, unknown: 0 };
+}
+
+function addStatus(counts, status) {
+  counts[normalizeStatus(status)] += 1;
+}
+
+function topCauses(items) {
+  var counts = {};
+  (items || []).forEach(function(item) {
+    if (!item.cause) return;
+    counts[item.cause] = (counts[item.cause] || 0) + 1;
+  });
+  return Object.keys(counts).map(function(cause) {
+    return { cause: cause, count: counts[cause] };
+  }).sort(function(left, right) {
+    return right.count - left.count || left.cause.localeCompare(right.cause);
+  }).slice(0, 5);
+}
+
+function productName(channel) {
+  var value = channel && (channel.product || channel.channel);
+  if (value === 'whatsapp') return 'waba';
+  return value ? String(value) : 'unknown';
+}
+
+function alertStatus(alert) {
+  if (SNAPSHOT_STATUSES.indexOf(alert.status) !== -1) return alert.status;
+  if (alert.status === 'resolved') return 'ok';
+  if (alert.severity === 'critical') return 'down';
+  if (alert.severity === 'warning') return 'degraded';
+  return 'unknown';
+}
+
+function queueItems(input) {
+  if (Array.isArray(input.queues)) return input.queues;
+  if (input.queues && input.queues.details && Array.isArray(input.queues.details.queues)) {
+    return input.queues.details.queues;
+  }
+  var rabbit = (input.services || []).find(function(item) {
+    return item && item.name === 'rabbitmq';
+  });
+  return rabbit && rabbit.details && Array.isArray(rabbit.details.queues) ? rabbit.details.queues : [];
+}
+
+function snapshotTtlMs() {
+  return parsePositiveInt(process.env.OPERATIONAL_HEALTH_SNAPSHOT_TTL_SECONDS ||
+    process.env.OPERATIONAL_MONITOR_INTERVAL_SECONDS || String(DEFAULT_SNAPSHOT_TTL_SECONDS), DEFAULT_SNAPSHOT_TTL_SECONDS) * 1000;
+}
+
+function buildSnapshot(input, now) {
+  input = input || {};
+  now = now ? new Date(now) : new Date();
+  if (isNaN(now.getTime())) now = new Date();
+
+  var serviceNames = namesFrom(input, 'serviceNames', 'OPERATIONAL_HEALTH_SERVICES', DEFAULT_SERVICE_NAMES);
+  var queueNames = namesFrom(input, 'queueNames', 'OPERATIONAL_RABBITMQ_QUEUES', []);
+  var services = boundedItems(input.services, serviceNames, DEFAULT_SERVICE_NAMES.length).map(function(item) {
+    return normalizeSnapshotItem(item, now);
+  });
+  var queues = boundedItems(queueItems(input), queueNames, 50).map(function(item) {
+    return normalizeSnapshotItem(item, now);
+  });
+  var channels = Array.isArray(input.channels) ? input.channels : [];
+  var normalizedChannels = channels.map(function(item) {
+    var normalized = normalizeSnapshotItem(item, now);
+    normalized.product = productName(item);
+    return normalized;
+  });
+  var alerts = Array.isArray(input.alerts) ? input.alerts : [];
+  var normalizedAlerts = alerts.map(function(item) {
+    var normalized = normalizeSnapshotItem(item, now, item.type || 'alert');
+    normalized.status = alertStatus(item);
+    return normalized;
+  });
+
+  var channelByStatus = statusCounts();
+  var channelByProduct = {
+    casezap: statusCounts(),
+    waba: statusCounts()
+  };
+  normalizedChannels.forEach(function(item) {
+    addStatus(channelByStatus, item.status);
+    if (!channelByProduct[item.product]) channelByProduct[item.product] = statusCounts();
+    addStatus(channelByProduct[item.product], item.status);
+  });
+
+  var alertByStatus = statusCounts();
+  normalizedAlerts.forEach(function(item) {
+    addStatus(alertByStatus, item.status);
+  });
+
+  var overallItems = services.concat(queues).concat(normalizedChannels).concat(normalizedAlerts);
+  return {
+    version: 2,
+    overallStatus: mergeOverall(overallItems),
+    generatedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + snapshotTtlMs()).toISOString(),
+    services: services,
+    queues: queues,
+    channels: {
+      count: normalizedChannels.length,
+      byStatus: channelByStatus,
+      byProduct: channelByProduct,
+      topCauses: topCauses(normalizedChannels)
+    },
+    alerts: {
+      count: normalizedAlerts.length,
+      byStatus: alertByStatus,
+      topCauses: topCauses(normalizedAlerts)
+    }
+  };
+}
+
+function deriveSnapshotState(snapshot, now) {
+  if (!snapshot) return 'missing';
+  var expiresAt = new Date(snapshot.expiresAt).getTime();
+  var timestamp = now ? new Date(now).getTime() : Date.now();
+  return expiresAt > timestamp ? 'fresh' : 'stale';
+}
+
+function emptyAggregate() {
+  return {
+    count: 0,
+    byStatus: statusCounts(),
+    topCauses: []
+  };
+}
+
+function emptySnapshot() {
+  return {
+    version: 2,
+    overallStatus: 'unknown',
+    snapshotState: 'missing',
+    generatedAt: null,
+    expiresAt: null,
+    services: [],
+    queues: [],
+    channels: Object.assign({ byProduct: { casezap: statusCounts(), waba: statusCounts() } }, emptyAggregate()),
+    alerts: emptyAggregate()
+  };
+}
+
+function isSnapshotValid(snapshot) {
+  return snapshot && snapshot.version === 2 && Array.isArray(snapshot.services) &&
+    Array.isArray(snapshot.queues) && snapshot.channels && snapshot.alerts &&
+    !isNaN(new Date(snapshot.generatedAt).getTime()) && !isNaN(new Date(snapshot.expiresAt).getTime());
+}
+
+function plainSnapshot(snapshot) {
+  if (snapshot && typeof snapshot.toObject === 'function') snapshot = snapshot.toObject();
+  if (!snapshot) return snapshot;
+  var output = Object.assign({}, snapshot);
+  delete output._id;
+  delete output.createdAt;
+  delete output.updatedAt;
+  return output;
+}
+
+async function collectSnapshotInput(app) {
+  var tdCache = app && app.get ? app.get('redis_client') : null;
+  var results = await Promise.all([getServices(tdCache), getChannels()]);
+  var services = results[0];
+  var channels = results[1];
+  var alerts = await getAlerts(services, channels);
+
+  try {
+    await operationalAlertService.syncAlerts(alerts);
+  } catch (err) {
+    operationalLogger.recordSafe({
+      level: 'warn',
+      area: 'monitor',
+      channel: 'system',
+      event: 'operational.alerts.sync_failed',
+      status: 'failed',
+      error: err
+    });
+  }
+
+  return { services: services, channels: channels, alerts: alerts };
 }
 
 async function checkMongo() {
@@ -925,38 +1180,25 @@ async function getAlerts(services, channels) {
   return getServiceAlerts(services).concat(getQueueAlerts(services)).concat(getChannelAlerts(channels)).concat(webhookAlerts);
 }
 
-async function getSummary(app) {
-  var tdCache = app && app.get ? app.get('redis_client') : null;
-  var services = await getServices(tdCache);
-  var channels = await getChannels();
-  var dynamicAlerts = await getAlerts(services, channels);
-  var alerts = dynamicAlerts;
-  try {
-    alerts = await operationalAlertService.syncAlerts(dynamicAlerts);
-  } catch (err) {
-    alerts = dynamicAlerts.map(function(alert) {
-      alert.persistenceError = err.message;
-      return alert;
-    });
-  }
-  var overallStatus = mergeOverall(services.concat(channels));
-  if (alerts.some(function(alert) { return alert.severity === 'critical'; })) {
-    overallStatus = 'down';
-  } else if (alerts.length && overallStatus === 'ok') {
-    overallStatus = 'degraded';
+async function getSummary() {
+  var query = OperationalHealthSnapshot.findOne({ _id: SNAPSHOT_ID });
+  var snapshot = query && typeof query.lean === 'function' ? await query.lean() : await query;
+  if (!snapshot) return emptySnapshot();
+  if (!isSnapshotValid(snapshot)) {
+    var invalid = new Error('Operational health snapshot unavailable');
+    invalid.code = 'health_snapshot_unavailable';
+    throw invalid;
   }
 
-  return {
-    generatedAt: nowIso(),
-    overallStatus: overallStatus,
-    services: services,
-    channels: channels,
-    queues: services.find(function(item) { return item.name === 'rabbitmq'; }),
-    alerts: alerts
-  };
+  var summary = plainSnapshot(snapshot);
+  summary.snapshotState = deriveSnapshotState(summary);
+  return summary;
 }
 
 module.exports = {
+  buildSnapshot: buildSnapshot,
+  deriveSnapshotState: deriveSnapshotState,
+  collectSnapshotInput: collectSnapshotInput,
   getSummary: getSummary,
   getServices: getServices,
   getChannels: getChannels,
