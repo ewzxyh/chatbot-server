@@ -37,6 +37,17 @@ var storageHealthCache = {
 var DEFAULT_OPERATIONAL_PAGE = 1;
 var DEFAULT_OPERATIONAL_LIMIT = 100;
 var MAX_OPERATIONAL_LIMIT = 200;
+var OPERATIONAL_CHANNELS = ['casezap', 'waba', 'webhook'];
+var CHANNEL_FILTERS = {
+  page: true,
+  limit: true,
+  product: true,
+  channel: true,
+  status: true,
+  cause: true,
+  from: true,
+  to: true
+};
 
 function nowIso() {
   return new Date().toISOString();
@@ -62,21 +73,69 @@ function parsePositiveInt(value, fallback) {
   return isNaN(parsed) || parsed < 1 ? fallback : parsed;
 }
 
-function operationalPage(value) {
-  var parsed = parseInt(value, 10);
-  return isNaN(parsed) || parsed < 1 ? DEFAULT_OPERATIONAL_PAGE : parsed;
+function invalidChannelFilter(field) {
+  var error = new Error('Invalid operational filter: ' + field);
+  error.code = 'invalid_operational_filter';
+  error.field = field;
+  error.statusCode = 400;
+  return error;
 }
 
-function operationalLimit(value) {
-  var parsed = parseInt(value, 10);
-  if (isNaN(parsed) || parsed < 1) return DEFAULT_OPERATIONAL_LIMIT;
-  return Math.min(parsed, MAX_OPERATIONAL_LIMIT);
+function channelStringFilter(value, field) {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw invalidChannelFilter(field);
+  var normalized = value.trim();
+  if (!normalized || normalized.length > 200) throw invalidChannelFilter(field);
+  return normalized;
 }
 
-function filterDate(value) {
-  if (!value) return null;
+function canonicalIntegerFilter(value, field, fallback, max) {
+  if (value === undefined) return fallback;
+  if ((typeof value !== 'string' && typeof value !== 'number') || !/^[1-9]\d*$/.test(String(value))) {
+    throw invalidChannelFilter(field);
+  }
+  var parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed > max) throw invalidChannelFilter(field);
+  return parsed;
+}
+
+function channelDateFilter(value, field) {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' && !(value instanceof Date)) throw invalidChannelFilter(field);
   var date = new Date(value);
-  return isNaN(date.getTime()) ? null : date;
+  if (isNaN(date.getTime())) throw invalidChannelFilter(field);
+  return date;
+}
+
+function validateChannelFilters(filters) {
+  filters = filters || {};
+  Object.keys(filters).forEach(function(field) {
+    if (!CHANNEL_FILTERS[field]) throw invalidChannelFilter(field);
+  });
+
+  var normalized = {
+    page: canonicalIntegerFilter(filters.page, 'page', DEFAULT_OPERATIONAL_PAGE, Number.MAX_SAFE_INTEGER),
+    limit: canonicalIntegerFilter(filters.limit, 'limit', DEFAULT_OPERATIONAL_LIMIT, MAX_OPERATIONAL_LIMIT)
+  };
+  normalized.product = channelStringFilter(filters.product, 'product');
+  if (normalized.product && SNAPSHOT_PRODUCTS.indexOf(normalized.product) === -1) throw invalidChannelFilter('product');
+
+  normalized.channel = channelStringFilter(filters.channel, 'channel');
+  if (normalized.channel && OPERATIONAL_CHANNELS.indexOf(normalized.channel) === -1) throw invalidChannelFilter('channel');
+
+  normalized.status = channelStringFilter(filters.status, 'status');
+  if (normalized.status && SNAPSHOT_STATUSES.indexOf(normalized.status) === -1) throw invalidChannelFilter('status');
+
+  if (filters.cause !== undefined) {
+    channelStringFilter(filters.cause, 'cause');
+    normalized.cause = stableCause(filters.cause);
+    if (!normalized.cause) throw invalidChannelFilter('cause');
+  }
+
+  normalized.from = channelDateFilter(filters.from, 'from');
+  normalized.to = channelDateFilter(filters.to, 'to');
+  if (normalized.from && normalized.to && normalized.from > normalized.to) throw invalidChannelFilter('range');
+  return normalized;
 }
 
 function dateOrNull(value) {
@@ -1241,29 +1300,19 @@ function persistedChannelRecord(integration) {
 }
 
 function matchesChannelFilters(record, filters) {
-  var product = filters.product ? String(filters.product).toLowerCase() : null;
-  var channel = filters.channel ? String(filters.channel).toLowerCase() : null;
-  var status = filters.status ? String(filters.status).toLowerCase() : null;
-  var cause = filters.cause ? stableCause(filters.cause) : null;
-  var from = filterDate(filters.from);
-  var to = filterDate(filters.to);
-
-  if (product && SNAPSHOT_PRODUCTS.indexOf(product) === -1) return false;
-  if (status && SNAPSHOT_STATUSES.indexOf(status) === -1) return false;
-  if (filters.cause && !cause) return false;
-  if (product && record.product !== product) return false;
-  if (channel && record.channel !== channel) return false;
-  if (status && record.status !== status) return false;
-  if (filters.cause && record.cause !== cause) return false;
+  if (filters.product && record.product !== filters.product) return false;
+  if (filters.channel && record.channel !== filters.channel) return false;
+  if (filters.status && record.status !== filters.status) return false;
+  if (filters.cause && record.cause !== filters.cause) return false;
 
   var checkedAt = record.checkedAt ? new Date(record.checkedAt) : null;
-  if (from && (!checkedAt || checkedAt < from)) return false;
-  if (to && (!checkedAt || checkedAt > to)) return false;
+  if (filters.from && (!checkedAt || checkedAt < filters.from)) return false;
+  if (filters.to && (!checkedAt || checkedAt > filters.to)) return false;
   return true;
 }
 
 async function listChannels(filters) {
-  filters = filters || {};
+  filters = validateChannelFilters(filters);
   var integrations = await Integration.find({ name: { $in: ['whatsapp', 'casezap'] } }).lean();
   var kvstoreWabas = await channelDiagnosticsService.listKvstoreWabaIntegrations();
   integrations = mergeKvstoreWabaIntegrations(integrations, kvstoreWabas);
@@ -1277,8 +1326,8 @@ async function listChannels(filters) {
     return rightDate - leftDate || left.id.localeCompare(right.id);
   });
 
-  var page = operationalPage(filters.page);
-  var limit = operationalLimit(filters.limit);
+  var page = filters.page;
+  var limit = filters.limit;
   var start = (page - 1) * limit;
   return {
     data: records.slice(start, start + limit),

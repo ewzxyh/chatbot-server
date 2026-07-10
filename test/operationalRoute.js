@@ -337,6 +337,92 @@ describe('OperationalRoute', function() {
     expect(res.body).to.deep.equal({ data: [], count: 0, page: 3, limit: 25 });
   });
 
+  it('rejects non-canonical and unknown channel query filters with a typed 400', async function() {
+    this.timeout(10000);
+    var invalidFilters = [
+      { query: 'unknown=1', field: 'unknown' },
+      { query: 'from=not-a-date', field: 'from' },
+      { query: 'to=not-a-date', field: 'to' },
+      { query: 'page=0', field: 'page' },
+      { query: 'limit=0', field: 'limit' },
+      { query: 'page=1.5', field: 'page' },
+      { query: 'limit=1.5', field: 'limit' },
+      { query: 'page=-1', field: 'page' },
+      { query: 'page=NaN', field: 'page' },
+      { query: 'page=1mixed', field: 'page' },
+      { query: 'page=01', field: 'page' },
+      { query: 'limit=201', field: 'limit' },
+      { query: 'from=2026-07-11T00:00:00.000Z&to=2026-07-10T00:00:00.000Z', field: 'range' },
+      { query: 'product=telegram', field: 'product' },
+      { query: 'channel=telegram', field: 'channel' },
+      { query: 'status=invalid', field: 'status' },
+      { query: 'cause=arbitrary_provider_text', field: 'cause' }
+    ];
+    var results = [];
+
+    for (var i = 0; i < invalidFilters.length; i++) {
+      results.push({
+        expected: invalidFilters[i],
+        response: await getAsSuperAdmin('/sadmin/health/channels?' + invalidFilters[i].query, adminEmail, pwd)
+      });
+    }
+
+    expect(results.map(function(result) { return result.response.status; })).to.deep.equal(
+      invalidFilters.map(function() { return 400; })
+    );
+    results.forEach(function(result) {
+      expect(result.response.body.error.code).to.equal('invalid_operational_filter');
+      expect(result.response.body.error.field).to.equal(result.expected.field);
+    });
+  });
+
+  it('preserves the stable missing WABA phone cause without accepting arbitrary text', async function() {
+    var stable = await Integration.create({
+      id_project: 'operation-channel-missing-phone',
+      name: 'whatsapp',
+      value: {
+        verified_name: 'WABA missing phone',
+        operational: {
+          channel: 'webhook',
+          lastProviderHealth: 'unknown',
+          lastProviderReason: 'missing_waba_phone_number_id',
+          lastProviderCheckAt: '2026-07-10T11:00:00.000Z'
+        }
+      }
+    });
+    var arbitrary = await Integration.create({
+      id_project: 'operation-channel-arbitrary-cause',
+      name: 'whatsapp',
+      value: {
+        verified_name: 'WABA arbitrary cause',
+        operational: {
+          channel: 'webhook',
+          lastProviderHealth: 'unknown',
+          lastProviderReason: 'provider_returned_arbitrary_text',
+          lastProviderCheckAt: '2026-07-10T10:00:00.000Z'
+        }
+      }
+    });
+
+    var allRes = await getAsSuperAdmin('/sadmin/health/channels?channel=webhook', adminEmail, pwd);
+    allRes.should.have.status(200);
+    expect(allRes.body.page).to.equal(1);
+    expect(allRes.body.limit).to.equal(100);
+    var stableDto = allRes.body.data.find(function(item) { return item.id === String(stable._id); });
+    var arbitraryDto = allRes.body.data.find(function(item) { return item.id === String(arbitrary._id); });
+    expect(stableDto.cause).to.equal('missing_waba_phone_number_id');
+    expect(arbitraryDto.cause).to.equal(null);
+
+    var filteredRes = await getAsSuperAdmin(
+      '/sadmin/health/channels?cause=missing_waba_phone_number_id',
+      adminEmail,
+      pwd
+    );
+    filteredRes.should.have.status(200);
+    expect(filteredRes.body.count).to.equal(1);
+    expect(filteredRes.body.data[0].id).to.equal(String(stable._id));
+  });
+
   it('reports Redis health without exposing the password', async function() {
     var secret = 'REDACTED_SECRET';
     var result = await operationalHealthService.checkRedis({

@@ -34,6 +34,7 @@ var STABLE_CAUSES = {
   missing_casezap_domain: true,
   missing_casezap_token: true,
   missing_waba_id: true,
+  missing_waba_phone_number_id: true,
   missing_waba_token: true,
   unsupported_channel: true,
   webhook_failure: true

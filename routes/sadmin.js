@@ -80,25 +80,6 @@ function parsePage(value) {
   return parsed;
 }
 
-function parseOperationalPage(value) {
-  var parsed = parseInt(value, 10);
-  return isNaN(parsed) || parsed < 1 ? 1 : parsed;
-}
-
-function operationalFilters(query) {
-  query = query || {};
-  return {
-    page: parseOperationalPage(query.page),
-    limit: parseLimit(query.limit, 100, 200),
-    product: query.product,
-    channel: query.channel,
-    status: query.status,
-    cause: query.cause,
-    from: parseDateFilter(query.from),
-    to: parseDateFilter(query.to)
-  };
-}
-
 function sendSnapshotError(res, err) {
   if (err && err.code === 'health_snapshot_unavailable') {
     res.status(503).json({
@@ -535,9 +516,10 @@ router.get('/health/services', auth, async function (req, res) {
 
 router.get('/health/channels', auth, async function (req, res) {
   try {
-    var channels = await operationalHealthService.listChannels(operationalFilters(req.query));
+    var channels = await operationalHealthService.listChannels(req.query);
     res.json(channels);
   } catch (err) {
+    if (sendOperationalFilterError(res, err)) return;
     winston.error('sadmin health channels error', err);
     res.status(500).json({ error: 'Failed to fetch channel health' });
   }
