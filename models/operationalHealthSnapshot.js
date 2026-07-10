@@ -56,6 +56,8 @@ var OperationalHealthSnapshotSchema = new Schema({
     byStatus: { type: StatusCountsSchema, default: function() { return {}; } },
     topCauses: { type: [CauseSchema], default: [] }
   },
+  activeDiagnosticCycleId: { type: String, default: null },
+  diagnosticGeneration: { type: Number, min: 0, default: 0 },
   monitorLease: { type: MonitorLeaseSchema, default: null }
 }, {
   collection: 'health',

@@ -5,22 +5,24 @@ var statuses = ['ok', 'degraded', 'down', 'unknown'];
 
 var OperationalChannelDiagnosticSchema = new Schema({
   _id: { type: String, required: true },
-  integrationId: { type: String, required: true, index: true },
-  id_project: { type: String, index: true },
+  integrationId: { type: String, required: true },
+  id_project: { type: String },
   name: { type: String },
-  product: { type: String, enum: ['casezap', 'waba'], required: true, index: true },
-  channel: { type: String, required: true, index: true },
-  status: { type: String, enum: statuses, required: true, index: true },
-  cause: { type: String, default: null, index: true },
-  checkedAt: { type: Date, default: null, index: true },
-  cycleId: { type: String, required: true, index: true },
-  cycleAt: { type: Date, required: true, index: true }
+  product: { type: String, enum: ['casezap', 'waba'], required: true },
+  channel: { type: String, required: true },
+  status: { type: String, enum: statuses, required: true },
+  cause: { type: String, default: null },
+  checkedAt: { type: Date, default: null },
+  cycleId: { type: String, required: true },
+  generation: { type: Number, required: true, min: 1 },
+  cycleAt: { type: Date, required: true }
 }, {
   collection: 'operational_channel_diagnostics',
   strict: true
 });
 
-OperationalChannelDiagnosticSchema.index({ checkedAt: -1, integrationId: 1 });
-OperationalChannelDiagnosticSchema.index({ product: 1, channel: 1, status: 1, cause: 1, checkedAt: -1, integrationId: 1 });
+OperationalChannelDiagnosticSchema.index({ cycleId: 1, checkedAt: -1, integrationId: 1 });
+OperationalChannelDiagnosticSchema.index({ cycleId: 1, product: 1, channel: 1, status: 1, cause: 1, checkedAt: -1, integrationId: 1 });
+OperationalChannelDiagnosticSchema.index({ generation: 1 });
 
 module.exports = mongoose.model('operational_channel_diagnostic', OperationalChannelDiagnosticSchema);

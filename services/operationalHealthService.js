@@ -39,8 +39,10 @@ var storageHealthCache = {
 var DEFAULT_OPERATIONAL_PAGE = 1;
 var DEFAULT_OPERATIONAL_LIMIT = 100;
 var MAX_OPERATIONAL_LIMIT = 200;
+var MAX_OPERATIONAL_PAGE = 10000;
+var MAX_OPERATIONAL_OFFSET = 200000;
 var CHANNEL_DIAGNOSTIC_BATCH_SIZE = 500;
-var CHANNEL_DIAGNOSTIC_PROJECTION = '_id integrationId id_project name product channel status cause checkedAt';
+var CHANNEL_DIAGNOSTIC_PROJECTION = '_id integrationId id_project name product channel status cause checkedAt cycleId';
 var OPERATIONAL_CHANNELS = ['casezap', 'waba', 'webhook'];
 var CHANNEL_FILTERS = {
   page: true,
@@ -117,9 +119,10 @@ function validateChannelFilters(filters) {
   });
 
   var normalized = {
-    page: canonicalIntegerFilter(filters.page, 'page', DEFAULT_OPERATIONAL_PAGE, Number.MAX_SAFE_INTEGER),
+    page: canonicalIntegerFilter(filters.page, 'page', DEFAULT_OPERATIONAL_PAGE, MAX_OPERATIONAL_PAGE),
     limit: canonicalIntegerFilter(filters.limit, 'limit', DEFAULT_OPERATIONAL_LIMIT, MAX_OPERATIONAL_LIMIT)
   };
+  if ((normalized.page - 1) * normalized.limit > MAX_OPERATIONAL_OFFSET) throw invalidChannelFilter('page');
   normalized.product = channelStringFilter(filters.product, 'product');
   if (normalized.product && SNAPSHOT_PRODUCTS.indexOf(normalized.product) === -1) throw invalidChannelFilter('product');
 
@@ -1329,37 +1332,70 @@ function diagnosticCycleId(now) {
   return new Date(now || Date.now()).getTime() + '-' + crypto.randomBytes(8).toString('hex');
 }
 
-async function materializeChannelDiagnostics(channels, now, model) {
+function diagnosticGenerationId(cycleId, integrationId) {
+  return cycleId + ':' + integrationId;
+}
+
+async function materializeChannelDiagnostics(channels, now, model, options) {
   model = model || OperationalChannelDiagnostic;
+  options = options || {};
   var cycleAt = new Date(now || Date.now());
   if (isNaN(cycleAt.getTime())) cycleAt = new Date();
-  var cycleId = diagnosticCycleId(cycleAt);
-  var records = (Array.isArray(channels) ? channels : []).map(channelDiagnosticRecord).filter(Boolean);
-  var operations = records.map(function(record) {
-    return {
-      replaceOne: {
-        filter: { _id: record._id },
-        replacement: Object.assign({}, record, { cycleId: cycleId, cycleAt: cycleAt }),
-        upsert: true
-      }
-    };
-  });
+  var generation = Number.isSafeInteger(options.generation) && options.generation > 0 ? options.generation : Date.now();
+  var cycleId = options.cycleId || diagnosticCycleId(cycleAt);
+  var input = Array.isArray(channels) ? channels : [];
+  var count = 0;
 
-  for (var i = 0; i < operations.length; i += CHANNEL_DIAGNOSTIC_BATCH_SIZE) {
-    await model.bulkWrite(operations.slice(i, i + CHANNEL_DIAGNOSTIC_BATCH_SIZE), { ordered: false });
+  for (var i = 0; i < input.length; i += CHANNEL_DIAGNOSTIC_BATCH_SIZE) {
+    var operations = input.slice(i, i + CHANNEL_DIAGNOSTIC_BATCH_SIZE).map(channelDiagnosticRecord).filter(Boolean).map(function(record) {
+      return {
+        replaceOne: {
+          filter: { _id: diagnosticGenerationId(cycleId, record._id) },
+          replacement: Object.assign({}, record, {
+            _id: diagnosticGenerationId(cycleId, record._id),
+            cycleId: cycleId,
+            generation: generation,
+            cycleAt: cycleAt
+          }),
+          upsert: true
+        }
+      };
+    });
+    if (!operations.length) continue;
+    await model.bulkWrite(operations, { ordered: false });
+    count += operations.length;
   }
-  await model.deleteMany({
-    $or: [
-      { cycleAt: { $lt: cycleAt } },
-      { cycleAt: { $exists: false }, cycleId: { $ne: cycleId } }
-    ]
-  });
-  return records.length;
+  return { count: count, cycleId: cycleId, generation: generation };
+}
+
+async function cleanupChannelDiagnosticGenerations(generation, cycleId, model) {
+  model = model || OperationalChannelDiagnostic;
+  if (!Number.isSafeInteger(generation) || generation < 1) return;
+  return model.deleteMany({ generation: { $lt: generation } });
+}
+
+async function activeDiagnosticCycleId() {
+  var query = OperationalHealthSnapshot.findOne({ _id: SNAPSHOT_ID });
+  if (query && typeof query.select === 'function') query = query.select('activeDiagnosticCycleId');
+  var snapshot = query && typeof query.lean === 'function' ? await query.lean() : await query;
+  return snapshot && snapshot.activeDiagnosticCycleId ? snapshot.activeDiagnosticCycleId : null;
+}
+
+function diagnosticResponseId(row) {
+  var id = String(row._id);
+  var prefix = row.cycleId ? String(row.cycleId) + ':' : '';
+  return id.indexOf(prefix) === 0 ? id.slice(prefix.length) : id;
 }
 
 async function listChannels(filters) {
   filters = validateChannelFilters(filters);
+  var cycleId = await activeDiagnosticCycleId();
+  if (!cycleId) {
+    return { data: [], count: 0, page: filters.page, limit: filters.limit };
+  }
+
   var query = {};
+  query.cycleId = cycleId;
   if (filters.product) query.product = filters.product;
   if (filters.channel) query.channel = filters.channel;
   if (filters.status) query.status = filters.status;
@@ -1384,7 +1420,7 @@ async function listChannels(filters) {
   return {
     data: rows.map(function(row) {
       return {
-        id: String(row._id),
+        id: diagnosticResponseId(row),
         integrationId: row.integrationId,
         id_project: row.id_project,
         name: row.name,
@@ -1578,6 +1614,7 @@ module.exports = {
   getServices: getServices,
   getChannels: getChannels,
   materializeChannelDiagnostics: materializeChannelDiagnostics,
+  cleanupChannelDiagnosticGenerations: cleanupChannelDiagnosticGenerations,
   listChannels: listChannels,
   getAlerts: getAlerts,
   testChannelConnection: channelDiagnosticsService.testChannelConnection,

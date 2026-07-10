@@ -37,6 +37,7 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 
 - `node --check` passou nos cinco arquivos JavaScript alterados/adicionados.
 - `git diff --check` passou.
+
 - `npx mocha test/sadminImpersonation.test.js test/auditRoute.test.js --exit`: 10 testes passando.
 
 # Auditoria final: impersonacao e WebSocket
@@ -112,3 +113,17 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - Suite solicitada: 101 testes passando.
 - `node --check` passou nos cinco arquivos JavaScript alterados/adicionados.
 - `git diff --check` passou.
+
+# Correcao: geracoes imutaveis de diagnosticos de canal
+
+- [x] Publicar `activeDiagnosticCycleId` atomico somente apos materializacao completa e fencing do lease.
+- [x] Usar chave por ciclo/geracao, batches bounded e cleanup monotonicamente anterior.
+- [x] Limitar page/offset e filtrar GET exclusivamente pela geracao publicada, sem probes ou writes.
+- [x] Cobrir concorrencia, falha parcial, lease expirado, boundedness, cleanup, filtros e read-only.
+- [x] Rodar suite operacional completa, checks finais, atualizar relatorio e criar commit separado.
+
+## Revisao: geracoes imutaveis de diagnosticos
+
+- Suite operacional: 106 testes passando.
+- Materializacao bounded, fencing do lease, ponteiro ativo e cleanup monotonicamente anterior cobertos por testes focais.
+- `node --check` e `git diff --check` passaram.

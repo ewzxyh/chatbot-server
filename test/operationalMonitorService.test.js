@@ -144,6 +144,7 @@ describe('OperationalMonitorService', function() {
           timeline.push('materialize');
           materializedChannels = channels;
           materializedAt = materializationNow;
+          return { cycleId: 'cycle-materializer', generation: 1, count: channels.length };
         }
       },
       snapshotModel: {
@@ -1134,7 +1135,7 @@ describe('OperationalMonitorService', function() {
       }
     };
 
-    await operationalHealthService.materializeChannelDiagnostics([{
+    var materialization = await operationalHealthService.materializeChannelDiagnostics([{
       integrationDocId: 'diagnostic-1',
       integrationId: 'phone-1',
       id_project: 'project-1',
@@ -1150,19 +1151,145 @@ describe('OperationalMonitorService', function() {
 
     expect(bulkCalls).to.have.lengthOf(1);
     expect(bulkCalls[0].options).to.deep.equal({ ordered: false });
-    expect(bulkCalls[0].operations[0].replaceOne.filter).to.deep.equal({ _id: 'diagnostic-1' });
+    expect(bulkCalls[0].operations[0].replaceOne.filter).to.deep.equal({ _id: materialization.cycleId + ':diagnostic-1' });
     expect(bulkCalls[0].operations[0].replaceOne.replacement).to.include({
-      _id: 'diagnostic-1',
+      _id: materialization.cycleId + ':diagnostic-1',
       integrationId: 'diagnostic-1',
       product: 'waba',
       channel: 'waba',
       status: 'degraded',
-      cause: 'provider_timeout'
+      cause: 'provider_timeout',
+      cycleId: materialization.cycleId,
+      generation: materialization.generation
     });
     expect(bulkCalls[0].operations[0].replaceOne.replacement.cycleAt).to.deep.equal(new Date('2026-07-10T12:00:00.000Z'));
     expect(bulkCalls[0].operations[0].replaceOne.replacement).to.not.have.property('providerError');
     expect(bulkCalls[0].operations[0].replaceOne.replacement).to.not.have.property('token');
-    expect(deleteFilter.$or[0].cycleAt.$lt).to.deep.equal(new Date('2026-07-10T12:00:00.000Z'));
-    expect(deleteFilter.$or[1].cycleAt.$exists).to.equal(false);
+    expect(materialization.count).to.equal(1);
+    expect(deleteFilter).to.equal(undefined);
+  });
+
+  it('materializes diagnostics in bounded batches', async function() {
+    var batches = [];
+    var channels = [];
+    for (var i = 0; i < 1001; i++) {
+      channels.push({ integrationDocId: 'diagnostic-' + i, channel: 'waba', status: 'ok' });
+    }
+
+    var result = await operationalHealthService.materializeChannelDiagnostics(channels, new Date('2026-07-10T12:00:00.000Z'), {
+      bulkWrite: async function(operations) {
+        batches.push(operations);
+      }
+    }, { cycleId: 'bounded-cycle', generation: 7 });
+
+    expect(batches.map(function(batch) { return batch.length; })).to.deep.equal([500, 500, 1]);
+    expect(batches[0][0].replaceOne.filter).to.deep.equal({ _id: 'bounded-cycle:diagnostic-0' });
+    expect(batches[2][0].replaceOne.filter).to.deep.equal({ _id: 'bounded-cycle:diagnostic-1000' });
+    expect(result).to.deep.equal({ count: 1001, cycleId: 'bounded-cycle', generation: 7 });
+  });
+
+  it('does not publish a partial generation when the second batch fails', async function() {
+    var bulkCalls = 0;
+    var published = false;
+    var snapshotModel = {
+      findOneAndUpdate: async function(filter, update) {
+        if (update.$set && update.$set.monitorLease) {
+          return { monitorLease: update.$set.monitorLease, diagnosticGeneration: 1 };
+        }
+        if (update.$set && update.$set.activeDiagnosticCycleId) {
+          published = true;
+          return update.$set;
+        }
+        return null;
+      }
+    };
+    var diagnosticModel = {
+      bulkWrite: async function() {
+        bulkCalls += 1;
+        if (bulkCalls === 2) throw new Error('second batch failed');
+      }
+    };
+    var channels = [];
+    for (var i = 0; i < 501; i++) {
+      channels.push({ integrationDocId: 'diagnostic-' + i, channel: 'waba', status: 'ok' });
+    }
+
+    var result = await operationalMonitorService.runOnce({
+      leaseOwner: 'partial-cycle-owner',
+      now: new Date('2026-07-10T12:00:00.000Z'),
+      snapshotModel: snapshotModel,
+      healthService: {
+        collectSnapshotInput: async function() {
+          return { services: [], channels: channels, alerts: [] };
+        },
+        materializeChannelDiagnostics: function(input, now, unused, options) {
+          return operationalHealthService.materializeChannelDiagnostics(input, now, diagnosticModel, options);
+        }
+      },
+      logger: { recordSafe: function() {} }
+    });
+
+    expect(result.error).to.equal('second batch failed');
+    expect(bulkCalls).to.equal(2);
+    expect(published).to.equal(false);
+  });
+
+  it('does not publish after the lease expires during materialization', async function() {
+    var times = [
+      new Date('2026-07-10T12:00:00.000Z'),
+      new Date('2026-07-10T12:00:00.000Z'),
+      new Date('2026-07-10T12:02:00.000Z')
+    ];
+    var published = false;
+    var materialized = false;
+    var snapshotModel = {
+      findOneAndUpdate: async function(filter, update) {
+        if (update.$set && update.$set.monitorLease) {
+          return { monitorLease: update.$set.monitorLease, diagnosticGeneration: 1 };
+        }
+        if (update.$set && update.$set.activeDiagnosticCycleId) {
+          return null;
+        }
+        return null;
+      }
+    };
+
+    var result = await operationalMonitorService.runOnce({
+      leaseOwner: 'expired-during-batches-owner',
+      leaseDurationMs: 60 * 1000,
+      now: function() { return times.shift(); },
+      snapshotModel: snapshotModel,
+      healthService: {
+        collectSnapshotInput: async function() {
+          return { services: [], channels: [], alerts: [] };
+        },
+        materializeChannelDiagnostics: async function() {
+          materialized = true;
+          return { cycleId: 'expired-cycle', generation: 1, count: 0 };
+        }
+      },
+      logger: { recordSafe: function() {} }
+    });
+
+    expect(result.error).to.equal('Operational monitor lease lost');
+    expect(materialized).to.equal(true);
+    expect(published).to.equal(false);
+  });
+
+  it('cleans only generations older than the published generation', async function() {
+    var documents = [
+      { cycleId: 'cycle-1', generation: 1 },
+      { cycleId: 'cycle-3', generation: 3 },
+      { cycleId: 'cycle-4', generation: 4 }
+    ];
+    await operationalHealthService.cleanupChannelDiagnosticGenerations(3, 'cycle-3', {
+      deleteMany: async function(filter) {
+        documents = documents.filter(function(document) {
+          return !(document.generation < filter.generation.$lt);
+        });
+      }
+    });
+
+    expect(documents.map(function(document) { return document.generation; })).to.deep.equal([3, 4]);
   });
 });

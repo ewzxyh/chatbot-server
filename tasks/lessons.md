@@ -6,3 +6,4 @@
 - Em contratos administrativos que emitem JWT, validar o status ativo do recurso raiz e retornar o TTL numerico junto do token para o cliente representar a expiracao sem inferencia.
 - Claims privilegiadas so devem chegar ao contexto da requisicao depois de validar uso reservado, audiencia, formato e consistencia com a identidade efetiva; assinatura valida sozinha nao define a procedencia da claim.
 - Antes de criar um plano em `tasks/todo.md`, verificar se o arquivo ja tem historico local e acrescentar uma secao sem substituir tarefas anteriores.
+- Para snapshots materializados em batches, a geracao precisa ser imutavel e invisivel ate um ponteiro publicado sob fencing do lease; cleanup temporal isolado pode apagar a geracao ativa de outro ciclo.

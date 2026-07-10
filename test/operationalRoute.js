@@ -63,11 +63,24 @@ function postAsSuperAdmin(path, email, password, body) {
   });
 }
 
-function insertChannelDiagnostic(input) {
-  return mongoose.connection.collection('operational_channel_diagnostics').insertOne(Object.assign({
+async function activateTestDiagnosticCycle(cycleId) {
+  var existing = await OperationalHealthSnapshot.findOne({ _id: 'singleton' }).lean();
+  if (existing) {
+    await OperationalHealthSnapshot.updateOne({ _id: 'singleton' }, { $set: { activeDiagnosticCycleId: cycleId } });
+    return;
+  }
+  var snapshot = operationalHealthService.buildSnapshot({ services: [], channels: [], alerts: [] }, new Date('2026-07-10T12:00:00.000Z'));
+  snapshot.activeDiagnosticCycleId = cycleId;
+  await OperationalHealthSnapshot.create(snapshot);
+}
+
+async function insertChannelDiagnostic(input) {
+  var result = await mongoose.connection.collection('operational_channel_diagnostics').insertOne(Object.assign({
     integrationId: input.id,
     cycleId: 'test-cycle'
   }, input));
+  await activateTestDiagnosticCycle(input.cycleId || 'test-cycle');
+  return result;
 }
 
 describe('OperationalRoute', function() {
@@ -394,6 +407,7 @@ describe('OperationalRoute', function() {
         channel: 'casezap',
         status: 'down',
         cause: 'provider_check_failed',
+        cycleId: 'test-cycle',
         checkedAt: new Date('2026-07-10T12:00:00.000Z'),
         providerError: 'must-not-leak',
         token: 'must-not-leak'
@@ -407,6 +421,7 @@ describe('OperationalRoute', function() {
         channel: 'waba',
         status: 'ok',
         cause: 'provider_status_ok',
+        cycleId: 'test-cycle',
         checkedAt: new Date('2026-07-10T11:00:00.000Z')
       },
       {
@@ -418,9 +433,11 @@ describe('OperationalRoute', function() {
         channel: 'waba',
         status: 'degraded',
         cause: 'provider_timeout',
+        cycleId: 'test-cycle',
         checkedAt: new Date('2026-07-10T11:00:00.000Z')
       }
     ]);
+    await activateTestDiagnosticCycle('test-cycle');
 
     var originalFind = Integration.find;
     var originalListKvstoreWabaIntegrations = channelDiagnosticsService.listKvstoreWabaIntegrations;
@@ -486,6 +503,7 @@ describe('OperationalRoute', function() {
         cycleId: 'test-cycle'
       }
     ]);
+    await activateTestDiagnosticCycle('test-cycle');
 
     var res = await getAsSuperAdmin('/sadmin/health/channels?limit=2', adminEmail, pwd);
 
@@ -494,6 +512,42 @@ describe('OperationalRoute', function() {
       'diagnostic-order-a',
       'diagnostic-order-b'
     ]);
+  });
+
+  it('keeps the published pointer when a late old generation is written', async function() {
+    await mongoose.connection.collection('operational_channel_diagnostics').insertOne({
+      _id: 'published-cycle:diagnostic-new',
+      integrationId: 'diagnostic-new',
+      id_project: 'operation-generation',
+      name: 'Published cycle',
+      product: 'waba',
+      channel: 'waba',
+      status: 'ok',
+      cause: 'provider_status_ok',
+      checkedAt: new Date('2026-07-10T12:00:00.000Z'),
+      cycleId: 'published-cycle',
+      generation: 2
+    });
+    await activateTestDiagnosticCycle('published-cycle');
+    await mongoose.connection.collection('operational_channel_diagnostics').insertOne({
+      _id: 'old-cycle:diagnostic-old',
+      integrationId: 'diagnostic-old',
+      id_project: 'operation-generation',
+      name: 'Old cycle',
+      product: 'waba',
+      channel: 'waba',
+      status: 'down',
+      cause: 'provider_timeout',
+      checkedAt: new Date('2026-07-10T11:00:00.000Z'),
+      cycleId: 'old-cycle',
+      generation: 1
+    });
+
+    var res = await getAsSuperAdmin('/sadmin/health/channels', adminEmail, pwd);
+
+    res.should.have.status(200);
+    expect(res.body.count).to.equal(1);
+    expect(res.body.data[0].id).to.equal('diagnostic-new');
   });
 
   it('returns an empty paginated channel result for unmatched filters', async function() {
@@ -523,6 +577,8 @@ describe('OperationalRoute', function() {
       { query: 'page=NaN', field: 'page' },
       { query: 'page=1mixed', field: 'page' },
       { query: 'page=01', field: 'page' },
+      { query: 'page=10001', field: 'page' },
+      { query: 'page=1002&limit=200', field: 'page' },
       { query: 'limit=201', field: 'limit' },
       { query: 'from=2026-07-11T00:00:00.000Z&to=2026-07-10T00:00:00.000Z', field: 'range' },
       { query: 'product=telegram', field: 'product' },

@@ -109,7 +109,7 @@ async function acquireLease(snapshotModel, owner, now, durationMs) {
   try {
     result = await snapshotModel.findOneAndUpdate(
       leaseFilter(owner, now),
-      { $set: { monitorLease: { owner: owner, expiresAt: expiresAt } } },
+      { $set: { monitorLease: { owner: owner, expiresAt: expiresAt } }, $inc: { diagnosticGeneration: 1 } },
       { upsert: true, new: true, setDefaultsOnInsert: false }
     );
   } catch (err) {
@@ -118,9 +118,14 @@ async function acquireLease(snapshotModel, owner, now, durationMs) {
   }
 
   if (!result) return null;
+  var plain = typeof result.toObject === 'function' ? result.toObject() : result;
   var lease = result.monitorLease;
-  if (!lease && typeof result.toObject === 'function') lease = result.toObject().monitorLease;
-  return lease && lease.owner === owner ? { owner: owner, expiresAt: expiresAt } : null;
+  if (!lease) lease = plain.monitorLease;
+  return lease && lease.owner === owner ? {
+    owner: owner,
+    expiresAt: expiresAt,
+    generation: result.diagnosticGeneration || plain.diagnosticGeneration
+  } : null;
 }
 
 async function releaseLease(snapshotModel, owner) {
@@ -131,7 +136,7 @@ async function releaseLease(snapshotModel, owner) {
   );
 }
 
-async function renewLease(snapshotModel, owner, now, durationMs) {
+async function renewLease(snapshotModel, owner, now, durationMs, generation) {
   var expiresAt = new Date(now.getTime() + durationMs);
   var result = await snapshotModel.findOneAndUpdate(
     {
@@ -143,9 +148,14 @@ async function renewLease(snapshotModel, owner, now, durationMs) {
     { new: true }
   );
   if (!result) return null;
+  var plain = typeof result.toObject === 'function' ? result.toObject() : result;
   var lease = result.monitorLease;
-  if (!lease && typeof result.toObject === 'function') lease = result.toObject().monitorLease;
-  return lease && lease.owner === owner ? { owner: owner, expiresAt: expiresAt } : null;
+  if (!lease) lease = plain.monitorLease;
+  return lease && lease.owner === owner ? {
+    owner: owner,
+    expiresAt: expiresAt,
+    generation: result.diagnosticGeneration || plain.diagnosticGeneration || generation
+  } : null;
 }
 
 async function persistSnapshot(snapshotModel, owner, snapshot, now) {
@@ -213,15 +223,30 @@ async function runOnce(options) {
     }
     leaseAcquired = true;
     var input = await collectInput(healthService, options.app);
+    var materialization = null;
     if (typeof healthService.materializeChannelDiagnostics === 'function') {
       var materializationNow = runDate(options.now);
-      var renewedLease = await renewLease(snapshotModel, owner, materializationNow, leaseDurationMs(options));
+      var renewedLease = await renewLease(snapshotModel, owner, materializationNow, leaseDurationMs(options), lease.generation);
       if (!renewedLease) throw leaseLostError();
-      await healthService.materializeChannelDiagnostics(input && input.channels, materializationNow);
+      var generation = renewedLease.generation || lease.generation || Date.now();
+      var cycleId = generation + '-' + materializationNow.getTime() + '-' + crypto.randomBytes(8).toString('hex');
+      materialization = await healthService.materializeChannelDiagnostics(
+        input && input.channels,
+        materializationNow,
+        undefined,
+        { cycleId: cycleId, generation: generation }
+      );
+      if (!materialization || !materialization.cycleId) {
+        throw new Error('Operational diagnostic materialization did not return a cycle');
+      }
     }
     var buildSnapshot = healthService.buildSnapshot || operationalHealthService.buildSnapshot;
     var snapshot = buildSnapshot(input, now);
+    if (materialization) snapshot.activeDiagnosticCycleId = materialization.cycleId;
     snapshot = await persistSnapshot(snapshotModel, owner, snapshot, runDate(options.now));
+    if (materialization && typeof healthService.cleanupChannelDiagnosticGenerations === 'function') {
+      await healthService.cleanupChannelDiagnosticGenerations(materialization.generation, materialization.cycleId);
+    }
     leaseAcquired = false;
     state.lastSuccessAt = new Date().toISOString();
     state.lastStatus = snapshot && snapshot.overallStatus ? snapshot.overallStatus : 'unknown';
