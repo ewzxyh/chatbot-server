@@ -1,5 +1,6 @@
 var OperationalAlert = require('../models/operationalAlert');
 var operationalAlertNotifier = require('./operationalAlertNotifier');
+var operationalCause = require('./operationalCause');
 var operationalLogger = require('./operationalLogger');
 
 var ALERT_EVENT_COOLDOWN_MINUTES = parseInt(process.env.OPERATIONAL_ALERT_EVENT_COOLDOWN_MINUTES || '30', 10);
@@ -10,6 +11,23 @@ if (isNaN(ALERT_EVENT_COOLDOWN_MINUTES) || ALERT_EVENT_COOLDOWN_MINUTES < 1) {
 var DEFAULT_PAGE = 1;
 var DEFAULT_LIMIT = 100;
 var MAX_LIMIT = 200;
+var ALERT_STATUSES = ['open', 'resolved'];
+var ALERT_SEVERITIES = ['info', 'warning', 'critical'];
+var PRODUCTS = ['casezap', 'waba', 'unknown'];
+var LIST_FILTERS = {
+  page: true,
+  limit: true,
+  product: true,
+  channel: true,
+  status: true,
+  cause: true,
+  from: true,
+  to: true,
+  type: true,
+  severity: true,
+  service: true,
+  project_id: true
+};
 
 function now() {
   return new Date();
@@ -162,63 +180,106 @@ function sortOpenAlerts(alerts) {
   });
 }
 
-function pageValue(value) {
-  var parsed = parseInt(value, 10);
-  return isNaN(parsed) || parsed < 1 ? DEFAULT_PAGE : parsed;
+function invalidFilter(field) {
+  var error = new Error('Invalid operational filter: ' + field);
+  error.code = 'invalid_operational_filter';
+  error.field = field;
+  error.statusCode = 400;
+  return error;
 }
 
-function limitValue(value) {
-  var parsed = parseInt(value, 10);
-  if (isNaN(parsed) || parsed < 1) return DEFAULT_LIMIT;
-  return Math.min(parsed, MAX_LIMIT);
+function stringFilter(value, field) {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw invalidFilter(field);
+  var normalized = value.trim();
+  if (!normalized || normalized.length > 200) throw invalidFilter(field);
+  return normalized;
 }
 
-function filterDate(value) {
-  if (!value) return null;
+function integerFilter(value, field, fallback, max) {
+  if (value === undefined) return fallback;
+  if ((typeof value !== 'string' && typeof value !== 'number') || !/^\d+$/.test(String(value))) {
+    throw invalidFilter(field);
+  }
+  var parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > max) throw invalidFilter(field);
+  return parsed;
+}
+
+function dateFilter(value, field) {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' && !(value instanceof Date)) throw invalidFilter(field);
   var date = new Date(value);
-  return isNaN(date.getTime()) ? null : date;
+  if (isNaN(date.getTime())) throw invalidFilter(field);
+  return date;
 }
 
-function stableCause(value) {
-  if (typeof value !== 'string') return null;
-  var cause = value.trim().toLowerCase();
-  return /^[a-z0-9_]+$/.test(cause) ? cause : null;
+function validateListFilters(filters) {
+  filters = filters || {};
+  Object.keys(filters).forEach(function(field) {
+    if (!LIST_FILTERS[field]) throw invalidFilter(field);
+  });
+
+  var normalized = {
+    page: integerFilter(filters.page, 'page', DEFAULT_PAGE, Number.MAX_SAFE_INTEGER),
+    limit: integerFilter(filters.limit, 'limit', DEFAULT_LIMIT, MAX_LIMIT)
+  };
+  var status = stringFilter(filters.status, 'status');
+  if (status && ALERT_STATUSES.indexOf(status) === -1) throw invalidFilter('status');
+  normalized.status = status;
+
+  var severity = stringFilter(filters.severity, 'severity');
+  if (severity && ALERT_SEVERITIES.indexOf(severity) === -1) throw invalidFilter('severity');
+  normalized.severity = severity;
+
+  var product = stringFilter(filters.product, 'product');
+  if (product && PRODUCTS.indexOf(product) === -1) throw invalidFilter('product');
+  normalized.product = product;
+
+  if (filters.cause !== undefined) {
+    stringFilter(filters.cause, 'cause');
+    normalized.cause = operationalCause.normalize(filters.cause);
+    if (!normalized.cause) throw invalidFilter('cause');
+  }
+
+  normalized.channel = stringFilter(filters.channel, 'channel');
+  normalized.type = stringFilter(filters.type, 'type');
+  normalized.service = stringFilter(filters.service, 'service');
+  normalized.project_id = stringFilter(filters.project_id, 'project_id');
+  normalized.from = dateFilter(filters.from, 'from');
+  normalized.to = dateFilter(filters.to, 'to');
+  if (normalized.from && normalized.to && normalized.from > normalized.to) throw invalidFilter('range');
+  return normalized;
 }
 
 function alertCause(alert) {
   var details = alert.details || {};
-  return stableCause(details.cause) || stableCause(details.providerReason) || stableCause(alert.type);
+  return operationalCause.normalize(details.cause) || operationalCause.normalize(details.providerReason) || operationalCause.normalize(alert.type);
 }
 
 function buildListQuery(filters) {
   var clauses = [];
-  if (filters.status === 'open' || filters.status === 'resolved') clauses.push({ status: filters.status });
-  if (filters.type) clauses.push({ type: String(filters.type) });
-  if (filters.severity && ['info', 'warning', 'critical'].indexOf(filters.severity) !== -1) {
-    clauses.push({ severity: filters.severity });
-  }
-  if (filters.channel) clauses.push({ channel: String(filters.channel) });
-  if (filters.service) clauses.push({ service: String(filters.service) });
-  if (filters.project_id) clauses.push({ id_project: String(filters.project_id) });
+  if (filters.status) clauses.push({ status: filters.status });
+  if (filters.type) clauses.push({ type: filters.type });
+  if (filters.severity) clauses.push({ severity: filters.severity });
+  if (filters.channel) clauses.push({ channel: filters.channel });
+  if (filters.service) clauses.push({ service: filters.service });
+  if (filters.project_id) clauses.push({ id_project: filters.project_id });
 
   if (filters.product) {
-    var product = String(filters.product).toLowerCase();
-    clauses.push({ $or: [{ channel: product }, { 'details.product': product }] });
+    clauses.push({ $or: [{ channel: filters.product }, { 'details.product': filters.product }] });
   }
 
   if (filters.cause) {
-    var cause = stableCause(filters.cause);
-    clauses.push(cause ? {
-      $or: [{ type: cause }, { 'details.cause': cause }, { 'details.providerReason': cause }]
-    } : { _id: null });
+    clauses.push({
+      $or: [{ type: filters.cause }, { 'details.cause': filters.cause }, { 'details.providerReason': filters.cause }]
+    });
   }
 
-  var from = filterDate(filters.from);
-  var to = filterDate(filters.to);
-  if (from || to) {
+  if (filters.from || filters.to) {
     var range = {};
-    if (from) range.$gte = from;
-    if (to) range.$lte = to;
+    if (filters.from) range.$gte = filters.from;
+    if (filters.to) range.$lte = filters.to;
     clauses.push({ lastAt: range });
   }
 
@@ -226,19 +287,19 @@ function buildListQuery(filters) {
 }
 
 function alertResponse(alert) {
-  var details = alert.details && typeof alert.details === 'object'
-    ? operationalLogger.sanitize(alert.details)
-    : undefined;
+  var details = alert.details || {};
+  var product = PRODUCTS.indexOf(details.product) !== -1
+    ? details.product
+    : (['casezap', 'waba'].indexOf(alert.channel) !== -1 ? alert.channel : null);
   return {
     id: alert._id ? String(alert._id) : undefined,
     key: alert.key,
     type: alert.type,
-    product: alert.details && alert.details.product ? alert.details.product : (['casezap', 'waba'].indexOf(alert.channel) !== -1 ? alert.channel : null),
+    product: product,
     severity: alert.severity,
     status: alert.status,
     cause: alertCause(alert),
     title: alert.title,
-    message: alert.message,
     service: alert.service,
     queue: alert.queue,
     channel: alert.channel,
@@ -247,15 +308,14 @@ function alertResponse(alert) {
     firstAt: alert.firstAt ? new Date(alert.firstAt).toISOString() : null,
     lastAt: alert.lastAt ? new Date(alert.lastAt).toISOString() : null,
     resolvedAt: alert.resolvedAt ? new Date(alert.resolvedAt).toISOString() : null,
-    occurrences: alert.occurrences,
-    details: details
+    occurrences: alert.occurrences
   };
 }
 
 async function list(filters) {
-  filters = filters || {};
-  var page = pageValue(filters.page);
-  var limit = limitValue(filters.limit);
+  filters = validateListFilters(filters);
+  var page = filters.page;
+  var limit = filters.limit;
   var query = buildListQuery(filters);
   var count = await OperationalAlert.countDocuments(query);
   var alerts = await OperationalAlert.find(query)

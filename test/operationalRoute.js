@@ -218,6 +218,44 @@ describe('OperationalRoute', function() {
     }
   });
 
+  it('returns allowlisted queue metrics from the snapshot without probing RabbitMQ', async function() {
+    await OperationalHealthSnapshot.create(operationalHealthService.buildSnapshot({
+      services: [],
+      queues: [{
+        name: 'webhooks',
+        status: 'degraded',
+        cause: 'queue_backlog',
+        messagesReady: 101,
+        messagesUnacknowledged: 7,
+        messagesTotal: 108,
+        consumers: 2,
+        providerPayload: { token: 'queue-secret' }
+      }],
+      channels: [],
+      alerts: []
+    }, new Date('2026-07-10T12:00:00.000Z')));
+
+    var originalCheckRabbit = operationalHealthService.checkRabbit;
+    operationalHealthService.checkRabbit = function() {
+      throw new Error('queue GET executed a probe');
+    };
+
+    try {
+      var res = await getAsSuperAdmin('/sadmin/health/queues', adminEmail, pwd);
+      res.should.have.status(200);
+      expect(res.body.queueService.details.queues[0]).to.include({
+        name: 'webhooks',
+        messagesReady: 101,
+        messagesUnacknowledged: 7,
+        messagesTotal: 108,
+        consumers: 2
+      });
+      expect(JSON.stringify(res.body)).to.not.contain('queue-secret');
+    } finally {
+      operationalHealthService.checkRabbit = originalCheckRabbit;
+    }
+  });
+
   it('returns paginated persisted channels with filters and total count', async function() {
     var first = await Integration.create({
       id_project: 'operation-channel-first',
@@ -605,6 +643,87 @@ describe('OperationalRoute', function() {
     expect(JSON.stringify(res.body)).to.not.contain('alert-secret');
   });
 
+  it('rejects invalid operational alert filters with a typed 400', async function() {
+    await OperationalAlert.create({
+      key: 'operation-alert-filter-guard',
+      type: 'channel_health',
+      severity: 'warning',
+      status: 'open',
+      channel: 'waba'
+    });
+
+    var invalidFilters = [
+      { query: 'status=invalid', field: 'status' },
+      { query: 'cause=not_a_stable_cause', field: 'cause' },
+      { query: 'product=telegram', field: 'product' },
+      { query: 'from=not-a-date', field: 'from' },
+      { query: 'from=2026-07-11T00:00:00.000Z&to=2026-07-10T00:00:00.000Z', field: 'range' },
+      { query: 'channel=waba&channel=casezap', field: 'channel' },
+      { query: 'page=0', field: 'page' },
+      { query: 'limit=201', field: 'limit' }
+    ];
+
+    for (var i = 0; i < invalidFilters.length; i++) {
+      var res = await getAsSuperAdmin('/sadmin/operational-alerts?' + invalidFilters[i].query, adminEmail, pwd);
+      res.should.have.status(400);
+      expect(res.body.error.code).to.equal('invalid_operational_filter');
+      expect(res.body.error.field).to.equal(invalidFilters[i].field);
+    }
+  });
+
+  it('returns an allowlisted alert DTO without raw provider data', async function() {
+    var secret = 'REDACTED_SECRET';
+    await OperationalAlert.collection.insertOne({
+      key: 'operation-alert-dto-secret',
+      type: 'channel_health',
+      severity: 'critical',
+      status: 'open',
+      title: 'Provider unavailable',
+      message: secret,
+      channel: 'waba',
+      firstAt: new Date('2026-07-10T11:00:00.000Z'),
+      lastAt: new Date('2026-07-10T11:05:00.000Z'),
+      lastError: secret,
+      stack: secret,
+      providerPayload: { authorization: secret },
+      details: {
+        product: 'waba',
+        providerReason: 'provider_timeout',
+        token: secret,
+        lastError: secret,
+        stack: secret,
+        providerPayload: { authorization: secret }
+      }
+    });
+    await OperationalAlert.collection.insertOne({
+      key: 'operation-alert-dto-unstable-cause',
+      type: 'channel_health',
+      severity: 'warning',
+      status: 'open',
+      firstAt: new Date('2026-07-10T10:00:00.000Z'),
+      lastAt: new Date('2026-07-10T10:00:00.000Z'),
+      details: { providerReason: 'not_a_stable_cause' }
+    });
+
+    var res = await getAsSuperAdmin('/sadmin/operational-alerts?status=open', adminEmail, pwd);
+    res.should.have.status(200);
+    var secured = res.body.data.find(function(alert) {
+      return alert.key === 'operation-alert-dto-secret';
+    });
+    var unstable = res.body.data.find(function(alert) {
+      return alert.key === 'operation-alert-dto-unstable-cause';
+    });
+
+    expect(secured.cause).to.equal('provider_timeout');
+    expect(secured).to.not.have.property('message');
+    expect(secured).to.not.have.property('details');
+    expect(secured).to.not.have.property('lastError');
+    expect(secured).to.not.have.property('stack');
+    expect(secured).to.not.have.property('providerPayload');
+    expect(unstable.cause).to.equal(null);
+    expect(JSON.stringify(res.body)).to.not.contain(secret);
+  });
+
   it('requires a superadmin and routes one channel test through the monitor', async function() {
     var unauthenticated = await new Promise(function(resolve, reject) {
       chai.request(server).get('/sadmin/health/channels').end(function(err, res) {
@@ -632,6 +751,84 @@ describe('OperationalRoute', function() {
       res.should.have.status(200);
       expect(testedIntegrationId).to.equal('integration-only');
       expect(res.body.result.status).to.equal('ok');
+    } finally {
+      operationalMonitorService.testIntegration = originalTestIntegration;
+    }
+  });
+
+  it('validates and sanitizes a single integration test result', async function() {
+    var invalidBodies = [{}, { integrationId: '' }, { integrationId: '   ' }, { integrationId: 42 }];
+    for (var i = 0; i < invalidBodies.length; i++) {
+      var invalidRes = await postAsSuperAdmin('/sadmin/health/channels/test', adminEmail, pwd, invalidBodies[i]);
+      invalidRes.should.have.status(400);
+      expect(invalidRes.body.error.code).to.equal('invalid_integration_id');
+    }
+
+    var secret = 'REDACTED_SECRET';
+    var originalTestIntegration = operationalMonitorService.testIntegration;
+    var testedIntegrationId;
+    operationalMonitorService.testIntegration = async function(integrationId) {
+      testedIntegrationId = integrationId;
+      return {
+        status: 'down',
+        channel: 'casezap',
+        integrationId: integrationId,
+        providerHealth: 'down',
+        providerStatus: 'unreachable',
+        providerReason: 'provider_unreachable',
+        providerError: secret,
+        stack: secret,
+        providerPayload: { token: secret },
+        details: { authorization: secret }
+      };
+    };
+
+    try {
+      var res = await postAsSuperAdmin('/sadmin/health/channels/test', adminEmail, pwd, {
+        integrationId: '  integration-secret-test  '
+      });
+
+      res.should.have.status(200);
+      expect(testedIntegrationId).to.equal('integration-secret-test');
+      expect(res.body.result).to.include({
+        status: 'down',
+        channel: 'casezap',
+        integrationId: 'integration-secret-test',
+        providerHealth: 'down',
+        providerReason: 'provider_unreachable'
+      });
+      expect(res.body.result).to.not.have.property('providerError');
+      expect(res.body.result).to.not.have.property('details');
+      expect(res.body.result).to.not.have.property('providerPayload');
+      expect(res.body.result).to.not.have.property('stack');
+      expect(JSON.stringify(res.body)).to.not.contain(secret);
+    } finally {
+      operationalMonitorService.testIntegration = originalTestIntegration;
+    }
+  });
+
+  it('does not expose a thrown provider error from an integration test', async function() {
+    var secret = 'REDACTED_SECRET';
+    var originalTestIntegration = operationalMonitorService.testIntegration;
+    operationalMonitorService.testIntegration = async function() {
+      var error = new Error('provider failed with token ' + secret);
+      error.statusCode = 502;
+      throw error;
+    };
+
+    try {
+      var res = await postAsSuperAdmin('/sadmin/health/channels/test', adminEmail, pwd, {
+        integrationId: 'integration-error-test'
+      });
+
+      res.should.have.status(502);
+      expect(res.body).to.deep.equal({
+        error: {
+          code: 'integration_test_failed',
+          message: 'Failed to test channel health'
+        }
+      });
+      expect(JSON.stringify(res.body)).to.not.contain(secret);
     } finally {
       operationalMonitorService.testIntegration = originalTestIntegration;
     }
@@ -919,6 +1116,26 @@ describe('OperationalRoute', function() {
     expect(channel.channel).to.equal('waba');
     expect(channel.status).to.equal('ok');
     expect(channel.cause).to.equal('provider_status_ok');
+  });
+
+  it('does not list a kvstore WABA without persisted operational diagnostics', async function() {
+    var inserted = await mongoose.connection.collection('kvstore').insertOne({
+      key: 'whatsapp-waba-kvstore-without-operational',
+      project_id: 'operation-waba-kvstore-without-operational',
+      value: {
+        verified_name: 'WABA without diagnostics',
+        wab_token: 'meta-token',
+        waba_id: 'waba-without-operational',
+        phone_number_id: 'phone-without-operational'
+      }
+    });
+
+    var res = await getAsSuperAdmin('/sadmin/health/channels', adminEmail, pwd);
+
+    res.should.have.status(200);
+    expect(res.body.data.some(function(item) {
+      return item.id === String(inserted.insertedId);
+    })).to.equal(false);
   });
 
   it('tests WABA connections stored only in kvstore', async function() {

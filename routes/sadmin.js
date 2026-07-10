@@ -112,6 +112,40 @@ function sendSnapshotError(res, err) {
   return false;
 }
 
+function sendOperationalFilterError(res, err) {
+  if (err && err.code === 'invalid_operational_filter') {
+    res.status(400).json({
+      error: {
+        code: err.code,
+        field: err.field,
+        message: err.message
+      }
+    });
+    return true;
+  }
+  return false;
+}
+
+function integrationTestResponse(result, integrationId) {
+  result = result || {};
+  return {
+    status: result.status,
+    channel: result.channel,
+    integrationId: result.integrationId || integrationId,
+    id_project: result.id_project,
+    providerHealth: result.providerHealth,
+    providerStatus: result.providerStatus,
+    providerCode: result.providerCode,
+    providerReason: result.providerReason,
+    providerCheckedAt: result.providerCheckedAt,
+    providerLatencyMs: result.providerLatencyMs,
+    qualityRating: result.qualityRating,
+    nameStatus: result.nameStatus,
+    canSendNewMessages: result.canSendNewMessages,
+    cached: result.cached
+  };
+}
+
 function parseDateFilter(value) {
   if (!value) return null;
   var parsed = new Date(value);
@@ -512,15 +546,27 @@ router.get('/health/channels', auth, async function (req, res) {
 router.post('/health/channels/test', auth, async function (req, res) {
   try {
     var integrationId = req.body && req.body.integrationId;
-    if (!integrationId) {
-      return res.status(400).json({ error: 'integrationId is required' });
+    if (typeof integrationId !== 'string' || !integrationId.trim()) {
+      return res.status(400).json({
+        error: {
+          code: 'invalid_integration_id',
+          field: 'integrationId',
+          message: 'integrationId must be a non-empty string'
+        }
+      });
     }
+    integrationId = integrationId.trim();
 
     var result = await operationalMonitorService.testIntegration(integrationId);
-    res.json({ generatedAt: new Date().toISOString(), result: result });
+    res.json({ generatedAt: new Date().toISOString(), result: integrationTestResponse(result, integrationId) });
   } catch (err) {
     winston.error('sadmin health channel test error', err);
-    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to test channel health' });
+    res.status(err.statusCode || 500).json({
+      error: {
+        code: 'integration_test_failed',
+        message: 'Failed to test channel health'
+      }
+    });
   }
 });
 
@@ -562,7 +608,7 @@ router.get('/health/queues', auth, async function (req, res) {
         label: 'RabbitMQ',
         status: queueStatus,
         latencyMs: null,
-        details: { queues: summary.queues, source: 'snapshot' }
+        details: { queues: summary.queues, queueSource: 'snapshot', source: 'snapshot' }
       }
     });
   } catch (err) {
@@ -960,14 +1006,10 @@ router.post('/privacy/contact-anonymize', auth, async function (req, res) {
 
 router.get('/operational-alerts', auth, async function (req, res) {
   try {
-    var filters = operationalFilters(req.query);
-    filters.type = req.query.type;
-    filters.severity = req.query.severity;
-    filters.service = req.query.service;
-    filters.project_id = req.query.project_id;
-    var alerts = await operationalAlertService.list(filters);
+    var alerts = await operationalAlertService.list(req.query);
     res.json(alerts);
   } catch (err) {
+    if (sendOperationalFilterError(res, err)) return;
     winston.error('sadmin operational alerts error', err);
     res.status(500).json({ error: 'Failed to fetch operational alerts' });
   }

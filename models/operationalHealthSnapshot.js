@@ -7,7 +7,11 @@ var SnapshotItemSchema = new Schema({
   name: { type: String, required: true },
   status: { type: String, enum: statuses, required: true },
   cause: { type: String, default: null },
-  checkedAt: { type: Date, default: null }
+  checkedAt: { type: Date, default: null },
+  messagesReady: { type: Number, min: 0 },
+  messagesUnacknowledged: { type: Number, min: 0 },
+  messagesTotal: { type: Number, min: 0 },
+  consumers: { type: Number, min: 0 }
 }, { _id: false, strict: true });
 
 var CauseSchema = new Schema({

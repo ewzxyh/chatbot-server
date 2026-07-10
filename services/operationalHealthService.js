@@ -8,6 +8,7 @@ var Integration = require('../models/integrations');
 var OperationalEvent = require('../models/operationalEvent');
 var OperationalHealthSnapshot = require('../models/operationalHealthSnapshot');
 var operationalAlertService = require('./operationalAlertService');
+var operationalCause = require('./operationalCause');
 var operationalLogger = require('./operationalLogger');
 var channelDiagnosticsService = require('./channelDiagnosticsService');
 var fileStorageFactory = require('./fileStorageServiceFactory');
@@ -26,46 +27,7 @@ var DEFAULT_SERVICE_NAMES = ['server', 'mongo', 'redis', 'rabbitmq', 'storage'];
 var MAX_SNAPSHOT_ITEMS = 50;
 var SNAPSHOT_STATUSES = ['ok', 'degraded', 'down', 'unknown'];
 var SNAPSHOT_PRODUCTS = ['casezap', 'waba', 'unknown'];
-var STABLE_CAUSES = {
-  provider_check_failed: true,
-  disabled: true,
-  not_configured: true,
-  not_ready: true,
-  mongo_not_ready: true,
-  mongo_unavailable: true,
-  redis_unavailable: true,
-  rabbitmq_unavailable: true,
-  storage_unavailable: true,
-  storage_read_verification_failed: true,
-  queue_backlog: true,
-  queue_unacked: true,
-  queue_no_consumers: true,
-  upstream_timeout: true,
-  provider_timeout: true,
-  provider_unreachable: true,
-  provider_status_unknown: true,
-  provider_status_ok: true,
-  provider_status_active: true,
-  provider_status_connected: true,
-  provider_status_open: true,
-  provider_status_pending: true,
-  provider_status_disconnected: true,
-  provider_status_banned: true,
-  provider_status_restricted: true,
-  provider_not_connected: true,
-  provider_not_logged_in: true,
-  provider_cannot_send_new_messages: true,
-  provider_message_capping_unavailable: true,
-  provider_reachout_timelock: true,
-  provider_quality_red: true,
-  provider_quality_yellow: true,
-  missing_casezap_domain: true,
-  missing_casezap_token: true,
-  missing_waba_id: true,
-  missing_waba_token: true,
-  unsupported_channel: true,
-  webhook_failure: true
-};
+var QUEUE_METRIC_FIELDS = ['messagesReady', 'messagesUnacknowledged', 'messagesTotal', 'consumers'];
 
 var storageHealthCache = {
   expiresAt: 0,
@@ -156,9 +118,7 @@ function normalizeStatus(status) {
 }
 
 function stableCause(value) {
-  if (value === undefined || value === null || value === '') return null;
-  var candidate = String(value).trim().toLowerCase();
-  return Object.prototype.hasOwnProperty.call(STABLE_CAUSES, candidate) ? candidate : null;
+  return operationalCause.normalize(value);
 }
 
 function firstStableCause(values) {
@@ -193,6 +153,14 @@ function normalizeSnapshotItem(item, now, fallbackName) {
     cause: normalizeCause(item),
     checkedAt: toIso(item.checkedAt || item.providerCheckedAt || item.lastAt || details.checkedAt, now)
   };
+}
+
+function normalizeQueueSnapshotItem(item, now) {
+  var normalized = normalizeSnapshotItem(item, now);
+  QUEUE_METRIC_FIELDS.forEach(function(field) {
+    if (isCount(item && item[field])) normalized[field] = item[field];
+  });
+  return normalized;
 }
 
 function namesFrom(input, key, envName, fallback) {
@@ -280,7 +248,7 @@ function buildSnapshot(input, now) {
     return normalizeSnapshotItem(item, now);
   });
   var queues = boundedItems(queueItems(input), queueNames, MAX_SNAPSHOT_ITEMS).map(function(item) {
-    return normalizeSnapshotItem(item, now);
+    return normalizeQueueSnapshotItem(item, now);
   });
   var channels = Array.isArray(input.channels) ? input.channels : [];
   var normalizedChannels = channels.map(function(item) {
@@ -383,6 +351,12 @@ function isSnapshotItem(item) {
     (item.cause === null || stableCause(item.cause) === item.cause) && isDate(item.checkedAt);
 }
 
+function isQueueSnapshotItem(item) {
+  return isSnapshotItem(item) && QUEUE_METRIC_FIELDS.every(function(field) {
+    return item[field] === undefined || isCount(item[field]);
+  });
+}
+
 function isTopCauses(value) {
   return Array.isArray(value) && value.length <= 5 && value.every(function(item) {
     return item && typeof item.cause === 'string' && item.cause.trim() &&
@@ -441,7 +415,7 @@ function isSnapshotValid(snapshot) {
   return snapshot && snapshot.version === 2 && SNAPSHOT_STATUSES.indexOf(snapshot.overallStatus) !== -1 &&
     isDate(snapshot.generatedAt) && isDate(snapshot.expiresAt) && Array.isArray(snapshot.services) &&
     Array.isArray(snapshot.queues) && snapshot.services.length <= MAX_SNAPSHOT_ITEMS &&
-    snapshot.queues.length <= MAX_SNAPSHOT_ITEMS && snapshot.services.every(isSnapshotItem) && snapshot.queues.every(isSnapshotItem) &&
+    snapshot.queues.length <= MAX_SNAPSHOT_ITEMS && snapshot.services.every(isSnapshotItem) && snapshot.queues.every(isQueueSnapshotItem) &&
     isChannelsAggregate(snapshot.channels) && isAlertsAggregate(snapshot.alerts) &&
     snapshot.overallStatus === effectiveSnapshotStatus(snapshot);
 }
@@ -477,6 +451,14 @@ function copySnapshotItem(item) {
   };
 }
 
+function copyQueueSnapshotItem(item) {
+  var output = copySnapshotItem(item);
+  QUEUE_METRIC_FIELDS.forEach(function(field) {
+    if (isCount(item[field])) output[field] = item[field];
+  });
+  return output;
+}
+
 function snapshotResponse(snapshot) {
   return {
     version: snapshot.version,
@@ -484,7 +466,7 @@ function snapshotResponse(snapshot) {
     generatedAt: snapshot.generatedAt,
     expiresAt: snapshot.expiresAt,
     services: snapshot.services.map(copySnapshotItem),
-    queues: snapshot.queues.map(copySnapshotItem),
+    queues: snapshot.queues.map(copyQueueSnapshotItem),
     channels: {
       count: snapshot.channels.count,
       byStatus: copyStatusCounts(snapshot.channels.byStatus),
@@ -1238,7 +1220,7 @@ async function getChannels() {
 function persistedChannelRecord(integration) {
   var value = integration && integration.value ? integration.value : {};
   var operational = value.operational;
-  if (!operational || typeof operational !== 'object' || !integration._id) return null;
+  if (!operational || typeof operational !== 'object' || !Object.keys(operational).length || !integration._id) return null;
 
   var product = integration.name === 'casezap' ? 'casezap' : 'waba';
   var status = operational.lastProviderHealth || operational.status;

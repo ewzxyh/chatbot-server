@@ -219,6 +219,44 @@ describe('OperationalMonitorService', function() {
     expect(snapshot.alerts.byStatus.degraded).to.equal(1);
   });
 
+  it('preserves only allowlisted queue metrics in the snapshot', function() {
+    var secret = 'REDACTED_SECRET';
+    var snapshot = operationalHealthService.buildSnapshot({
+      services: [],
+      queues: [{
+        name: 'webhooks',
+        status: 'degraded',
+        cause: 'queue_backlog',
+        messagesReady: 101,
+        messagesUnacknowledged: 7,
+        messagesTotal: 108,
+        consumers: 2,
+        providerPayload: { token: secret },
+        error: secret
+      }],
+      channels: [],
+      alerts: []
+    }, new Date('2026-07-10T12:00:00.000Z'));
+
+    expect(snapshot.queues[0]).to.include({
+      name: 'webhooks',
+      status: 'degraded',
+      cause: 'queue_backlog',
+      messagesReady: 101,
+      messagesUnacknowledged: 7,
+      messagesTotal: 108,
+      consumers: 2
+    });
+    expect(JSON.stringify(snapshot)).to.not.contain(secret);
+
+    var persisted = new OperationalHealthSnapshot(snapshot);
+    expect(persisted.validateSync()).to.equal(undefined);
+    expect(persisted.queues[0].messagesReady).to.equal(101);
+    expect(persisted.queues[0].messagesUnacknowledged).to.equal(7);
+    expect(persisted.queues[0].messagesTotal).to.equal(108);
+    expect(persisted.queues[0].consumers).to.equal(2);
+  });
+
   it('keeps the snapshot bounded', function() {
     var snapshot = operationalHealthService.buildSnapshot(inputWithSixCauses(), new Date('2026-07-10T12:00:00.000Z'));
 
