@@ -102,6 +102,7 @@ function leaseSeed(now, expiresAt) {
 }
 
 function runDate(value) {
+  if (typeof value === 'function') value = value();
   var date = value ? new Date(value) : new Date();
   return isNaN(date.getTime()) ? new Date() : date;
 }
@@ -157,9 +158,13 @@ async function releaseLease(snapshotModel, owner) {
   );
 }
 
-async function persistSnapshot(snapshotModel, owner, snapshot) {
+async function persistSnapshot(snapshotModel, owner, snapshot, now) {
   var stored = await snapshotModel.findOneAndUpdate(
-    { _id: 'singleton', 'monitorLease.owner': owner },
+    {
+      _id: 'singleton',
+      'monitorLease.owner': owner,
+      'monitorLease.expiresAt': { $gt: now }
+    },
     { $set: snapshot, $unset: { monitorLease: '' } },
     { new: true }
   );
@@ -222,7 +227,7 @@ async function runOnce(options) {
     var input = await collectInput(healthService, options.app);
     var buildSnapshot = healthService.buildSnapshot || operationalHealthService.buildSnapshot;
     var snapshot = buildSnapshot(input, now);
-    snapshot = await persistSnapshot(snapshotModel, owner, snapshot);
+    snapshot = await persistSnapshot(snapshotModel, owner, snapshot, runDate(options.now));
     leaseAcquired = false;
     state.lastSuccessAt = new Date().toISOString();
     state.lastStatus = snapshot && snapshot.overallStatus ? snapshot.overallStatus : 'unknown';

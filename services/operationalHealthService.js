@@ -143,7 +143,7 @@ function firstValue(values) {
 function normalizeCause(item) {
   item = item || {};
   var details = item.details || {};
-  return stableCause(firstValue([
+  var cause = stableCause(firstValue([
     item.cause,
     item.providerReason,
     item.reason,
@@ -151,6 +151,7 @@ function normalizeCause(item) {
     details.cause,
     details.reason
   ]));
+  return cause || stableCause(item.type);
 }
 
 function normalizeSnapshotItem(item, now, fallbackName) {
@@ -354,7 +355,8 @@ function isSnapshotItem(item) {
 
 function isTopCauses(value) {
   return Array.isArray(value) && value.length <= 5 && value.every(function(item) {
-    return item && stableCause(item.cause) === item.cause && isCount(item.count) && item.count > 0;
+    return item && typeof item.cause === 'string' && item.cause.trim() &&
+      stableCause(item.cause) === item.cause && isCount(item.count) && item.count > 0;
   });
 }
 
@@ -371,10 +373,19 @@ function isProductAggregates(value) {
     });
 }
 
+function productStatusCountsMatch(byStatus, byProduct) {
+  return SNAPSHOT_STATUSES.every(function(status) {
+    var productCount = SNAPSHOT_PRODUCTS.reduce(function(total, product) {
+      return total + byProduct[product][status];
+    }, 0);
+    return productCount === byStatus[status];
+  });
+}
+
 function isChannelsAggregate(value) {
   return value && isCount(value.count) && isStatusCounts(value.byStatus) &&
     isProductAggregates(value.byProduct) && isTopCauses(value.topCauses) &&
-    value.count === sumStatusCounts(value.byStatus);
+    value.count === sumStatusCounts(value.byStatus) && productStatusCountsMatch(value.byStatus, value.byProduct);
 }
 
 function isAlertsAggregate(value) {

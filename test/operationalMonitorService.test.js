@@ -104,7 +104,9 @@ describe('OperationalMonitorService', function() {
             expect(options.new).to.equal(true);
             return { monitorLease: update.$set.monitorLease };
           }
-          expect(filter).to.deep.equal({ _id: 'singleton', 'monitorLease.owner': leaseOwner });
+          expect(filter._id).to.equal('singleton');
+          expect(filter['monitorLease.owner']).to.equal(leaseOwner);
+          expect(filter['monitorLease.expiresAt']).to.deep.equal({ $gt: now });
           expect(update.$set.version).to.equal(2);
           expect(update.$unset).to.deep.equal({ monitorLease: '' });
           return update.$set;
@@ -275,6 +277,30 @@ describe('OperationalMonitorService', function() {
     expect(snapshot.alerts.topCauses).to.deep.equal([]);
   });
 
+  it('maps allowlisted alert types to stable top causes without leaking messages', function() {
+    var secret = 'Bearer secret-alert-token';
+    var snapshot = operationalHealthService.buildSnapshot({
+      services: [],
+      channels: [],
+      alerts: [
+        { type: 'webhook_failure', status: 'open', severity: 'critical', message: secret, details: { error: secret } },
+        { type: 'queue_backlog', status: 'open', severity: 'warning', message: secret },
+        { type: 'queue_unacked', status: 'open', severity: 'warning', lastError: secret },
+        { type: 'queue_no_consumers', status: 'open', severity: 'critical', providerError: secret },
+        { type: 'unsafe_' + secret, status: 'open', severity: 'warning', details: { error: secret } }
+      ]
+    }, new Date('2026-07-10T12:00:00.000Z'));
+
+    expect(snapshot.alerts.topCauses.map(function(item) { return item.cause; })).to.have.members([
+      'webhook_failure',
+      'queue_backlog',
+      'queue_unacked',
+      'queue_no_consumers'
+    ]);
+    expect(snapshot.alerts.topCauses).to.have.lengthOf(4);
+    expect(JSON.stringify(snapshot)).to.not.contain(secret);
+  });
+
   it('derives fresh, stale, and missing snapshot states without writing', function() {
     var now = new Date('2026-07-10T12:00:00.000Z');
     var fresh = { generatedAt: '2026-07-10T11:59:00.000Z', expiresAt: '2026-07-10T12:05:00.000Z' };
@@ -361,6 +387,55 @@ describe('OperationalMonitorService', function() {
     }
   });
 
+  it('rejects null, empty, and non-string top causes', async function() {
+    var originalFindOne = OperationalHealthSnapshot.findOne;
+    var persistedSnapshot;
+    OperationalHealthSnapshot.findOne = function() {
+      return { lean: async function() { return persistedSnapshot; } };
+    };
+
+    try {
+      var invalidCauses = [null, '', 42];
+      for (var i = 0; i < invalidCauses.length; i++) {
+        persistedSnapshot = operationalHealthService.buildSnapshot({ services: [], channels: [], alerts: [] }, new Date('2026-07-10T12:00:00.000Z'));
+        persistedSnapshot.alerts.topCauses = [{ cause: invalidCauses[i], count: 1 }];
+        try {
+          await operationalHealthService.getSummary();
+          throw new Error('expected top cause validation to fail');
+        } catch (err) {
+          expect(err.code).to.equal('health_snapshot_unavailable');
+        }
+      }
+    } finally {
+      OperationalHealthSnapshot.findOne = originalFindOne;
+    }
+  });
+
+  it('rejects channel product sums inconsistent with count and byStatus', async function() {
+    var originalFindOne = OperationalHealthSnapshot.findOne;
+    var persistedSnapshot = operationalHealthService.buildSnapshot({
+      services: [],
+      channels: [
+        { product: 'casezap', status: 'ok' },
+        { product: 'waba', status: 'degraded' }
+      ],
+      alerts: []
+    }, new Date('2026-07-10T12:00:00.000Z'));
+    persistedSnapshot.channels.byProduct.casezap.ok = 0;
+    OperationalHealthSnapshot.findOne = function() {
+      return { lean: async function() { return persistedSnapshot; } };
+    };
+
+    try {
+      await operationalHealthService.getSummary();
+      throw new Error('expected product aggregate validation to fail');
+    } catch (err) {
+      expect(err.code).to.equal('health_snapshot_unavailable');
+    } finally {
+      OperationalHealthSnapshot.findOne = originalFindOne;
+    }
+  });
+
   it('acquires and releases the persisted lease with ownership', async function() {
     var owner = 'owner-a';
     var calls = [];
@@ -385,7 +460,11 @@ describe('OperationalMonitorService', function() {
     expect(calls).to.have.lengthOf(2);
     expect(calls[0].filter.$or).to.deep.include({ 'monitorLease.expiresAt': { $exists: false } });
     expect(calls[0].update.$set.monitorLease.owner).to.equal(owner);
-    expect(calls[1].filter).to.deep.equal({ _id: 'singleton', 'monitorLease.owner': owner });
+    expect(calls[1].filter).to.deep.equal({
+      _id: 'singleton',
+      'monitorLease.owner': owner,
+      'monitorLease.expiresAt': { $gt: new Date('2026-07-10T12:00:00.000Z') }
+    });
     expect(calls[1].update.$unset).to.deep.equal({ monitorLease: '' });
   });
 
@@ -431,6 +510,80 @@ describe('OperationalMonitorService', function() {
     });
 
     expect(calls[0].filter.$or[0]).to.deep.equal({ 'monitorLease.expiresAt': { $lte: now } });
+  });
+
+  it('refuses to persist after the acquired lease expires', async function() {
+    var times = [
+      new Date('2026-07-10T12:00:00.000Z'),
+      new Date('2026-07-10T12:02:00.000Z')
+    ];
+    var calls = [];
+    var acquiredLease;
+    var result = await operationalMonitorService.runOnce({
+      leaseOwner: 'owner-expired',
+      leaseDurationMs: 60 * 1000,
+      now: function() { return times.shift(); },
+      healthService: {
+        collectSnapshotInput: async function() {
+          return { services: [{ name: 'server', status: 'ok' }], channels: [], alerts: [] };
+        }
+      },
+      snapshotModel: {
+        findOneAndUpdate: async function(filter, update) {
+          calls.push({ filter: filter, update: update });
+          if (calls.length === 1) {
+            acquiredLease = update.$set.monitorLease;
+            return { monitorLease: acquiredLease };
+          }
+          if (update.$set) {
+            return acquiredLease.expiresAt > filter['monitorLease.expiresAt'].$gt ? update.$set : null;
+          }
+          return null;
+        }
+      },
+      logger: { recordSafe: function() {} }
+    });
+
+    expect(result.error).to.equal('Operational monitor lease lost');
+    expect(result.version).to.equal(undefined);
+    expect(operationalMonitorService.status().lastStatus).to.equal('failed');
+    expect(calls[1].filter).to.deep.equal({
+      _id: 'singleton',
+      'monitorLease.owner': 'owner-expired',
+      'monitorLease.expiresAt': { $gt: new Date('2026-07-10T12:02:00.000Z') }
+    });
+  });
+
+  it('refuses to persist after lease ownership changes', async function() {
+    var calls = [];
+    var activeOwner = 'owner-original';
+    var result = await operationalMonitorService.runOnce({
+      leaseOwner: 'owner-original',
+      now: new Date('2026-07-10T12:00:00.000Z'),
+      healthService: {
+        collectSnapshotInput: async function() {
+          return { services: [{ name: 'server', status: 'ok' }], channels: [], alerts: [] };
+        }
+      },
+      snapshotModel: {
+        findOneAndUpdate: async function(filter, update) {
+          calls.push({ filter: filter, update: update });
+          if (calls.length === 1) {
+            activeOwner = 'owner-replacement';
+            return { monitorLease: update.$set.monitorLease };
+          }
+          if (update.$set) {
+            return filter['monitorLease.owner'] === activeOwner ? update.$set : null;
+          }
+          return null;
+        }
+      },
+      logger: { recordSafe: function() {} }
+    });
+
+    expect(result.error).to.equal('Operational monitor lease lost');
+    expect(calls[1].filter['monitorLease.owner']).to.equal('owner-original');
+    expect(calls[1].filter['monitorLease.expiresAt']).to.deep.equal({ $gt: new Date('2026-07-10T12:00:00.000Z') });
   });
 
   it('releases a failed lease only when it still owns it', async function() {
