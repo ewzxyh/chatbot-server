@@ -23,7 +23,48 @@ if (isNaN(PROVIDER_CHECK_CONCURRENCY) || PROVIDER_CHECK_CONCURRENCY < 1) PROVIDE
 var SNAPSHOT_ID = 'singleton';
 var DEFAULT_SNAPSHOT_TTL_SECONDS = 300;
 var DEFAULT_SERVICE_NAMES = ['server', 'mongo', 'redis', 'rabbitmq', 'storage'];
+var MAX_SNAPSHOT_ITEMS = 50;
 var SNAPSHOT_STATUSES = ['ok', 'degraded', 'down', 'unknown'];
+var SNAPSHOT_PRODUCTS = ['casezap', 'waba', 'unknown'];
+var STABLE_CAUSES = {
+  disabled: true,
+  not_configured: true,
+  not_ready: true,
+  mongo_not_ready: true,
+  mongo_unavailable: true,
+  redis_unavailable: true,
+  rabbitmq_unavailable: true,
+  storage_unavailable: true,
+  storage_read_verification_failed: true,
+  queue_backlog: true,
+  queue_unacked: true,
+  queue_no_consumers: true,
+  upstream_timeout: true,
+  provider_timeout: true,
+  provider_unreachable: true,
+  provider_status_unknown: true,
+  provider_status_ok: true,
+  provider_status_active: true,
+  provider_status_connected: true,
+  provider_status_open: true,
+  provider_status_pending: true,
+  provider_status_disconnected: true,
+  provider_status_banned: true,
+  provider_status_restricted: true,
+  provider_not_connected: true,
+  provider_not_logged_in: true,
+  provider_cannot_send_new_messages: true,
+  provider_message_capping_unavailable: true,
+  provider_reachout_timelock: true,
+  provider_quality_red: true,
+  provider_quality_yellow: true,
+  missing_casezap_domain: true,
+  missing_casezap_token: true,
+  missing_waba_id: true,
+  missing_waba_token: true,
+  unsupported_channel: true,
+  webhook_failure: true
+};
 
 var storageHealthCache = {
   expiresAt: 0,
@@ -86,6 +127,12 @@ function normalizeStatus(status) {
   return SNAPSHOT_STATUSES.indexOf(status) !== -1 ? status : 'unknown';
 }
 
+function stableCause(value) {
+  if (value === undefined || value === null || value === '') return null;
+  var candidate = String(value).trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(STABLE_CAUSES, candidate) ? candidate : null;
+}
+
 function firstValue(values) {
   for (var i = 0; i < values.length; i++) {
     if (values[i] !== undefined && values[i] !== null && values[i] !== '') return values[i];
@@ -96,18 +143,14 @@ function firstValue(values) {
 function normalizeCause(item) {
   item = item || {};
   var details = item.details || {};
-  var cause = firstValue([
+  return stableCause(firstValue([
     item.cause,
     item.providerReason,
     item.reason,
     item.providerCode,
     details.cause,
-    details.reason,
-    item.providerError,
-    item.lastError,
-    details.error
-  ]);
-  return cause === null ? null : String(cause);
+    details.reason
+  ]));
 }
 
 function normalizeSnapshotItem(item, now, fallbackName) {
@@ -137,7 +180,7 @@ function boundedItems(items, names, maxItems) {
     return items.filter(function(item) {
       var name = item && (item.name || item.queue || item.channel);
       return names.indexOf(String(name)) !== -1;
-    }).slice(0, names.length);
+    }).slice(0, Math.min(names.length, maxItems));
   }
   return items.slice(0, maxItems);
 }
@@ -165,8 +208,10 @@ function topCauses(items) {
 
 function productName(channel) {
   var value = channel && (channel.product || channel.channel);
-  if (value === 'whatsapp') return 'waba';
-  return value ? String(value) : 'unknown';
+  value = value ? String(value).trim().toLowerCase() : '';
+  if (value === 'casezap') return 'casezap';
+  if (value === 'waba' || value === 'whatsapp') return 'waba';
+  return 'unknown';
 }
 
 function alertStatus(alert) {
@@ -200,10 +245,10 @@ function buildSnapshot(input, now) {
 
   var serviceNames = namesFrom(input, 'serviceNames', 'OPERATIONAL_HEALTH_SERVICES', DEFAULT_SERVICE_NAMES);
   var queueNames = namesFrom(input, 'queueNames', 'OPERATIONAL_RABBITMQ_QUEUES', []);
-  var services = boundedItems(input.services, serviceNames, DEFAULT_SERVICE_NAMES.length).map(function(item) {
+  var services = boundedItems(input.services, serviceNames, MAX_SNAPSHOT_ITEMS).map(function(item) {
     return normalizeSnapshotItem(item, now);
   });
-  var queues = boundedItems(queueItems(input), queueNames, 50).map(function(item) {
+  var queues = boundedItems(queueItems(input), queueNames, MAX_SNAPSHOT_ITEMS).map(function(item) {
     return normalizeSnapshotItem(item, now);
   });
   var channels = Array.isArray(input.channels) ? input.channels : [];
@@ -222,7 +267,8 @@ function buildSnapshot(input, now) {
   var channelByStatus = statusCounts();
   var channelByProduct = {
     casezap: statusCounts(),
-    waba: statusCounts()
+    waba: statusCounts(),
+    unknown: statusCounts()
   };
   normalizedChannels.forEach(function(item) {
     addStatus(channelByStatus, item.status);
@@ -281,15 +327,74 @@ function emptySnapshot() {
     expiresAt: null,
     services: [],
     queues: [],
-    channels: Object.assign({ byProduct: { casezap: statusCounts(), waba: statusCounts() } }, emptyAggregate()),
+    channels: Object.assign({ byProduct: { casezap: statusCounts(), waba: statusCounts(), unknown: statusCounts() } }, emptyAggregate()),
     alerts: emptyAggregate()
   };
 }
 
+function isCount(value) {
+  return typeof value === 'number' && isFinite(value) && value >= 0 && Math.floor(value) === value;
+}
+
+function isDate(value) {
+  return value !== undefined && value !== null && value !== '' && !isNaN(new Date(value).getTime());
+}
+
+function isStatusCounts(value) {
+  return value && SNAPSHOT_STATUSES.every(function(status) {
+    return isCount(value[status]);
+  });
+}
+
+function isSnapshotItem(item) {
+  return item && typeof item.name === 'string' && item.name.trim() &&
+    SNAPSHOT_STATUSES.indexOf(item.status) !== -1 &&
+    (item.cause === null || stableCause(item.cause) === item.cause) && isDate(item.checkedAt);
+}
+
+function isTopCauses(value) {
+  return Array.isArray(value) && value.length <= 5 && value.every(function(item) {
+    return item && stableCause(item.cause) === item.cause && isCount(item.count) && item.count > 0;
+  });
+}
+
+function sumStatusCounts(value) {
+  return SNAPSHOT_STATUSES.reduce(function(total, status) {
+    return total + value[status];
+  }, 0);
+}
+
+function isProductAggregates(value) {
+  return value && Object.keys(value).sort().join(',') === SNAPSHOT_PRODUCTS.slice().sort().join(',') &&
+    SNAPSHOT_PRODUCTS.every(function(product) {
+      return isStatusCounts(value[product]);
+    });
+}
+
+function isChannelsAggregate(value) {
+  return value && isCount(value.count) && isStatusCounts(value.byStatus) &&
+    isProductAggregates(value.byProduct) && isTopCauses(value.topCauses) &&
+    value.count === sumStatusCounts(value.byStatus);
+}
+
+function isAlertsAggregate(value) {
+  return value && isCount(value.count) && isStatusCounts(value.byStatus) &&
+    isTopCauses(value.topCauses) && value.count === sumStatusCounts(value.byStatus);
+}
+
 function isSnapshotValid(snapshot) {
-  return snapshot && snapshot.version === 2 && Array.isArray(snapshot.services) &&
-    Array.isArray(snapshot.queues) && snapshot.channels && snapshot.alerts &&
-    !isNaN(new Date(snapshot.generatedAt).getTime()) && !isNaN(new Date(snapshot.expiresAt).getTime());
+  return snapshot && snapshot.version === 2 && SNAPSHOT_STATUSES.indexOf(snapshot.overallStatus) !== -1 &&
+    isDate(snapshot.generatedAt) && isDate(snapshot.expiresAt) && Array.isArray(snapshot.services) &&
+    Array.isArray(snapshot.queues) && snapshot.services.length <= MAX_SNAPSHOT_ITEMS &&
+    snapshot.queues.length <= MAX_SNAPSHOT_ITEMS && snapshot.services.every(isSnapshotItem) && snapshot.queues.every(isSnapshotItem) &&
+    isChannelsAggregate(snapshot.channels) && isAlertsAggregate(snapshot.alerts);
+}
+
+function snapshotUnavailableError() {
+  var error = new Error('Operational health snapshot unavailable');
+  error.name = 'OperationalHealthSnapshotUnavailableError';
+  error.code = 'health_snapshot_unavailable';
+  return error;
 }
 
 function plainSnapshot(snapshot) {
@@ -299,6 +404,7 @@ function plainSnapshot(snapshot) {
   delete output._id;
   delete output.createdAt;
   delete output.updatedAt;
+  delete output.monitorLease;
   return output;
 }
 
@@ -1181,18 +1287,19 @@ async function getAlerts(services, channels) {
 }
 
 async function getSummary() {
-  var query = OperationalHealthSnapshot.findOne({ _id: SNAPSHOT_ID });
-  var snapshot = query && typeof query.lean === 'function' ? await query.lean() : await query;
-  if (!snapshot) return emptySnapshot();
-  if (!isSnapshotValid(snapshot)) {
-    var invalid = new Error('Operational health snapshot unavailable');
-    invalid.code = 'health_snapshot_unavailable';
-    throw invalid;
-  }
+  try {
+    var query = OperationalHealthSnapshot.findOne({ _id: SNAPSHOT_ID });
+    var snapshot = query && typeof query.lean === 'function' ? await query.lean() : await query;
+    if (!snapshot) return emptySnapshot();
+    if (!isSnapshotValid(snapshot)) throw snapshotUnavailableError();
 
-  var summary = plainSnapshot(snapshot);
-  summary.snapshotState = deriveSnapshotState(summary);
-  return summary;
+    var summary = plainSnapshot(snapshot);
+    summary.snapshotState = deriveSnapshotState(summary);
+    return summary;
+  } catch (err) {
+    if (err && err.code === 'health_snapshot_unavailable') throw err;
+    throw snapshotUnavailableError();
+  }
 }
 
 module.exports = {

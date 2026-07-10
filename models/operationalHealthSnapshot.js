@@ -22,8 +22,19 @@ var StatusCountsSchema = new Schema({
   unknown: { type: Number, default: 0 }
 }, { _id: false, strict: true });
 
+var ProductAggregatesSchema = new Schema({
+  casezap: { type: StatusCountsSchema, default: function() { return {}; } },
+  waba: { type: StatusCountsSchema, default: function() { return {}; } },
+  unknown: { type: StatusCountsSchema, default: function() { return {}; } }
+}, { _id: false, strict: true });
+
+var MonitorLeaseSchema = new Schema({
+  owner: { type: String, required: true },
+  expiresAt: { type: Date, required: true }
+}, { _id: false, strict: true });
+
 var OperationalHealthSnapshotSchema = new Schema({
-  _id: { type: String, default: 'singleton' },
+  _id: { type: String, enum: ['singleton'], default: 'singleton' },
   version: { type: Number, enum: [2], default: 2 },
   overallStatus: { type: String, enum: statuses, required: true },
   generatedAt: { type: Date, required: true },
@@ -33,14 +44,15 @@ var OperationalHealthSnapshotSchema = new Schema({
   channels: {
     count: { type: Number, default: 0 },
     byStatus: { type: StatusCountsSchema, default: function() { return {}; } },
-    byProduct: { type: Schema.Types.Mixed, default: {} },
+    byProduct: { type: ProductAggregatesSchema, default: function() { return {}; } },
     topCauses: { type: [CauseSchema], default: [] }
   },
   alerts: {
     count: { type: Number, default: 0 },
     byStatus: { type: StatusCountsSchema, default: function() { return {}; } },
     topCauses: { type: [CauseSchema], default: [] }
-  }
+  },
+  monitorLease: { type: MonitorLeaseSchema, default: null }
 }, {
   collection: 'health',
   strict: true,

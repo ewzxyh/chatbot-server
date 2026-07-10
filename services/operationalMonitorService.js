@@ -1,3 +1,4 @@
+var crypto = require('crypto');
 var winston = require('../config/winston');
 var backgroundWorkers = require('../utils/backgroundWorkers');
 var operationalHealthService = require('./operationalHealthService');
@@ -7,6 +8,8 @@ var OperationalHealthSnapshot = require('../models/operationalHealthSnapshot');
 
 var DEFAULT_INTERVAL_SECONDS = 300;
 var DEFAULT_START_DELAY_SECONDS = 60;
+var DEFAULT_LEASE_SECONDS = 300;
+var DEFAULT_LEASE_OWNER = process.pid + '-' + crypto.randomBytes(8).toString('hex');
 
 var state = {
   started: false,
@@ -68,6 +71,106 @@ function plainSnapshot(snapshot) {
   return output;
 }
 
+function statusCounts() {
+  return { ok: 0, degraded: 0, down: 0, unknown: 0 };
+}
+
+function leaseSeed(now, expiresAt) {
+  return {
+    version: 2,
+    overallStatus: 'unknown',
+    generatedAt: now,
+    expiresAt: expiresAt,
+    services: [],
+    queues: [],
+    channels: {
+      count: 0,
+      byStatus: statusCounts(),
+      byProduct: {
+        casezap: statusCounts(),
+        waba: statusCounts(),
+        unknown: statusCounts()
+      },
+      topCauses: []
+    },
+    alerts: {
+      count: 0,
+      byStatus: statusCounts(),
+      topCauses: []
+    }
+  };
+}
+
+function runDate(value) {
+  var date = value ? new Date(value) : new Date();
+  return isNaN(date.getTime()) ? new Date() : date;
+}
+
+function leaseDurationMs(options) {
+  if (options && options.leaseDurationMs > 0) return options.leaseDurationMs;
+  return parsePositiveInt(process.env.OPERATIONAL_MONITOR_LEASE_SECONDS || DEFAULT_LEASE_SECONDS, DEFAULT_LEASE_SECONDS) * 1000;
+}
+
+function leaseFilter(owner, now) {
+  return {
+    _id: 'singleton',
+    $or: [
+      { 'monitorLease.expiresAt': { $lte: now } },
+      { 'monitorLease.expiresAt': { $exists: false } },
+      { 'monitorLease.owner': owner }
+    ]
+  };
+}
+
+function hasDuplicateKeyError(error) {
+  return error && (error.code === 11000 || /duplicate key/i.test(error.message || ''));
+}
+
+async function acquireLease(snapshotModel, owner, now, durationMs) {
+  var expiresAt = new Date(now.getTime() + durationMs);
+  var result;
+  try {
+    result = await snapshotModel.findOneAndUpdate(
+      leaseFilter(owner, now),
+      {
+        $set: { monitorLease: { owner: owner, expiresAt: expiresAt } },
+        $setOnInsert: leaseSeed(now, expiresAt)
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+  } catch (err) {
+    if (hasDuplicateKeyError(err)) return null;
+    throw err;
+  }
+
+  if (!result) return null;
+  var lease = result.monitorLease;
+  if (!lease && typeof result.toObject === 'function') lease = result.toObject().monitorLease;
+  return lease && lease.owner === owner ? { owner: owner, expiresAt: expiresAt } : null;
+}
+
+async function releaseLease(snapshotModel, owner) {
+  return snapshotModel.findOneAndUpdate(
+    { _id: 'singleton', 'monitorLease.owner': owner },
+    { $unset: { monitorLease: '' } },
+    { new: true }
+  );
+}
+
+async function persistSnapshot(snapshotModel, owner, snapshot) {
+  var stored = await snapshotModel.findOneAndUpdate(
+    { _id: 'singleton', 'monitorLease.owner': owner },
+    { $set: snapshot, $unset: { monitorLease: '' } },
+    { new: true }
+  );
+  if (!stored) {
+    var lost = new Error('Operational monitor lease lost');
+    lost.code = 'operational_monitor_lease_lost';
+    throw lost;
+  }
+  return plainSnapshot(stored) || snapshot;
+}
+
 async function collectInput(healthService, app) {
   if (typeof healthService.collectSnapshotInput === 'function') {
     return healthService.collectSnapshotInput(app);
@@ -95,6 +198,9 @@ async function runOnce(options) {
   var healthService = options.healthService || operationalHealthService;
   var logger = options.logger || operationalLogger;
   var snapshotModel = options.snapshotModel || OperationalHealthSnapshot;
+  var now = runDate(options.now);
+  var owner = options.leaseOwner || DEFAULT_LEASE_OWNER;
+  var leaseAcquired = false;
   var startedAt = Date.now();
 
   state.running = true;
@@ -102,15 +208,22 @@ async function runOnce(options) {
   state.lastError = null;
 
   try {
+    var lease = await acquireLease(snapshotModel, owner, now, leaseDurationMs(options));
+    if (!lease) {
+      state.lastStatus = 'lease_occupied';
+      state.skippedCount += 1;
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'lease_occupied'
+      };
+    }
+    leaseAcquired = true;
     var input = await collectInput(healthService, options.app);
     var buildSnapshot = healthService.buildSnapshot || operationalHealthService.buildSnapshot;
-    var snapshot = input && input.version === 2 ? input : buildSnapshot(input, options.now || new Date());
-    var stored = await snapshotModel.findOneAndUpdate(
-      { _id: 'singleton' },
-      { $set: snapshot },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-    snapshot = plainSnapshot(stored) || snapshot;
+    var snapshot = buildSnapshot(input, now);
+    snapshot = await persistSnapshot(snapshotModel, owner, snapshot);
+    leaseAcquired = false;
     state.lastSuccessAt = new Date().toISOString();
     state.lastStatus = snapshot && snapshot.overallStatus ? snapshot.overallStatus : 'unknown';
     state.runCount += 1;
@@ -136,6 +249,20 @@ async function runOnce(options) {
       error: err.message
     };
   } finally {
+    if (leaseAcquired) {
+      try {
+        await releaseLease(snapshotModel, owner);
+      } catch (releaseErr) {
+        logger.recordSafe({
+          level: 'warn',
+          area: 'monitor',
+          channel: 'system',
+          event: 'operational.monitor.lease_release_failed',
+          status: 'failed',
+          error: releaseErr
+        });
+      }
+    }
     state.running = false;
   }
 }
