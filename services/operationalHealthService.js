@@ -493,12 +493,7 @@ function normalizedSnapshotStatus(snapshot) {
   if (snapshot.overallStatus === effectiveStatus) return effectiveStatus;
   if (snapshot.overallStatus !== 'down' || effectiveStatus !== 'degraded') return null;
 
-  var channelCounts = snapshot.channels.byStatus;
-  if (channelCounts.down > 0 && channelCounts.down < snapshot.channels.count) return effectiveStatus;
-
-  var coreItems = snapshot.services.concat(snapshot.queues);
-  var coreStatus = statusFromCounts(statusCountsFromItems(coreItems));
-  return coreItems.length > 0 && coreStatus === 'ok' && snapshot.alerts.byStatus.down > 0 ? effectiveStatus : null;
+  return snapshot.channels.byStatus.down > 0 || snapshot.alerts.byStatus.down > 0 ? effectiveStatus : null;
 }
 
 function isSnapshotValid(snapshot) {

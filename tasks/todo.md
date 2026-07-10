@@ -82,3 +82,18 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - Suite operacional completa: 91 testes passando.
 - `test/operationalRoute.js`: 47 testes passando.
 - O GET normaliza somente a resposta; o snapshot legado lido permanece inalterado.
+
+# Plano: compatibilidade final do Status geral
+
+- [x] Cobrir alertas `down` com core `degraded` e `unknown` em RED.
+- [x] Rejeitar `raw=down` e `effective=degraded` sem sinal agregado `down`.
+- [x] Confirmar zero escritas Mongo durante a leitura compativel.
+- [x] Preservar core `down` e os testes existentes.
+- [x] Rodar suite operacional/rotas, sintaxe e diff.
+- [x] Atualizar o relatorio e criar o commit solicitado.
+
+## Revisao: compatibilidade final
+
+- `npx mocha test/operationalMonitorService.test.js --exit`: 38 testes passando.
+- Suite operacional completa: 93 testes passando.
+- O predicado legado usa somente `channels.byStatus.down > 0 || alerts.byStatus.down > 0`.

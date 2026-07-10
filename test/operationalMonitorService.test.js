@@ -672,6 +672,58 @@ describe('OperationalMonitorService', function() {
     }
   });
 
+  it('normalizes a legacy critical alert with degraded core without Mongo writes', async function() {
+    var originalFindOne = OperationalHealthSnapshot.findOne;
+    var originalFindOneAndUpdate = OperationalHealthSnapshot.findOneAndUpdate;
+    var originalUpdateOne = OperationalHealthSnapshot.updateOne;
+    var writes = 0;
+    var persistedSnapshot = operationalHealthService.buildSnapshot({
+      services: [{ name: 'server', status: 'degraded' }],
+      channels: [{ product: 'casezap', status: 'ok' }],
+      alerts: [{ type: 'webhook_failure', status: 'open', severity: 'critical' }]
+    }, new Date('2026-07-10T12:00:00.000Z'));
+    expect(persistedSnapshot.overallStatus).to.equal('degraded');
+    persistedSnapshot.overallStatus = 'down';
+    OperationalHealthSnapshot.findOne = function() {
+      return { lean: async function() { return persistedSnapshot; } };
+    };
+    OperationalHealthSnapshot.findOneAndUpdate = async function() { writes += 1; };
+    OperationalHealthSnapshot.updateOne = async function() { writes += 1; };
+
+    try {
+      var summary = await operationalHealthService.getSummary();
+      expect(summary.overallStatus).to.equal('degraded');
+      expect(persistedSnapshot.overallStatus).to.equal('down');
+      expect(writes).to.equal(0);
+    } finally {
+      OperationalHealthSnapshot.findOne = originalFindOne;
+      OperationalHealthSnapshot.findOneAndUpdate = originalFindOneAndUpdate;
+      OperationalHealthSnapshot.updateOne = originalUpdateOne;
+    }
+  });
+
+  it('normalizes a legacy critical alert with unknown core', async function() {
+    var originalFindOne = OperationalHealthSnapshot.findOne;
+    var persistedSnapshot = operationalHealthService.buildSnapshot({
+      services: [{ name: 'server', status: 'unknown' }],
+      channels: [{ product: 'casezap', status: 'ok' }],
+      alerts: [{ type: 'webhook_failure', status: 'open', severity: 'critical' }]
+    }, new Date('2026-07-10T12:00:00.000Z'));
+    expect(persistedSnapshot.overallStatus).to.equal('degraded');
+    persistedSnapshot.overallStatus = 'down';
+    OperationalHealthSnapshot.findOne = function() {
+      return { lean: async function() { return persistedSnapshot; } };
+    };
+
+    try {
+      var summary = await operationalHealthService.getSummary();
+      expect(summary.overallStatus).to.equal('degraded');
+      expect(persistedSnapshot.overallStatus).to.equal('down');
+    } finally {
+      OperationalHealthSnapshot.findOne = originalFindOne;
+    }
+  });
+
   it('rejects non-legacy overall status mismatches', async function() {
     var originalFindOne = OperationalHealthSnapshot.findOne;
     var persistedSnapshot;
@@ -694,7 +746,7 @@ describe('OperationalMonitorService', function() {
     }, {
       raw: 'down',
       expected: 'degraded',
-      input: { services: [], channels: [], alerts: [{ type: 'webhook_failure', status: 'down' }] }
+      input: { services: [{ name: 'server', status: 'degraded' }], channels: [], alerts: [] }
     }];
     OperationalHealthSnapshot.findOne = function() {
       return { lean: async function() { return persistedSnapshot; } };
@@ -729,6 +781,13 @@ describe('OperationalMonitorService', function() {
     }, {
       expected: 'degraded',
       input: { services: [], channels: [], alerts: [{ type: 'webhook_failure', status: 'down' }] }
+    }, {
+      expected: 'down',
+      input: {
+        services: [{ name: 'server', status: 'down' }],
+        channels: [{ product: 'casezap', status: 'ok' }],
+        alerts: [{ type: 'webhook_failure', status: 'down' }]
+      }
     }, {
       expected: 'unknown',
       input: { services: [], queues: [{ name: 'jobs', status: 'unknown' }], channels: [], alerts: [] }
