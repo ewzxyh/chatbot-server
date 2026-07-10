@@ -7,6 +7,10 @@ if (isNaN(ALERT_EVENT_COOLDOWN_MINUTES) || ALERT_EVENT_COOLDOWN_MINUTES < 1) {
   ALERT_EVENT_COOLDOWN_MINUTES = 30;
 }
 
+var DEFAULT_PAGE = 1;
+var DEFAULT_LIMIT = 100;
+var MAX_LIMIT = 200;
+
 function now() {
   return new Date();
 }
@@ -158,6 +162,116 @@ function sortOpenAlerts(alerts) {
   });
 }
 
+function pageValue(value) {
+  var parsed = parseInt(value, 10);
+  return isNaN(parsed) || parsed < 1 ? DEFAULT_PAGE : parsed;
+}
+
+function limitValue(value) {
+  var parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed < 1) return DEFAULT_LIMIT;
+  return Math.min(parsed, MAX_LIMIT);
+}
+
+function filterDate(value) {
+  if (!value) return null;
+  var date = new Date(value);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+function stableCause(value) {
+  if (typeof value !== 'string') return null;
+  var cause = value.trim().toLowerCase();
+  return /^[a-z0-9_]+$/.test(cause) ? cause : null;
+}
+
+function alertCause(alert) {
+  var details = alert.details || {};
+  return stableCause(details.cause) || stableCause(details.providerReason) || stableCause(alert.type);
+}
+
+function buildListQuery(filters) {
+  var clauses = [];
+  if (filters.status === 'open' || filters.status === 'resolved') clauses.push({ status: filters.status });
+  if (filters.type) clauses.push({ type: String(filters.type) });
+  if (filters.severity && ['info', 'warning', 'critical'].indexOf(filters.severity) !== -1) {
+    clauses.push({ severity: filters.severity });
+  }
+  if (filters.channel) clauses.push({ channel: String(filters.channel) });
+  if (filters.service) clauses.push({ service: String(filters.service) });
+  if (filters.project_id) clauses.push({ id_project: String(filters.project_id) });
+
+  if (filters.product) {
+    var product = String(filters.product).toLowerCase();
+    clauses.push({ $or: [{ channel: product }, { 'details.product': product }] });
+  }
+
+  if (filters.cause) {
+    var cause = stableCause(filters.cause);
+    clauses.push(cause ? {
+      $or: [{ type: cause }, { 'details.cause': cause }, { 'details.providerReason': cause }]
+    } : { _id: null });
+  }
+
+  var from = filterDate(filters.from);
+  var to = filterDate(filters.to);
+  if (from || to) {
+    var range = {};
+    if (from) range.$gte = from;
+    if (to) range.$lte = to;
+    clauses.push({ lastAt: range });
+  }
+
+  return clauses.length ? { $and: clauses } : {};
+}
+
+function alertResponse(alert) {
+  var details = alert.details && typeof alert.details === 'object'
+    ? operationalLogger.sanitize(alert.details)
+    : undefined;
+  return {
+    id: alert._id ? String(alert._id) : undefined,
+    key: alert.key,
+    type: alert.type,
+    product: alert.details && alert.details.product ? alert.details.product : (['casezap', 'waba'].indexOf(alert.channel) !== -1 ? alert.channel : null),
+    severity: alert.severity,
+    status: alert.status,
+    cause: alertCause(alert),
+    title: alert.title,
+    message: alert.message,
+    service: alert.service,
+    queue: alert.queue,
+    channel: alert.channel,
+    id_project: alert.id_project,
+    integrationId: alert.integrationId,
+    firstAt: alert.firstAt ? new Date(alert.firstAt).toISOString() : null,
+    lastAt: alert.lastAt ? new Date(alert.lastAt).toISOString() : null,
+    resolvedAt: alert.resolvedAt ? new Date(alert.resolvedAt).toISOString() : null,
+    occurrences: alert.occurrences,
+    details: details
+  };
+}
+
+async function list(filters) {
+  filters = filters || {};
+  var page = pageValue(filters.page);
+  var limit = limitValue(filters.limit);
+  var query = buildListQuery(filters);
+  var count = await OperationalAlert.countDocuments(query);
+  var alerts = await OperationalAlert.find(query)
+    .sort({ status: 1, lastAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .lean();
+
+  return {
+    data: alerts.map(alertResponse),
+    count: count,
+    page: page,
+    limit: limit
+  };
+}
+
 async function syncAlerts(rawAlerts) {
   var activeKeys = [];
   var openAlerts = [];
@@ -174,18 +288,13 @@ async function syncAlerts(rawAlerts) {
 }
 
 async function listAlerts(filters) {
-  var query = {};
-  if (filters && filters.status) query.status = filters.status;
-  if (filters && filters.type) query.type = filters.type;
-  if (filters && filters.severity) query.severity = filters.severity;
-  if (filters && filters.channel) query.channel = filters.channel;
-  if (filters && filters.service) query.service = filters.service;
-  if (filters && filters.project_id) query.id_project = filters.project_id;
-  return OperationalAlert.find(query).sort({ status: 1, lastAt: -1 }).limit((filters && filters.limit) || 100).lean();
+  var result = await list(filters);
+  return result.data;
 }
 
 module.exports = {
   syncAlerts: syncAlerts,
+  list: list,
   listAlerts: listAlerts,
   normalizeAlert: normalizeAlert
 };

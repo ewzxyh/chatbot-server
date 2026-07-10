@@ -19,6 +19,7 @@ var { getPlan, getAllPlans } = require('../pubmodules/billing/plans');
 var OperationalEvent = require('../models/operationalEvent');
 var AuditEvent = require('../models/auditEvent');
 var operationalHealthService = require('../services/operationalHealthService');
+var operationalMonitorService = require('../services/operationalMonitorService');
 var operationalAlertService = require('../services/operationalAlertService');
 var operationalAlertNotifier = require('../services/operationalAlertNotifier');
 var operationalLogger = require('../services/operationalLogger');
@@ -77,6 +78,38 @@ function parsePage(value) {
   var parsed = parseInt(value, 10);
   if (isNaN(parsed) || parsed < 0) return 0;
   return parsed;
+}
+
+function parseOperationalPage(value) {
+  var parsed = parseInt(value, 10);
+  return isNaN(parsed) || parsed < 1 ? 1 : parsed;
+}
+
+function operationalFilters(query) {
+  query = query || {};
+  return {
+    page: parseOperationalPage(query.page),
+    limit: parseLimit(query.limit, 100, 200),
+    product: query.product,
+    channel: query.channel,
+    status: query.status,
+    cause: query.cause,
+    from: parseDateFilter(query.from),
+    to: parseDateFilter(query.to)
+  };
+}
+
+function sendSnapshotError(res, err) {
+  if (err && err.code === 'health_snapshot_unavailable') {
+    res.status(503).json({
+      error: {
+        code: 'health_snapshot_unavailable',
+        message: 'Operational health snapshot unavailable'
+      }
+    });
+    return true;
+  }
+  return false;
 }
 
 function parseDateFilter(value) {
@@ -449,6 +482,7 @@ router.get('/health/summary', auth, async function (req, res) {
     var summary = await operationalHealthService.getSummary(req.app);
     res.json(summary);
   } catch (err) {
+    if (sendSnapshotError(res, err)) return;
     winston.error('sadmin health summary error', err);
     res.status(500).json({ error: 'Failed to fetch health summary' });
   }
@@ -456,9 +490,10 @@ router.get('/health/summary', auth, async function (req, res) {
 
 router.get('/health/services', auth, async function (req, res) {
   try {
-    var services = await operationalHealthService.getServices(req.app.get('redis_client'));
-    res.json({ generatedAt: new Date().toISOString(), services: services });
+    var summary = await operationalHealthService.getSummary();
+    res.json({ generatedAt: summary.generatedAt, services: summary.services });
   } catch (err) {
+    if (sendSnapshotError(res, err)) return;
     winston.error('sadmin health services error', err);
     res.status(500).json({ error: 'Failed to fetch service health' });
   }
@@ -466,8 +501,8 @@ router.get('/health/services', auth, async function (req, res) {
 
 router.get('/health/channels', auth, async function (req, res) {
   try {
-    var channels = await operationalHealthService.getChannels();
-    res.json({ generatedAt: new Date().toISOString(), channels: channels });
+    var channels = await operationalHealthService.listChannels(operationalFilters(req.query));
+    res.json(channels);
   } catch (err) {
     winston.error('sadmin health channels error', err);
     res.status(500).json({ error: 'Failed to fetch channel health' });
@@ -476,13 +511,12 @@ router.get('/health/channels', auth, async function (req, res) {
 
 router.post('/health/channels/test', auth, async function (req, res) {
   try {
-    var channel = req.body && req.body.channel;
     var integrationId = req.body && req.body.integrationId;
-    if (['waba', 'casezap'].indexOf(channel) === -1 || !integrationId) {
-      return res.status(400).json({ error: 'channel and integrationId are required' });
+    if (!integrationId) {
+      return res.status(400).json({ error: 'integrationId is required' });
     }
 
-    var result = await operationalHealthService.testChannelConnection(channel, integrationId);
+    var result = await operationalMonitorService.testIntegration(integrationId);
     res.json({ generatedAt: new Date().toISOString(), result: result });
   } catch (err) {
     winston.error('sadmin health channel test error', err);
@@ -511,9 +545,28 @@ router.post('/health/channels/webhook/register', auth, async function (req, res)
 
 router.get('/health/queues', auth, async function (req, res) {
   try {
-    var rabbit = await operationalHealthService.checkRabbit();
-    res.json({ generatedAt: new Date().toISOString(), queueService: rabbit });
+    var summary = await operationalHealthService.getSummary();
+    var queueStatus = summary.queues.length ? 'ok' : 'unknown';
+    for (var i = 0; i < summary.queues.length; i++) {
+      if (summary.queues[i].status === 'down') {
+        queueStatus = 'down';
+        break;
+      }
+      if (summary.queues[i].status === 'degraded') queueStatus = 'degraded';
+      if (summary.queues[i].status === 'unknown' && queueStatus === 'ok') queueStatus = 'unknown';
+    }
+    res.json({
+      generatedAt: summary.generatedAt,
+      queueService: {
+        name: 'rabbitmq',
+        label: 'RabbitMQ',
+        status: queueStatus,
+        latencyMs: null,
+        details: { queues: summary.queues, source: 'snapshot' }
+      }
+    });
   } catch (err) {
+    if (sendSnapshotError(res, err)) return;
     winston.error('sadmin health queues error', err);
     res.status(500).json({ error: 'Failed to fetch queue health' });
   }
@@ -907,18 +960,13 @@ router.post('/privacy/contact-anonymize', auth, async function (req, res) {
 
 router.get('/operational-alerts', auth, async function (req, res) {
   try {
-    var limit = parseLimit(req.query.limit, 100, 200);
-    var alerts = await operationalAlertService.listAlerts({
-      status: req.query.status,
-      type: req.query.type,
-      severity: req.query.severity,
-      channel: req.query.channel,
-      service: req.query.service,
-      project_id: req.query.project_id,
-      limit: limit
-    });
-
-    res.json({ data: alerts, count: alerts.length, limit: limit });
+    var filters = operationalFilters(req.query);
+    filters.type = req.query.type;
+    filters.severity = req.query.severity;
+    filters.service = req.query.service;
+    filters.project_id = req.query.project_id;
+    var alerts = await operationalAlertService.list(filters);
+    res.json(alerts);
   } catch (err) {
     winston.error('sadmin operational alerts error', err);
     res.status(500).json({ error: 'Failed to fetch operational alerts' });

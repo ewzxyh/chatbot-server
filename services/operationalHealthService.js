@@ -27,6 +27,7 @@ var MAX_SNAPSHOT_ITEMS = 50;
 var SNAPSHOT_STATUSES = ['ok', 'degraded', 'down', 'unknown'];
 var SNAPSHOT_PRODUCTS = ['casezap', 'waba', 'unknown'];
 var STABLE_CAUSES = {
+  provider_check_failed: true,
   disabled: true,
   not_configured: true,
   not_ready: true,
@@ -71,6 +72,10 @@ var storageHealthCache = {
   value: null
 };
 
+var DEFAULT_OPERATIONAL_PAGE = 1;
+var DEFAULT_OPERATIONAL_LIMIT = 100;
+var MAX_OPERATIONAL_LIMIT = 200;
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -93,6 +98,29 @@ function boolEnv(name, fallback) {
 function parsePositiveInt(value, fallback) {
   var parsed = parseInt(value, 10);
   return isNaN(parsed) || parsed < 1 ? fallback : parsed;
+}
+
+function operationalPage(value) {
+  var parsed = parseInt(value, 10);
+  return isNaN(parsed) || parsed < 1 ? DEFAULT_OPERATIONAL_PAGE : parsed;
+}
+
+function operationalLimit(value) {
+  var parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed < 1) return DEFAULT_OPERATIONAL_LIMIT;
+  return Math.min(parsed, MAX_OPERATIONAL_LIMIT);
+}
+
+function filterDate(value) {
+  if (!value) return null;
+  var date = new Date(value);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+function dateOrNull(value) {
+  if (!value) return null;
+  var date = new Date(value);
+  return isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function statusWeight(status) {
@@ -1192,7 +1220,7 @@ async function getChannels() {
       providerCode: diagnostics && diagnostics.providerCode,
       providerCheckedAt: diagnostics && diagnostics.providerCheckedAt,
       providerLatencyMs: diagnostics && diagnostics.providerLatencyMs,
-      providerError: diagnostics && diagnostics.providerError,
+      providerError: null,
       qualityRating: diagnostics && diagnostics.qualityRating,
       nameStatus: diagnostics && diagnostics.nameStatus,
       canSendNewMessages: diagnostics && diagnostics.canSendNewMessages,
@@ -1205,6 +1233,77 @@ async function getChannels() {
       lastError: eventInfo.lastError ? eventInfo.lastError.errorMessage : null
     };
   });
+}
+
+function persistedChannelRecord(integration) {
+  var value = integration && integration.value ? integration.value : {};
+  var operational = value.operational;
+  if (!operational || typeof operational !== 'object' || !integration._id) return null;
+
+  var product = integration.name === 'casezap' ? 'casezap' : 'waba';
+  var status = operational.lastProviderHealth || operational.status;
+  if (!status && value.status === 'disconnected') status = 'down';
+  var id = String(integration._id);
+
+  return {
+    id: id,
+    integrationId: id,
+    id_project: integration.id_project,
+    name: integrationDisplayName(integration),
+    product: product,
+    channel: String(operational.channel || product).toLowerCase(),
+    status: normalizeStatus(status),
+    cause: stableCause(operational.lastProviderReason || operational.providerReason || operational.cause),
+    checkedAt: dateOrNull(operational.lastProviderCheckAt || operational.checkedAt)
+  };
+}
+
+function matchesChannelFilters(record, filters) {
+  var product = filters.product ? String(filters.product).toLowerCase() : null;
+  var channel = filters.channel ? String(filters.channel).toLowerCase() : null;
+  var status = filters.status ? String(filters.status).toLowerCase() : null;
+  var cause = filters.cause ? stableCause(filters.cause) : null;
+  var from = filterDate(filters.from);
+  var to = filterDate(filters.to);
+
+  if (product && SNAPSHOT_PRODUCTS.indexOf(product) === -1) return false;
+  if (status && SNAPSHOT_STATUSES.indexOf(status) === -1) return false;
+  if (filters.cause && !cause) return false;
+  if (product && record.product !== product) return false;
+  if (channel && record.channel !== channel) return false;
+  if (status && record.status !== status) return false;
+  if (filters.cause && record.cause !== cause) return false;
+
+  var checkedAt = record.checkedAt ? new Date(record.checkedAt) : null;
+  if (from && (!checkedAt || checkedAt < from)) return false;
+  if (to && (!checkedAt || checkedAt > to)) return false;
+  return true;
+}
+
+async function listChannels(filters) {
+  filters = filters || {};
+  var integrations = await Integration.find({ name: { $in: ['whatsapp', 'casezap'] } }).lean();
+  var kvstoreWabas = await channelDiagnosticsService.listKvstoreWabaIntegrations();
+  integrations = mergeKvstoreWabaIntegrations(integrations, kvstoreWabas);
+
+  var records = integrations.map(persistedChannelRecord).filter(Boolean).filter(function(record) {
+    return matchesChannelFilters(record, filters);
+  });
+  records.sort(function(left, right) {
+    var rightDate = right.checkedAt ? new Date(right.checkedAt).getTime() : 0;
+    var leftDate = left.checkedAt ? new Date(left.checkedAt).getTime() : 0;
+    return rightDate - leftDate || left.id.localeCompare(right.id);
+  });
+
+  var page = operationalPage(filters.page);
+  var limit = operationalLimit(filters.limit);
+  var start = (page - 1) * limit;
+  return {
+    data: records.slice(start, start + limit),
+    count: records.length,
+    page: page,
+    limit: limit
+  };
 }
 
 async function getWebhookFailureAlerts() {
@@ -1382,6 +1481,7 @@ module.exports = {
   getSummary: getSummary,
   getServices: getServices,
   getChannels: getChannels,
+  listChannels: listChannels,
   getAlerts: getAlerts,
   testChannelConnection: channelDiagnosticsService.testChannelConnection,
   registerChannelWebhook: channelDiagnosticsService.registerChannelWebhook,

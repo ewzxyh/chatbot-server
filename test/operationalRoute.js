@@ -26,8 +26,10 @@ var User = require('../models/user');
 var userService = require('../services/userService');
 var operationalLogger = require('../services/operationalLogger');
 var operationalHealthService = require('../services/operationalHealthService');
+var operationalMonitorService = require('../services/operationalMonitorService');
 var OperationalEvent = require('../models/operationalEvent');
 var OperationalAlert = require('../models/operationalAlert');
+var OperationalHealthSnapshot = require('../models/operationalHealthSnapshot');
 var Integration = require('../models/integrations');
 
 chai.use(chaiHttp);
@@ -73,6 +75,7 @@ describe('OperationalRoute', function() {
     nock.cleanAll();
     await OperationalEvent.deleteMany({});
     await OperationalAlert.deleteMany({});
+    await OperationalHealthSnapshot.deleteMany({});
     await Integration.deleteMany({ id_project: /^operation-/ });
     await mongoose.connection.collection('kvstore').deleteMany({ project_id: /^operation-/ });
   });
@@ -128,19 +131,18 @@ describe('OperationalRoute', function() {
     })().catch(done);
   });
 
-  it('returns health summary to super admin', function(done) {
-    chai.request(server)
-      .get('/sadmin/health/summary')
-      .auth(adminEmail, pwd)
-      .end(function(err, res) {
-        if (err) return done(err);
-        res.should.have.status(200);
-        expect(res.body).to.have.property('overallStatus');
-        expect(res.body.services).to.be.an('array');
-        expect(res.body.channels).to.be.an('array');
-        expect(res.body.alerts).to.be.an('array');
-        done();
-      });
+  it('returns an empty read-only health summary when the snapshot is missing', async function() {
+    var res = await getAsSuperAdmin('/sadmin/health/summary', adminEmail, pwd);
+
+    res.should.have.status(200);
+    expect(res.body).to.include({
+      overallStatus: 'unknown',
+      snapshotState: 'missing'
+    });
+    expect(res.body.services).to.deep.equal([]);
+    expect(res.body.queues).to.deep.equal([]);
+    expect(res.body.channels.count).to.equal(0);
+    expect(res.body.alerts.count).to.equal(0);
   });
 
   it('returns health summary to configured secondary super admin', function(done) {
@@ -153,6 +155,148 @@ describe('OperationalRoute', function() {
         expect(res.body).to.have.property('overallStatus');
         done();
       });
+  });
+
+  it('returns 503 with the stable error when the snapshot is invalid or unavailable', async function() {
+    var originalFindOne = OperationalHealthSnapshot.findOne;
+
+    try {
+      OperationalHealthSnapshot.findOne = function() {
+        return { lean: async function() { return { _id: 'singleton', version: 2 }; } };
+      };
+
+      var invalidRes = await getAsSuperAdmin('/sadmin/health/summary', adminEmail, pwd);
+      invalidRes.should.have.status(503);
+      expect(invalidRes.body).to.deep.equal({
+        error: {
+          code: 'health_snapshot_unavailable',
+          message: 'Operational health snapshot unavailable'
+        }
+      });
+
+      OperationalHealthSnapshot.findOne = function() {
+        return { lean: async function() { throw new Error('database unavailable'); } };
+      };
+
+      var unavailableRes = await getAsSuperAdmin('/sadmin/health/summary', adminEmail, pwd);
+      unavailableRes.should.have.status(503);
+      expect(unavailableRes.body.error.code).to.equal('health_snapshot_unavailable');
+    } finally {
+      OperationalHealthSnapshot.findOne = originalFindOne;
+    }
+  });
+
+  it('keeps all health GETs read-only and free of infrastructure probes', async function() {
+    var originalGetServices = operationalHealthService.getServices;
+    var originalGetChannels = operationalHealthService.getChannels;
+    var originalCheckRabbit = operationalHealthService.checkRabbit;
+
+    try {
+      operationalHealthService.getServices = function() {
+        throw new Error('GET /health/services executed a probe');
+      };
+      operationalHealthService.getChannels = function() {
+        throw new Error('GET /health/channels executed a probe');
+      };
+      operationalHealthService.checkRabbit = function() {
+        throw new Error('GET /health/queues executed a probe');
+      };
+
+      var summary = await getAsSuperAdmin('/sadmin/health/summary', adminEmail, pwd);
+      var services = await getAsSuperAdmin('/sadmin/health/services', adminEmail, pwd);
+      var channels = await getAsSuperAdmin('/sadmin/health/channels', adminEmail, pwd);
+      var queues = await getAsSuperAdmin('/sadmin/health/queues', adminEmail, pwd);
+
+      summary.should.have.status(200);
+      services.should.have.status(200);
+      channels.should.have.status(200);
+      queues.should.have.status(200);
+    } finally {
+      operationalHealthService.getServices = originalGetServices;
+      operationalHealthService.getChannels = originalGetChannels;
+      operationalHealthService.checkRabbit = originalCheckRabbit;
+    }
+  });
+
+  it('returns paginated persisted channels with filters and total count', async function() {
+    var first = await Integration.create({
+      id_project: 'operation-channel-first',
+      name: 'casezap',
+      value: {
+        token: 'channel-secret-first',
+        instanceName: 'First',
+        operational: {
+          lastProviderHealth: 'degraded',
+          lastProviderReason: 'upstream_timeout',
+          lastProviderCheckAt: '2026-07-10T11:00:00.000Z'
+        }
+      }
+    });
+    await Integration.create({
+      id_project: 'operation-channel-second',
+      name: 'casezap',
+      value: {
+        token: 'channel-secret-second',
+        instanceName: 'Second',
+        operational: {
+          lastProviderHealth: 'degraded',
+          lastProviderReason: 'provider_check_failed',
+          lastProviderError: 'raw-provider-error-must-not-leak',
+          lastProviderCheckAt: '2026-07-10T11:05:00.000Z'
+        }
+      }
+    });
+    await Integration.create({
+      id_project: 'operation-channel-ok',
+      name: 'whatsapp',
+      value: {
+        access_token: 'waba-secret',
+        phone_number_id: 'phone-1',
+        operational: {
+          lastProviderHealth: 'ok',
+          lastProviderReason: 'provider_status_ok',
+          lastProviderCheckAt: '2026-07-10T11:10:00.000Z'
+        }
+      }
+    });
+
+    var res = await getAsSuperAdmin(
+      '/sadmin/health/channels?page=2&limit=1&product=casezap&channel=casezap&status=degraded&from=2026-07-10T10:00:00.000Z&to=2026-07-10T12:00:00.000Z',
+      adminEmail,
+      pwd
+    );
+
+    res.should.have.status(200);
+    expect(Object.keys(res.body)).to.deep.equal(['data', 'count', 'page', 'limit']);
+    expect(res.body.count).to.equal(2);
+    expect(res.body.page).to.equal(2);
+    expect(res.body.limit).to.equal(1);
+    expect(res.body.data).to.have.lengthOf(1);
+    expect(res.body.data[0]).to.include({
+      product: 'casezap',
+      channel: 'casezap',
+      status: 'degraded'
+    });
+    expect(res.body.data[0].id).to.equal(String(first._id));
+    expect(res.body.data[0].cause).to.equal('upstream_timeout');
+    expect(JSON.stringify(res.body)).to.not.contain('channel-secret');
+    expect(JSON.stringify(res.body)).to.not.contain('raw-provider-error-must-not-leak');
+
+    var causeRes = await getAsSuperAdmin(
+      '/sadmin/health/channels?cause=provider_check_failed',
+      adminEmail,
+      pwd
+    );
+    causeRes.should.have.status(200);
+    expect(causeRes.body.count).to.equal(1);
+    expect(causeRes.body.data[0].cause).to.equal('provider_check_failed');
+  });
+
+  it('returns an empty paginated channel result for unmatched filters', async function() {
+    var res = await getAsSuperAdmin('/sadmin/health/channels?page=3&limit=25&product=unknown', adminEmail, pwd);
+
+    res.should.have.status(200);
+    expect(res.body).to.deep.equal({ data: [], count: 0, page: 3, limit: 25 });
   });
 
   it('reports Redis health without exposing the password', async function() {
@@ -365,44 +509,25 @@ describe('OperationalRoute', function() {
     expect(event.channel).to.equal('system');
   });
 
-  it('persists and resolves operational alerts from health summary', async function() {
-    for (var i = 0; i < 3; i++) {
-      await operationalLogger.record({
-        level: 'error',
-        area: 'webhook',
-        channel: 'casezap',
-        id_project: 'project-alert',
-        integrationId: 'integration-alert',
-        event: 'webhook.failed',
-        status: 'failed',
-        errorMessage: 'webhook failed'
-      });
-    }
+  it('does not write operational alerts from a health summary GET', async function() {
+    await OperationalAlert.create({
+      key: 'webhook:casezap:integration-alert',
+      type: 'webhook_failure',
+      severity: 'critical',
+      status: 'open',
+      title: 'Webhook falhando',
+      message: 'webhook failed',
+      occurrences: 1
+    });
 
     var res = await getAsSuperAdmin('/sadmin/health/summary', adminEmail, pwd);
     res.should.have.status(200);
-    expect(res.body.alerts.some(function(alert) {
-      return alert.key === 'webhook:casezap:integration-alert' && alert.status === 'open';
-    })).to.equal(true);
+    expect(res.body.snapshotState).to.equal('missing');
+    expect(res.body.alerts.count).to.equal(0);
 
-    var openAlert = await OperationalAlert.findOne({ key: 'webhook:casezap:integration-alert' }).lean();
-    expect(openAlert).to.exist;
-    expect(openAlert.status).to.equal('open');
-    expect(openAlert.occurrences).to.equal(1);
-    expect(openAlert.details.failures).to.equal(3);
-
-    var repeatedRes = await getAsSuperAdmin('/sadmin/health/summary', adminEmail, pwd);
-    repeatedRes.should.have.status(200);
-    var repeatedAlert = await OperationalAlert.findOne({ key: 'webhook:casezap:integration-alert' }).lean();
-    expect(repeatedAlert.occurrences).to.equal(1);
-
-    await OperationalEvent.deleteMany({ area: 'webhook' });
-
-    var resolvedRes = await getAsSuperAdmin('/sadmin/health/summary', adminEmail, pwd);
-    resolvedRes.should.have.status(200);
-    var resolvedAlert = await OperationalAlert.findOne({ key: 'webhook:casezap:integration-alert' }).lean();
-    expect(resolvedAlert.status).to.equal('resolved');
-    expect(resolvedAlert.resolvedAt).to.exist;
+    var alert = await OperationalAlert.findOne({ key: 'webhook:casezap:integration-alert' }).lean();
+    expect(alert.status).to.equal('open');
+    expect(alert.occurrences).to.equal(1);
   });
 
   it('returns operational alerts to super admin', function(done) {
@@ -428,6 +553,88 @@ describe('OperationalRoute', function() {
           done();
       });
     })().catch(done);
+  });
+
+  it('returns paginated persisted alerts with cause filters and redaction', async function() {
+    await OperationalAlert.create([
+      {
+        key: 'operation-alert-first',
+        type: 'channel_health',
+        severity: 'warning',
+        status: 'open',
+        channel: 'waba',
+        firstAt: '2026-07-10T11:00:00.000Z',
+        lastAt: '2026-07-10T11:00:00.000Z',
+        details: { providerReason: 'provider_timeout', token: 'alert-secret-first' }
+      },
+      {
+        key: 'operation-alert-second',
+        type: 'channel_health',
+        severity: 'warning',
+        status: 'open',
+        channel: 'waba',
+        firstAt: '2026-07-10T11:05:00.000Z',
+        lastAt: '2026-07-10T11:05:00.000Z',
+        details: { providerReason: 'provider_timeout', token: 'alert-secret-second' }
+      },
+      {
+        key: 'operation-alert-resolved',
+        type: 'channel_health',
+        severity: 'warning',
+        status: 'resolved',
+        channel: 'waba',
+        firstAt: '2026-07-10T11:10:00.000Z',
+        lastAt: '2026-07-10T11:10:00.000Z',
+        details: { providerReason: 'provider_timeout' }
+      }
+    ]);
+
+    var res = await getAsSuperAdmin(
+      '/sadmin/operational-alerts?page=2&limit=1&status=open&channel=waba&cause=provider_timeout&from=2026-07-10T10:00:00.000Z&to=2026-07-10T12:00:00.000Z',
+      adminEmail,
+      pwd
+    );
+
+    res.should.have.status(200);
+    expect(Object.keys(res.body)).to.deep.equal(['data', 'count', 'page', 'limit']);
+    expect(res.body.count).to.equal(2);
+    expect(res.body.page).to.equal(2);
+    expect(res.body.limit).to.equal(1);
+    expect(res.body.data).to.have.lengthOf(1);
+    expect(res.body.data[0].cause).to.equal('provider_timeout');
+    expect(JSON.stringify(res.body)).to.not.contain('alert-secret');
+  });
+
+  it('requires a superadmin and routes one channel test through the monitor', async function() {
+    var unauthenticated = await new Promise(function(resolve, reject) {
+      chai.request(server).get('/sadmin/health/channels').end(function(err, res) {
+        if (err) return reject(err);
+        resolve(res);
+      });
+    });
+    expect(unauthenticated.status).to.be.oneOf([401, 403]);
+
+    var missingIntegration = await postAsSuperAdmin('/sadmin/health/channels/test', adminEmail, pwd, {});
+    missingIntegration.should.have.status(400);
+
+    var originalTestIntegration = operationalMonitorService.testIntegration;
+    var testedIntegrationId;
+    operationalMonitorService.testIntegration = async function(integrationId) {
+      testedIntegrationId = integrationId;
+      return { status: 'ok', integrationId: integrationId };
+    };
+
+    try {
+      var res = await postAsSuperAdmin('/sadmin/health/channels/test', adminEmail, pwd, {
+        integrationId: 'integration-only'
+      });
+
+      res.should.have.status(200);
+      expect(testedIntegrationId).to.equal('integration-only');
+      expect(res.body.result.status).to.equal('ok');
+    } finally {
+      operationalMonitorService.testIntegration = originalTestIntegration;
+    }
   });
 
   it('sends a manual operational alert notification test from the super admin route', async function() {
@@ -693,36 +900,25 @@ describe('OperationalRoute', function() {
         verified_name: 'WABA kvstore',
         wab_token: 'meta-token',
         waba_id: 'waba-kvstore',
-        phone_number_id: 'phone-kvstore'
+        phone_number_id: 'phone-kvstore',
+        operational: {
+          lastProviderHealth: 'ok',
+          lastProviderReason: 'provider_status_ok',
+          lastProviderCheckAt: '2026-07-10T11:00:00.000Z'
+        }
       }
     });
-
-    nock('https://graph.facebook.com')
-      .get('/v25.0/phone-kvstore')
-      .query(true)
-      .reply(200, {
-        id: 'phone-kvstore',
-        display_phone_number: '+15550000001',
-        verified_name: 'WABA kvstore',
-        status: 'CONNECTED',
-        quality_rating: 'GREEN',
-        name_status: 'APPROVED'
-      });
 
     var res = await getAsSuperAdmin('/sadmin/health/channels', adminEmail, pwd);
 
     res.should.have.status(200);
-    var channel = res.body.channels.find(function(item) {
-      return item.integrationDocId === String(inserted.insertedId);
+    var channel = res.body.data.find(function(item) {
+      return item.id === String(inserted.insertedId);
     });
     expect(channel).to.exist;
     expect(channel.channel).to.equal('waba');
-    expect(channel.integrationSource).to.equal('kvstore');
-    expect(channel.integrationId).to.equal('phone-kvstore');
-    expect(channel.providerHealth).to.equal('ok');
-
-    var updated = await mongoose.connection.collection('kvstore').findOne({ _id: inserted.insertedId });
-    expect(updated.value.operational.lastProviderHealth).to.equal('ok');
+    expect(channel.status).to.equal('ok');
+    expect(channel.cause).to.equal('provider_status_ok');
   });
 
   it('tests WABA connections stored only in kvstore', async function() {
@@ -768,11 +964,12 @@ describe('OperationalRoute', function() {
 
     var channelsRes = await getAsSuperAdmin('/sadmin/health/channels', adminEmail, pwd);
     channelsRes.should.have.status(200);
-    var channel = channelsRes.body.channels.find(function(item) {
-      return item.integrationDocId === String(inserted.insertedId);
+    var channel = channelsRes.body.data.find(function(item) {
+      return item.id === String(inserted.insertedId);
     });
     expect(channel).to.exist;
-    expect(channel.lastEvent).to.equal('channel.provider_check');
+    expect(channel.status).to.equal('ok');
+    expect(channel.cause).to.equal('provider_status_ok');
   });
 
   it('tests the exact WABA kvstore row when a project has multiple WABAs', async function() {
@@ -843,8 +1040,8 @@ describe('OperationalRoute', function() {
     var res = await getAsSuperAdmin('/sadmin/health/channels', adminEmail, pwd);
 
     res.should.have.status(200);
-    var channel = res.body.channels.find(function(item) {
-      return item.integrationDocId === String(inserted.insertedId);
+    var channel = res.body.data.find(function(item) {
+      return item.id === String(inserted.insertedId);
     });
     expect(channel).to.equal(undefined);
   });
@@ -1034,33 +1231,23 @@ describe('OperationalRoute', function() {
     expect(res.body.result.fingerprint).to.equal('chatcase-custom-sentry-validation');
   });
 
-  it('adds channel health alerts to summary', async function() {
-    var integration = await Integration.create({
-      id_project: 'operation-casezap-summary',
-      name: 'casezap',
-      value: {
-        instanceName: 'CaseZap summary',
-        domain: 'https://casezap-summary.test',
-        token: 'cz-token'
-      }
-    });
-
-    nock('https://casezap-summary.test')
-      .get('/instance/status')
-      .reply(200, {
-        instance: { status: 'bannedm' },
-        status: { connected: false, loggedIn: false }
-      });
-    nock('https://casezap-summary.test')
-      .get('/instance/wa_messages_limits')
-      .reply(200, { can_send_new_messages: true });
+  it('returns the persisted channel aggregation without probing from summary', async function() {
+    await OperationalHealthSnapshot.create(operationalHealthService.buildSnapshot({
+      services: [],
+      queues: [],
+      channels: [{
+        product: 'casezap',
+        channel: 'casezap',
+        status: 'down',
+        cause: 'provider_check_failed'
+      }],
+      alerts: []
+    }, new Date('2026-07-10T12:00:00.000Z')));
 
     var res = await getAsSuperAdmin('/sadmin/health/summary', adminEmail, pwd);
     res.should.have.status(200);
-    expect(res.body.alerts.some(function(alert) {
-      return alert.key === 'channel:casezap:' + String(integration._id) &&
-        alert.severity === 'critical' &&
-        alert.title === 'CaseZap (CaseZap summary) indisponivel';
-    })).to.equal(true);
+    expect(res.body.channels.count).to.equal(1);
+    expect(res.body.channels.byProduct.casezap.down).to.equal(1);
+    expect(res.body.channels.topCauses).to.deep.equal([{ cause: 'provider_check_failed', count: 1 }]);
   });
 });
