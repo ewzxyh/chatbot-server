@@ -9,6 +9,7 @@ var OperationalEvent = require('../models/operationalEvent');
 var OperationalHealthSnapshot = require('../models/operationalHealthSnapshot');
 var operationalAlertService = require('./operationalAlertService');
 var operationalCause = require('./operationalCause');
+var operationalDate = require('./operationalDate');
 var operationalLogger = require('./operationalLogger');
 var channelDiagnosticsService = require('./channelDiagnosticsService');
 var fileStorageFactory = require('./fileStorageServiceFactory');
@@ -101,9 +102,8 @@ function canonicalIntegerFilter(value, field, fallback, max) {
 
 function channelDateFilter(value, field) {
   if (value === undefined) return undefined;
-  if (typeof value !== 'string' && !(value instanceof Date)) throw invalidChannelFilter(field);
-  var date = new Date(value);
-  if (isNaN(date.getTime())) throw invalidChannelFilter(field);
+  var date = operationalDate.parse(value);
+  if (!date) throw invalidChannelFilter(field);
   return date;
 }
 

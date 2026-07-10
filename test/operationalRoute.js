@@ -343,6 +343,12 @@ describe('OperationalRoute', function() {
       { query: 'unknown=1', field: 'unknown' },
       { query: 'from=not-a-date', field: 'from' },
       { query: 'to=not-a-date', field: 'to' },
+      { query: 'from=2026-02-30', field: 'from' },
+      { query: 'to=2026-02-30', field: 'to' },
+      { query: 'from=2026-13-01', field: 'from' },
+      { query: 'from=2026-01-00', field: 'from' },
+      { query: 'from=2027-02-29', field: 'from' },
+      { query: 'from=2026-01-01T24:00:00.000Z', field: 'from' },
       { query: 'page=0', field: 'page' },
       { query: 'limit=0', field: 'limit' },
       { query: 'page=1.5', field: 'page' },
@@ -421,6 +427,24 @@ describe('OperationalRoute', function() {
     filteredRes.should.have.status(200);
     expect(filteredRes.body.count).to.equal(1);
     expect(filteredRes.body.data[0].id).to.equal(String(stable._id));
+  });
+
+  it('accepts strict calendar dates for channel and alert filters', async function() {
+    this.timeout(10000);
+    var validQueries = [
+      'from=2026-07-10',
+      'from=2026-07-10T10:00:00Z&to=2026-07-10T12:00:00Z',
+      'from=2026-07-10T10:00:00.000Z&to=2026-07-10T12:00:00.000Z',
+      'from=2028-02-29&to=2028-03-01'
+    ];
+    var endpoints = ['/sadmin/health/channels?', '/sadmin/operational-alerts?'];
+
+    for (var i = 0; i < endpoints.length; i++) {
+      for (var j = 0; j < validQueries.length; j++) {
+        var res = await getAsSuperAdmin(endpoints[i] + validQueries[j], adminEmail, pwd);
+        res.should.have.status(200);
+      }
+    }
   });
 
   it('reports Redis health without exposing the password', async function() {
@@ -730,6 +754,7 @@ describe('OperationalRoute', function() {
   });
 
   it('rejects invalid operational alert filters with a typed 400', async function() {
+    this.timeout(10000);
     await OperationalAlert.create({
       key: 'operation-alert-filter-guard',
       type: 'channel_health',
@@ -743,6 +768,13 @@ describe('OperationalRoute', function() {
       { query: 'cause=not_a_stable_cause', field: 'cause' },
       { query: 'product=telegram', field: 'product' },
       { query: 'from=not-a-date', field: 'from' },
+      { query: 'to=not-a-date', field: 'to' },
+      { query: 'from=2026-02-30', field: 'from' },
+      { query: 'to=2026-02-30', field: 'to' },
+      { query: 'from=2026-13-01', field: 'from' },
+      { query: 'from=2026-01-00', field: 'from' },
+      { query: 'from=2027-02-29', field: 'from' },
+      { query: 'from=2026-01-01T24:00:00.000Z', field: 'from' },
       { query: 'from=2026-07-11T00:00:00.000Z&to=2026-07-10T00:00:00.000Z', field: 'range' },
       { query: 'channel=waba&channel=casezap', field: 'channel' },
       { query: 'page=0', field: 'page' },

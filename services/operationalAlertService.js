@@ -1,6 +1,7 @@
 var OperationalAlert = require('../models/operationalAlert');
 var operationalAlertNotifier = require('./operationalAlertNotifier');
 var operationalCause = require('./operationalCause');
+var operationalDate = require('./operationalDate');
 var operationalLogger = require('./operationalLogger');
 
 var ALERT_EVENT_COOLDOWN_MINUTES = parseInt(process.env.OPERATIONAL_ALERT_EVENT_COOLDOWN_MINUTES || '30', 10);
@@ -208,9 +209,8 @@ function integerFilter(value, field, fallback, max) {
 
 function dateFilter(value, field) {
   if (value === undefined) return undefined;
-  if (typeof value !== 'string' && !(value instanceof Date)) throw invalidFilter(field);
-  var date = new Date(value);
-  if (isNaN(date.getTime())) throw invalidFilter(field);
+  var date = operationalDate.parse(value);
+  if (!date) throw invalidFilter(field);
   return date;
 }
 
