@@ -447,6 +447,60 @@ describe('OperationalRoute', function() {
     }
   });
 
+  it('applies date-only end bounds inclusively to channels and alerts', async function() {
+    await Integration.create({
+      id_project: 'operation-date-channel',
+      name: 'whatsapp',
+      value: {
+        phone_number_id: 'operation-date-phone',
+        operational: {
+          channel: 'waba',
+          lastProviderHealth: 'ok',
+          lastProviderCheckAt: '2026-07-10T23:59:59.999Z'
+        }
+      }
+    });
+    await OperationalAlert.create([
+      {
+        key: 'operation-date-alert-midday',
+        type: 'queue_backlog',
+        severity: 'warning',
+        status: 'open',
+        lastAt: '2026-07-10T12:00:00.000Z'
+      },
+      {
+        key: 'operation-date-alert-end',
+        type: 'queue_backlog',
+        severity: 'warning',
+        status: 'open',
+        lastAt: '2026-07-10T23:59:59.999Z'
+      },
+      {
+        key: 'operation-date-alert-next-day',
+        type: 'queue_backlog',
+        severity: 'warning',
+        status: 'open',
+        lastAt: '2026-07-11T00:00:00.000Z'
+      }
+    ]);
+
+    var channels = await getAsSuperAdmin('/sadmin/health/channels?from=2026-07-10&to=2026-07-10', adminEmail, pwd);
+    var alerts = await getAsSuperAdmin('/sadmin/operational-alerts?from=2026-07-10&to=2026-07-10', adminEmail, pwd);
+    var range = await getAsSuperAdmin(
+      '/sadmin/operational-alerts?from=2026-07-10T12:00:00.001Z&to=2026-07-10T23:59:59.999Z',
+      adminEmail,
+      pwd
+    );
+
+    channels.should.have.status(200);
+    alerts.should.have.status(200);
+    range.should.have.status(200);
+    expect(channels.body.count).to.equal(1);
+    expect(alerts.body.count).to.equal(2);
+    expect(range.body.count).to.equal(1);
+    expect(range.body.data[0].key).to.equal('operation-date-alert-end');
+  });
+
   it('reports Redis health without exposing the password', async function() {
     var secret = 'REDACTED_SECRET';
     var result = await operationalHealthService.checkRedis({
@@ -777,6 +831,10 @@ describe('OperationalRoute', function() {
       { query: 'from=2026-01-01T24:00:00.000Z', field: 'from' },
       { query: 'from=2026-07-11T00:00:00.000Z&to=2026-07-10T00:00:00.000Z', field: 'range' },
       { query: 'channel=waba&channel=casezap', field: 'channel' },
+      { query: 'queue=', field: 'queue' },
+      { query: 'queue=%20%20', field: 'queue' },
+      { query: 'queue=jobs&queue=other', field: 'queue' },
+      { query: 'queue%5B%24ne%5D=jobs', field: 'queue' },
       { query: 'page=0', field: 'page' },
       { query: 'limit=201', field: 'limit' }
     ];
@@ -787,6 +845,56 @@ describe('OperationalRoute', function() {
       expect(res.body.error.code).to.equal('invalid_operational_filter');
       expect(res.body.error.field).to.equal(invalidFilters[i].field);
     }
+  });
+
+  it('filters alerts by persisted queue before pagination and includes the date-only end', async function() {
+    await OperationalAlert.create([
+      {
+        key: 'operation-alert-queue-midday',
+        type: 'queue_backlog',
+        severity: 'warning',
+        status: 'open',
+        queue: 'jobs',
+        lastAt: '2026-07-10T12:00:00.000Z',
+        details: { queue: 'other', token: 'queue-alert-secret' }
+      },
+      {
+        key: 'operation-alert-queue-end',
+        type: 'queue_backlog',
+        severity: 'warning',
+        status: 'open',
+        queue: 'jobs',
+        lastAt: '2026-07-10T23:59:59.999Z'
+      },
+      {
+        key: 'operation-alert-queue-next-day',
+        type: 'queue_backlog',
+        severity: 'warning',
+        status: 'open',
+        queue: 'jobs',
+        lastAt: '2026-07-11T00:00:00.000Z'
+      },
+      {
+        key: 'operation-alert-queue-other',
+        type: 'queue_backlog',
+        severity: 'warning',
+        status: 'open',
+        queue: 'other',
+        lastAt: '2026-07-10T13:00:00.000Z'
+      }
+    ]);
+
+    var res = await getAsSuperAdmin(
+      '/sadmin/operational-alerts?page=2&limit=1&queue=%20jobs%20&to=2026-07-10',
+      adminEmail,
+      pwd
+    );
+
+    res.should.have.status(200);
+    expect(res.body.count).to.equal(2);
+    expect(res.body.data).to.have.lengthOf(1);
+    expect(res.body.data[0].key).to.equal('operation-alert-queue-midday');
+    expect(JSON.stringify(res.body)).to.not.contain('queue-alert-secret');
   });
 
   it('returns an allowlisted alert DTO without raw provider data', async function() {

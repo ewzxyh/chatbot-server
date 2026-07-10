@@ -102,7 +102,7 @@ function canonicalIntegerFilter(value, field, fallback, max) {
 
 function channelDateFilter(value, field) {
   if (value === undefined) return undefined;
-  var date = operationalDate.parse(value);
+  var date = operationalDate.parse(value, { endOfDay: field === 'to' });
   if (!date) throw invalidChannelFilter(field);
   return date;
 }

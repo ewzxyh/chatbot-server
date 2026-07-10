@@ -24,6 +24,7 @@ var LIST_FILTERS = {
   cause: true,
   from: true,
   to: true,
+  queue: true,
   type: true,
   severity: true,
   service: true,
@@ -209,7 +210,7 @@ function integerFilter(value, field, fallback, max) {
 
 function dateFilter(value, field) {
   if (value === undefined) return undefined;
-  var date = operationalDate.parse(value);
+  var date = operationalDate.parse(value, { endOfDay: field === 'to' });
   if (!date) throw invalidFilter(field);
   return date;
 }
@@ -243,6 +244,7 @@ function validateListFilters(filters) {
   }
 
   normalized.channel = stringFilter(filters.channel, 'channel');
+  normalized.queue = stringFilter(filters.queue, 'queue');
   normalized.type = stringFilter(filters.type, 'type');
   normalized.service = stringFilter(filters.service, 'service');
   normalized.project_id = stringFilter(filters.project_id, 'project_id');
@@ -263,6 +265,7 @@ function buildListQuery(filters) {
   if (filters.type) clauses.push({ type: filters.type });
   if (filters.severity) clauses.push({ severity: filters.severity });
   if (filters.channel) clauses.push({ channel: filters.channel });
+  if (filters.queue) clauses.push({ queue: filters.queue });
   if (filters.service) clauses.push({ service: filters.service });
   if (filters.project_id) clauses.push({ id_project: filters.project_id });
 

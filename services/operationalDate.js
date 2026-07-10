@@ -10,18 +10,20 @@ function daysInMonth(year, month) {
   return [4, 6, 9, 11].indexOf(month) !== -1 ? 30 : 31;
 }
 
-function parse(value) {
+function parse(value, options) {
   if (typeof value !== 'string') return null;
-  var match = DATE_ONLY.exec(value) || UTC_DATE_TIME.exec(value);
+  var dateOnlyMatch = DATE_ONLY.exec(value);
+  var match = dateOnlyMatch || UTC_DATE_TIME.exec(value);
   if (!match) return null;
 
   var year = Number(match[1]);
   var month = Number(match[2]);
   var day = Number(match[3]);
-  var hour = Number(match[4] || 0);
-  var minute = Number(match[5] || 0);
-  var second = Number(match[6] || 0);
-  var millisecond = Number(match[7] || 0);
+  var endOfDay = dateOnlyMatch && options && options.endOfDay;
+  var hour = endOfDay ? 23 : Number(match[4] || 0);
+  var minute = endOfDay ? 59 : Number(match[5] || 0);
+  var second = endOfDay ? 59 : Number(match[6] || 0);
+  var millisecond = endOfDay ? 999 : Number(match[7] || 0);
 
   if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) return null;
   if (hour > 23 || minute > 59 || second > 59) return null;
