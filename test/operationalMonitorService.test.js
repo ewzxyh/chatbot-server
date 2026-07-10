@@ -378,7 +378,10 @@ describe('OperationalMonitorService', function() {
 
   it('reads only the singleton snapshot for the summary', async function() {
     var originalFindOne = OperationalHealthSnapshot.findOne;
+    var originalDateNow = Date.now;
+    var now = new Date('2026-07-10T12:00:00.000Z');
     var filter;
+    Date.now = function() { return now.getTime(); };
     OperationalHealthSnapshot.findOne = function(query) {
       filter = query;
       return {
@@ -387,8 +390,8 @@ describe('OperationalMonitorService', function() {
             _id: 'singleton',
             version: 2,
             overallStatus: 'ok',
-            generatedAt: '2026-07-10T11:59:00.000Z',
-            expiresAt: '2026-07-10T12:05:00.000Z',
+            generatedAt: new Date(now.getTime() - 60 * 1000).toISOString(),
+            expiresAt: new Date(now.getTime() + 5 * 60 * 1000).toISOString(),
             services: [],
             queues: [],
             channels: {
@@ -417,6 +420,7 @@ describe('OperationalMonitorService', function() {
       expect(summary.snapshotState).to.equal('fresh');
       expect(summary._id).to.equal(undefined);
     } finally {
+      Date.now = originalDateNow;
       OperationalHealthSnapshot.findOne = originalFindOne;
     }
   });
