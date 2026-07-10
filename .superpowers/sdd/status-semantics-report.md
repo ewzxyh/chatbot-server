@@ -21,10 +21,22 @@ O caminho de status interno do RabbitMQ foi mantido separado: filas com backlog 
 
 Boundedness, allowlist de causas e redaction permanecem inalterados.
 
+## Compatibilidade de leitura
+
+Snapshots v2 legados com `overallStatus=down` sao aceitos somente quando a semantica efetiva nova e `degraded` por um destes motivos:
+
+- parte dos canais monitorados esta `down`;
+- existe alerta `down`, ha ao menos um servico/fila central monitorado e todos estao em `ok`.
+
+O `GET /sadmin/health/summary` normaliza apenas o DTO retornado. O documento lido nao e alterado e nenhuma escrita no MongoDB e executada; o proximo ciclo do monitor persiste naturalmente a semantica nova.
+
+Outros mismatches continuam retornando `health_snapshot_unavailable`, incluindo `down` com tudo `ok`, `ok` com core `down` e `degraded` quando o efetivo e `down`.
+
 ## Testes
 
-- Testes focais: 33 passando.
-- Suite operacional completa (notifier, datas, monitor e rota): 88 passando.
+- Testes focais: 36 passando.
+- Suite operacional completa (notifier, datas, monitor e rota): 91 passando.
+- Suite de rotas operacionais isolada: 47 passando.
 - `node --check services/operationalHealthService.js`: passou.
 - `node --check test/operationalMonitorService.test.js`: passou.
 - `git diff --check`: passou.

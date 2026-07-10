@@ -122,6 +122,35 @@ describe('OperationalMonitorService', function() {
     expect(operationalMonitorService.status().lastStatus).to.equal('ok');
   });
 
+  it('persists a down queue with an overall down status', async function() {
+    var persistedStatus;
+    var result = await operationalMonitorService.runOnce({
+      leaseOwner: 'queue-down-owner',
+      now: new Date('2026-07-10T12:00:00.000Z'),
+      healthService: {
+        collectSnapshotInput: async function() {
+          return {
+            services: [{ name: 'server', status: 'ok' }],
+            queueNames: ['jobs'],
+            queues: [{ name: 'jobs', status: 'down' }],
+            channels: [{ product: 'casezap', status: 'ok' }],
+            alerts: []
+          };
+        }
+      },
+      snapshotModel: {
+        findOneAndUpdate: async function(filter, update) {
+          if (update.$set && update.$set.monitorLease) return { monitorLease: update.$set.monitorLease };
+          persistedStatus = update.$set.overallStatus;
+          return update.$set;
+        }
+      }
+    });
+
+    expect(result.overallStatus).to.equal('down');
+    expect(persistedStatus).to.equal('down');
+  });
+
   it('skips a cycle when a previous cycle is still running', async function() {
     var release;
     var running = operationalMonitorService.runOnce({
@@ -596,7 +625,7 @@ describe('OperationalMonitorService', function() {
     }
   });
 
-  it('rejects an incoherent overall status for a partial channel outage', async function() {
+  it('normalizes a legacy partial channel outage without mutating the persisted snapshot', async function() {
     var originalFindOne = OperationalHealthSnapshot.findOne;
     var persistedSnapshot = operationalHealthService.buildSnapshot({
       services: [{ name: 'server', status: 'ok' }],
@@ -607,16 +636,82 @@ describe('OperationalMonitorService', function() {
       alerts: []
     }, new Date('2026-07-10T12:00:00.000Z'));
     expect(persistedSnapshot.overallStatus).to.equal('degraded');
-    persistedSnapshot.overallStatus = 'ok';
+    persistedSnapshot.overallStatus = 'down';
     OperationalHealthSnapshot.findOne = function() {
       return { lean: async function() { return persistedSnapshot; } };
     };
 
     try {
-      await operationalHealthService.getSummary();
-      throw new Error('expected overall status validation to fail');
-    } catch (err) {
-      expect(err.code).to.equal('health_snapshot_unavailable');
+      var summary = await operationalHealthService.getSummary();
+      expect(summary.overallStatus).to.equal('degraded');
+      expect(persistedSnapshot.overallStatus).to.equal('down');
+    } finally {
+      OperationalHealthSnapshot.findOne = originalFindOne;
+    }
+  });
+
+  it('normalizes a legacy critical alert without mutating the persisted snapshot', async function() {
+    var originalFindOne = OperationalHealthSnapshot.findOne;
+    var persistedSnapshot = operationalHealthService.buildSnapshot({
+      services: [{ name: 'server', status: 'ok' }],
+      channels: [{ product: 'casezap', status: 'ok' }],
+      alerts: [{ type: 'webhook_failure', status: 'open', severity: 'critical' }]
+    }, new Date('2026-07-10T12:00:00.000Z'));
+    expect(persistedSnapshot.overallStatus).to.equal('degraded');
+    persistedSnapshot.overallStatus = 'down';
+    OperationalHealthSnapshot.findOne = function() {
+      return { lean: async function() { return persistedSnapshot; } };
+    };
+
+    try {
+      var summary = await operationalHealthService.getSummary();
+      expect(summary.overallStatus).to.equal('degraded');
+      expect(persistedSnapshot.overallStatus).to.equal('down');
+    } finally {
+      OperationalHealthSnapshot.findOne = originalFindOne;
+    }
+  });
+
+  it('rejects non-legacy overall status mismatches', async function() {
+    var originalFindOne = OperationalHealthSnapshot.findOne;
+    var persistedSnapshot;
+    var cases = [{
+      raw: 'down',
+      expected: 'ok',
+      input: { services: [{ name: 'server', status: 'ok' }], channels: [], alerts: [] }
+    }, {
+      raw: 'ok',
+      expected: 'down',
+      input: { services: [{ name: 'server', status: 'down' }], channels: [], alerts: [] }
+    }, {
+      raw: 'degraded',
+      expected: 'down',
+      input: {
+        services: [{ name: 'server', status: 'ok' }],
+        channels: [{ product: 'casezap', status: 'down' }, { product: 'waba', status: 'down' }],
+        alerts: []
+      }
+    }, {
+      raw: 'down',
+      expected: 'degraded',
+      input: { services: [], channels: [], alerts: [{ type: 'webhook_failure', status: 'down' }] }
+    }];
+    OperationalHealthSnapshot.findOne = function() {
+      return { lean: async function() { return persistedSnapshot; } };
+    };
+
+    try {
+      for (var i = 0; i < cases.length; i++) {
+        persistedSnapshot = operationalHealthService.buildSnapshot(cases[i].input, new Date('2026-07-10T12:00:00.000Z'));
+        expect(persistedSnapshot.overallStatus).to.equal(cases[i].expected);
+        persistedSnapshot.overallStatus = cases[i].raw;
+        try {
+          await operationalHealthService.getSummary();
+          throw new Error('expected overall status validation to fail');
+        } catch (err) {
+          expect(err.code).to.equal('health_snapshot_unavailable');
+        }
+      }
     } finally {
       OperationalHealthSnapshot.findOne = originalFindOne;
     }

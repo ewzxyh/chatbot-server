@@ -488,13 +488,26 @@ function effectiveSnapshotStatus(snapshot) {
   return classifyOverallStatus(snapshot);
 }
 
+function normalizedSnapshotStatus(snapshot) {
+  var effectiveStatus = effectiveSnapshotStatus(snapshot);
+  if (snapshot.overallStatus === effectiveStatus) return effectiveStatus;
+  if (snapshot.overallStatus !== 'down' || effectiveStatus !== 'degraded') return null;
+
+  var channelCounts = snapshot.channels.byStatus;
+  if (channelCounts.down > 0 && channelCounts.down < snapshot.channels.count) return effectiveStatus;
+
+  var coreItems = snapshot.services.concat(snapshot.queues);
+  var coreStatus = statusFromCounts(statusCountsFromItems(coreItems));
+  return coreItems.length > 0 && coreStatus === 'ok' && snapshot.alerts.byStatus.down > 0 ? effectiveStatus : null;
+}
+
 function isSnapshotValid(snapshot) {
   return snapshot && snapshot.version === 2 && SNAPSHOT_STATUSES.indexOf(snapshot.overallStatus) !== -1 &&
     isDate(snapshot.generatedAt) && isDate(snapshot.expiresAt) && Array.isArray(snapshot.services) &&
     Array.isArray(snapshot.queues) && snapshot.services.length <= MAX_SNAPSHOT_ITEMS &&
     snapshot.queues.length <= MAX_SNAPSHOT_ITEMS && snapshot.services.every(isSnapshotItem) && snapshot.queues.every(isQueueSnapshotItem) &&
     isChannelsAggregate(snapshot.channels) && isAlertsAggregate(snapshot.alerts) &&
-    snapshot.overallStatus === effectiveSnapshotStatus(snapshot);
+    normalizedSnapshotStatus(snapshot) !== null;
 }
 
 function snapshotUnavailableError() {
@@ -1515,6 +1528,7 @@ async function getSummary() {
     if (!isSnapshotValid(snapshot)) throw snapshotUnavailableError();
 
     var summary = snapshotResponse(snapshot);
+    summary.overallStatus = normalizedSnapshotStatus(snapshot);
     summary.snapshotState = deriveSnapshotState(summary);
     return summary;
   } catch (err) {

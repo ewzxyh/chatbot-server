@@ -67,3 +67,18 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - `npx mocha test/operationalAlertNotifier.test.js test/operationalDate.test.js test/operationalMonitorService.test.js test/operationalRoute.js --exit`: 88 testes passando.
 - `node --check` passou no servico e no teste focal; `git diff --check` passou.
 - O modelo nao mudou; boundedness e redaction existentes foram preservados.
+
+# Plano: compatibilidade de leitura do Status geral
+
+- [x] Cobrir dois snapshots v2 legados e confirmar o RED.
+- [x] Manter mismatches nao legados como indisponiveis.
+- [x] Confirmar que o monitor persiste `queue down` como `down`.
+- [x] Rodar testes focais, suite operacional/rotas, sintaxe e diff.
+- [x] Atualizar o relatorio e criar o commit solicitado.
+
+## Revisao: compatibilidade de leitura
+
+- `npx mocha test/operationalMonitorService.test.js --exit`: 36 testes passando.
+- Suite operacional completa: 91 testes passando.
+- `test/operationalRoute.js`: 47 testes passando.
+- O GET normaliza somente a resposta; o snapshot legado lido permanece inalterado.
