@@ -8,3 +8,4 @@
 - Antes de criar um plano em `tasks/todo.md`, verificar se o arquivo ja tem historico local e acrescentar uma secao sem substituir tarefas anteriores.
 - Para snapshots materializados em batches, a geracao precisa ser imutavel e invisivel ate um ponteiro publicado sob fencing do lease; cleanup temporal isolado pode apagar a geracao ativa de outro ciclo.
 - Ponteiro, count e pagina de uma geracao precisam sair do mesmo aggregate; queries separadas continuam sujeitas a cleanup concorrente mesmo quando cada query e indexada.
+- Em duplicacoes com IDs diferentes e timestamps quase identicos, consultar `tiledesk.messages` e `chat21.messages` pelo `tiledesk_message_id`; um writer direto concorrente com `message.sending` passa por um check-then-create e duplica a mensagem mesmo com deduplicacao de webhook.

@@ -153,3 +153,20 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - Suite operacional completa: 103 testes passando.
 - `page=10001` e `page=1002&limit=200` retornam 400 `invalid_operational_filter` sem alterar count, limit ou filtros validos.
 - `node --check` e `git diff --check` passaram.
+
+# Correcao: duplicacao de mensagens CaseZap no Chat21
+
+- [x] Confirmar na persistencia se a duplicacao existe antes da renderizacao.
+- [x] Correlacionar os pares por `tiledesk_message_id` e identificar os dois writers.
+- [x] Auditar a causa raiz com subagente Sol 5.6 max.
+- [x] Remover o writer direto e manter o pipeline padrao como fonte unica.
+- [x] Rodar testes focais, sintaxe e auditoria do diff.
+- [ ] Criar commit, push e aplicar na VPS DEV.
+- [ ] Fazer backup e remover apenas os registros historicos redundantes.
+
+## Evidencia inicial
+
+Texto recebido e audio enviado existem uma unica vez em `tiledesk.messages`, mas
+duas vezes em `chat21.messages`, com o mesmo `tiledesk_message_id` e IDs Chat21
+distintos. O conector grava diretamente e o evento `message.sending` grava de novo
+15 a 20 ms depois. Ha 2.066 pares historicos, todos com texto e tipo equivalentes.

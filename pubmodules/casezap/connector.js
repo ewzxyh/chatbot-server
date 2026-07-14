@@ -181,114 +181,6 @@ async function syncCaseZapChat21LastMessage(requestId, projectId, message, conte
   }
 }
 
-async function syncCaseZapChat21TranscriptMessage(requestId, projectId, message, request, context, services) {
-  if (!requestId || !message) {
-    return { status: 'skipped' };
-  }
-
-  var messagePlain = plainMessage(message);
-  if (!messagePlain) {
-    return { status: 'skipped' };
-  }
-
-  var Chat21MessageModel = services && services.chat21MessageModel ? services.chat21MessageModel : getChat21MessageModel();
-  if (!Chat21MessageModel) {
-    return { status: 'skipped' };
-  }
-
-  try {
-    var existingCount = 0;
-    if (typeof Chat21MessageModel.countDocuments === 'function') {
-      existingCount = await Chat21MessageModel.countDocuments({
-        'attributes.tiledesk_message_id': String(messagePlain._id),
-        recipient: requestId
-      });
-    }
-    if (existingCount > 0) {
-      return { status: 'exists' };
-    }
-
-    var attributes = Object.assign({}, messagePlain.attributes || {});
-    attributes.tiledesk_message_id = String(messagePlain._id);
-    attributes.projectId = projectId;
-    if (messagePlain.channel && messagePlain.channel.name) {
-      attributes.channel = messagePlain.channel.name;
-    }
-    if (request && request.channel && request.channel.name) {
-      attributes.request_channel = request.channel.name;
-    }
-
-    var recipientFullname = 'Guest';
-    if (request && request.lead && request.lead.fullname) {
-      recipientFullname = request.lead.fullname;
-    }
-    if (request && request.subject) {
-      recipientFullname = request.subject;
-    }
-
-    var timestamp = attributes.clienttimestamp || (messagePlain.createdAt ? new Date(messagePlain.createdAt).getTime() : Date.now());
-    var timelineIds = [requestId, messagePlain.sender, 'system'];
-    if (request && Array.isArray(request.participants)) {
-      timelineIds = timelineIds.concat(request.participants);
-    }
-    var messageId = uuidv4();
-    var docs = Array.from(new Set(timelineIds.filter(Boolean).map(String))).map(function(timelineOf) {
-      var doc = {
-        message_id: messageId,
-        timelineOf: timelineOf,
-        app_id: process.env.CHAT21_APPID || chat21Config.appid,
-        attributes: Object.assign({}, attributes),
-        channel_type: 'group',
-        conversWith: requestId,
-        recipient: requestId,
-        recipient_fullname: recipientFullname,
-        sender: messagePlain.sender,
-        sender_fullname: messagePlain.senderFullname || messagePlain.sender_fullname || messagePlain.sender || 'CaseZap',
-        status: timelineOf === requestId ? 100 : 150,
-        text: messagePlain.text,
-        timestamp: timestamp,
-        type: messagePlain.type || 'text'
-      };
-      if (messagePlain.metadata !== undefined) {
-        doc.metadata = messagePlain.metadata;
-      }
-      return doc;
-    });
-
-    await Chat21MessageModel.create(docs);
-
-    var statusService = services && services.messageService ? services.messageService : messageService;
-    if (statusService && typeof statusService.changeStatus === 'function' && messagePlain._id) {
-      await statusService.changeStatus(messagePlain._id, MessageConstants.CHAT_MESSAGE_STATUS.DELIVERED);
-    }
-
-    recordOperation({
-      id_project: projectId,
-      integrationId: context && context.integrationId,
-      requestId: requestId,
-      messageId: context && context.messageId,
-      event: 'webhook.chat21_message_synced',
-      status: 'success',
-      details: { insertedCount: docs.length }
-    });
-
-    return { status: 'inserted', insertedCount: docs.length };
-  } catch (err) {
-    winston.warn('CaseZap Chat21 message sync failed: ' + err.message);
-    recordOperation({
-      level: 'error',
-      id_project: projectId,
-      integrationId: context && context.integrationId,
-      requestId: requestId,
-      messageId: context && context.messageId,
-      event: 'webhook.chat21_message_synced',
-      status: 'failed',
-      errorMessage: err.message
-    });
-    return { status: 'failed', error: err.message };
-  }
-}
-
 async function syncCaseZapRequestLastMessage(requestId, projectId, message, context, services) {
   if (!requestId || !projectId || !message) {
     return { status: 'skipped' };
@@ -831,7 +723,6 @@ async function handleWebhook(integration, req, res) {
       null
     );
 
-    await syncCaseZapChat21TranscriptMessage(requestId, projectId, savedMessage, existingRequest || newRequest, messageContext);
     await syncCaseZapChat21LastMessage(requestId, projectId, savedMessage, messageContext);
     await syncCaseZapRequestLastMessage(requestId, projectId, savedMessage, messageContext);
 
@@ -1221,7 +1112,6 @@ module.exports = {
   registerWebhook: registerWebhook,
   buildRegisterWebhookUpdate: buildRegisterWebhookUpdate,
   ensureCaseZapChat21Group: ensureCaseZapChat21Group,
-  syncCaseZapChat21TranscriptMessage: syncCaseZapChat21TranscriptMessage,
   syncCaseZapChat21LastMessage: syncCaseZapChat21LastMessage,
   syncCaseZapRequestLastMessage: syncCaseZapRequestLastMessage,
   isInternalOutboundMessage: isInternalOutboundMessage,

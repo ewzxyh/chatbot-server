@@ -2,8 +2,6 @@ process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'critical';
 
 const assert = require('assert');
-const MessageConstants = require('../../models/messageConstants');
-
 const {
   buildLegacyWebhookIntegrationQuery,
   buildRegisterWebhookUpdate,
@@ -16,7 +14,6 @@ const {
   mapConnectionStatus,
   shouldSkipCaseZapDepartmentBot,
   syncCaseZapChat21LastMessage,
-  syncCaseZapChat21TranscriptMessage,
   syncCaseZapRequestLastMessage
 } = require('../../pubmodules/casezap/connector');
 
@@ -143,95 +140,6 @@ describe('CaseZap connector', function() {
           recipient: 'support-group-project-1-request-1'
         }
       }
-    }]);
-  });
-
-  it('syncs the Chat21 transcript after a CaseZap message is saved', async function() {
-    const insertedMessages = [];
-    const statuses = [];
-    const createdAt = new Date('2026-06-14T18:00:00.000Z');
-
-    const result = await syncCaseZapChat21TranscriptMessage(
-      'support-group-project-1-request-1',
-      'project-1',
-      {
-        toObject: function() {
-          return {
-            _id: 'message-1',
-            text: 'Mensagem nova',
-            sender: 'casezap-559999999999',
-            senderFullname: 'Cliente CaseZap',
-            recipient: 'support-group-project-1-request-1',
-            id_project: 'project-1',
-            attributes: { casezapMessageId: 'casezap-message-1' },
-            channel: { name: 'casezap' },
-            type: 'text',
-            metadata: null,
-            createdAt: createdAt
-          };
-        }
-      },
-      {
-        participants: ['agent-1'],
-        lead: { fullname: 'Cliente CaseZap' },
-        channel: { name: 'casezap' }
-      },
-      { integrationId: 'integration-1', messageId: 'casezap-message-1' },
-      {
-        chat21MessageModel: {
-          countDocuments: async function(query) {
-            assert.deepStrictEqual(query, {
-              'attributes.tiledesk_message_id': 'message-1',
-              recipient: 'support-group-project-1-request-1'
-            });
-            return 0;
-          },
-          create: async function(docs) {
-            insertedMessages.push.apply(insertedMessages, docs);
-            return docs;
-          }
-        },
-        messageService: {
-          changeStatus: async function(messageId, status) {
-            statuses.push({ messageId, status });
-          }
-        }
-      }
-    );
-
-    assert.strictEqual(result.status, 'inserted');
-    assert.strictEqual(result.insertedCount, 4);
-    assert.strictEqual(insertedMessages.length, 4);
-    assert.deepStrictEqual(insertedMessages.map((message) => message.timelineOf).sort(), [
-      'agent-1',
-      'casezap-559999999999',
-      'support-group-project-1-request-1',
-      'system'
-    ]);
-    for (const message of insertedMessages) {
-      assert.ok(message.message_id);
-      assert.strictEqual(message.app_id, 'tilechat');
-      assert.strictEqual(message.channel_type, 'group');
-      assert.strictEqual(message.conversWith, 'support-group-project-1-request-1');
-      assert.strictEqual(message.recipient, 'support-group-project-1-request-1');
-      assert.strictEqual(message.recipient_fullname, 'Cliente CaseZap');
-      assert.strictEqual(message.text, 'Mensagem nova');
-      assert.strictEqual(message.sender, 'casezap-559999999999');
-      assert.deepStrictEqual(message.attributes, {
-        casezapMessageId: 'casezap-message-1',
-        tiledesk_message_id: 'message-1',
-        projectId: 'project-1',
-        channel: 'casezap',
-        request_channel: 'casezap'
-      });
-      assert.strictEqual(message.type, 'text');
-      assert.strictEqual(message.metadata, null);
-      assert.strictEqual(message.timestamp, createdAt.getTime());
-      assert.strictEqual(message.status, message.timelineOf === 'support-group-project-1-request-1' ? 100 : 150);
-    }
-    assert.deepStrictEqual(statuses, [{
-      messageId: 'message-1',
-      status: MessageConstants.CHAT_MESSAGE_STATUS.DELIVERED
     }]);
   });
 
