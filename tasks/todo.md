@@ -161,8 +161,8 @@ Voltar o modelo de fluxo para a proposta original do Tiledesk: o fluxo e multica
 - [x] Auditar a causa raiz com subagente Sol 5.6 max.
 - [x] Remover o writer direto e manter o pipeline padrao como fonte unica.
 - [x] Rodar testes focais, sintaxe e auditoria do diff.
-- [ ] Criar commit, push e aplicar na VPS DEV.
-- [ ] Fazer backup e remover apenas os registros historicos redundantes.
+- [x] Criar commit, push e aplicar na VPS DEV.
+- [x] Fazer backup e remover apenas os registros historicos redundantes.
 
 ## Evidencia inicial
 
@@ -170,3 +170,16 @@ Texto recebido e audio enviado existem uma unica vez em `tiledesk.messages`, mas
 duas vezes em `chat21.messages`, com o mesmo `tiledesk_message_id` e IDs Chat21
 distintos. O conector grava diretamente e o evento `message.sending` grava de novo
 15 a 20 ms depois. Ha 2.066 pares historicos, todos com texto e tipo equivalentes.
+
+## Revisao
+
+- `node --check` passou no conector e no teste focal.
+- `npx mocha test/casezap/connector.test.js --exit`: 20 testes passando.
+- Commit de codigo `64f590ad` enviado para `origin/master`.
+- Servico `chatcase-server` reconstruido na VPS DEV e validado como `healthy`,
+  sem reinicios; API publica respondeu 200.
+- Backup restauravel criado em
+  `/opt/chatcase-dev/backups/chat21-messages-before-casezap-dedupe-20260713.archive.gz`
+  antes da limpeza.
+- Foram removidos 2.066 registros redundantes; a verificacao final encontrou zero
+  grupos duplicados e manteve uma copia por timeline nos exemplos auditados.
