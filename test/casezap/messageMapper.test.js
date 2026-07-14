@@ -475,7 +475,16 @@ describe('CaseZap messageMapper', function() {
 
     it('should detect fromMe', function() {
       var webhook = { EventType: 'messages', message: { messageid: 'f1', chatid: 'redacted@example.invalid', fromMe: true, messageType: 'Conversation', text: 'x', senderName: 'Me' }, chat: {} };
-      assert.strictEqual(messageMapper.mapInbound(webhook).fromMe, true);
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.fromMe, true);
+      assert.strictEqual(result.fullname, null);
+    });
+
+    it('should detect fromMe from message key', function() {
+      var webhook = { EventType: 'messages', message: { messageid: 'f2', chatid: 'redacted@example.invalid', key: { fromMe: true }, messageType: 'Conversation', text: 'x', senderName: 'Me' }, chat: {} };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.fromMe, true);
+      assert.strictEqual(result.fullname, null);
     });
   });
 

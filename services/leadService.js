@@ -73,7 +73,11 @@ class LeadService {
           },
           $set: {}
         };
-        if (fullname) updateOp.$set.fullname = fullname;
+        if (fullname) {
+          updateOp.$set.fullname = fullname;
+        } else if (phone) {
+          updateOp.$setOnInsert.fullname = phone;
+        }
         if (email) updateOp.$set.email = email;
         if (phone) updateOp.$set.phone = phone;
         if (attributes) updateOp.$set.attributes = attributes;

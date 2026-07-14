@@ -378,13 +378,14 @@ function mapInbound(webhookData) {
   var phone = extractPhone(chatid);
   var messageType = (message.messageType || message.type || '').toLowerCase();
   var senderName = message.senderName || chat.wa_name || chat.wa_contactName || '';
+  var fromMe = Boolean(message.fromMe || (message.key && message.key.fromMe));
 
   var result = {
     messageId: message.messageid || message.id,
     phone: phone,
     leadId: 'casezap-' + phone,
-    fullname: senderName || phone,
-    fromMe: message.fromMe || false,
+    fullname: fromMe ? null : (senderName || phone),
+    fromMe: fromMe,
     isGroup: message.isGroup || chat.wa_isGroup || chatid.includes('@g.us'),
     timestamp: message.messageTimestamp || Date.now(),
     text: null,
