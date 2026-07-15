@@ -4,6 +4,7 @@ process.env.LOG_LEVEL = 'critical';
 const assert = require('assert');
 const {
   buildLegacyWebhookIntegrationQuery,
+  buildCaseZapRequestQuery,
   buildRegisterWebhookUpdate,
   ensureCaseZapChat21Group,
   extractWebhookReceipt,
@@ -16,6 +17,8 @@ const {
   syncCaseZapChat21LastMessage,
   syncCaseZapRequestLastMessage
 } = require('../../pubmodules/casezap/connector');
+const Lead = require('../../models/lead');
+const leadService = require('../../services/leadService');
 
 describe('CaseZap connector', function() {
   it('resolves legacy project webhooks by secret so multiple instances can coexist', function() {
@@ -23,6 +26,21 @@ describe('CaseZap connector', function() {
       id_project: 'project-1',
       name: 'casezap',
       'value.webhookSecret': 'secret-markus'
+    });
+  });
+
+  it('isolates presence events to the originating CaseZap integration', function() {
+    const integration = { _id: 'integration-1', id_project: 'project-1' };
+
+    assert.deepStrictEqual(buildCaseZapRequestQuery(integration, '5511999999999'), {
+      id_project: 'project-1',
+      integrationId: 'integration-1',
+      'channel.name': 'casezap',
+      status: { $lt: 1000 },
+      $or: [
+        { 'attributes.casezapPhone': '5511999999999' },
+        { createdBy: 'casezap-5511999999999' }
+      ]
     });
   });
 
@@ -41,6 +59,67 @@ describe('CaseZap connector', function() {
       'value.webhookSecret': 'secret-1',
       'value.status': 'pending'
     });
+  });
+
+  it('uses one canonical lead for the same phone across concurrent CaseZap integrations', async function() {
+    const originalFindOneAndUpdate = Lead.findOneAndUpdate;
+    const calls = [];
+    const integrations = ['integration-1', 'integration-2'];
+    const mapped = { leadId: 'casezap-5511999999999', phone: '5511999999999' };
+
+    Lead.findOneAndUpdate = function(filter, update, options) {
+      calls.push({ filter, update, options });
+      return {
+        exec: function(callback) {
+          setImmediate(function() {
+            callback(null, { _id: 'lead-1', createdBy: 'casezap-5511999999999' });
+          });
+        }
+      };
+    };
+
+    try {
+      await Promise.all(integrations.map(function() {
+        return leadService.createIfNotExistsWithLeadId(
+          mapped.leadId,
+          'Contato',
+          null,
+          'project-1',
+          mapped.leadId,
+          null,
+          null,
+          mapped.phone
+        );
+      }));
+    } finally {
+      Lead.findOneAndUpdate = originalFindOneAndUpdate;
+    }
+
+    assert.strictEqual(calls.length, 2);
+    assert.deepStrictEqual(calls.map(function(call) { return call.filter; }), [
+      { lead_id: 'casezap-5511999999999', id_project: 'project-1' },
+      { lead_id: 'casezap-5511999999999', id_project: 'project-1' }
+    ]);
+  });
+
+  it('serializes concurrent creation work for the same CaseZap conversation', async function() {
+    const { withCaseZapRequestLock } = require('../../pubmodules/casezap/connector');
+    let active = 0;
+    let maxActive = 0;
+    const order = [];
+
+    await Promise.all([1, 2].map(function(value) {
+      return withCaseZapRequestLock('project-1:integration-1:lead-1', async function() {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise(function(resolve) { setTimeout(resolve, 5); });
+        order.push(value);
+        active -= 1;
+      });
+    }));
+
+    assert.strictEqual(maxActive, 1);
+    assert.deepStrictEqual(order, [1, 2]);
   });
 
   it('repairs the Chat21 group before the first CaseZap message is sent', async function() {

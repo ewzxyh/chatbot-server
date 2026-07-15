@@ -9,3 +9,5 @@
 - Para snapshots materializados em batches, a geracao precisa ser imutavel e invisivel ate um ponteiro publicado sob fencing do lease; cleanup temporal isolado pode apagar a geracao ativa de outro ciclo.
 - Ponteiro, count e pagina de uma geracao precisam sair do mesmo aggregate; queries separadas continuam sujeitas a cleanup concorrente mesmo quando cada query e indexada.
 - Em duplicacoes com IDs diferentes e timestamps quase identicos, consultar `tiledesk.messages` e `chat21.messages` pelo `tiledesk_message_id`; um writer direto concorrente com `message.sending` passa por um check-then-create e duplica a mensagem mesmo com deduplicacao de webhook.
+- Em migracoes no Mongo standalone, nao apagar o registro duplicado depois de reatribuir referencias: mesclar no canonico e arquivar o legado torna o processo retomavel, preserva dados e evita referencias quebradas sem depender de transacao.
+- Quando a identidade esta codificada em um ID legado, use esse ID como fonte de verdade da migracao; campos editaveis como telefone podem ter divergido e nao devem redefinir o agrupamento.

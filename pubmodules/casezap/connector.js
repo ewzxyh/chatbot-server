@@ -31,11 +31,21 @@ var DEDUP_TTL = 3600;
 var DEDUP_PREFIX = 'czdedup:';
 var localCache = new LRU({ max: 10000, maxAge: 1000 * 60 * 60 });
 var chat21GroupReadyCache = new LRU({ max: 10000, maxAge: 1000 * 60 * 30 });
+var caseZapRequestLocks = new Map();
 var tdCache = null;
 var chat21AdminToken = process.env.CHAT21_ADMIN_TOKEN || chat21Config.adminToken;
 var chat21MessagesConnection = null;
 var Chat21Message = null;
 var defaultChat21GroupRepair = chat21GroupRepairService.createChat21GroupRepairService();
+
+function withCaseZapRequestLock(key, operation) {
+  var previous = caseZapRequestLocks.get(key) || Promise.resolve();
+  var current = previous.catch(function() {}).then(operation);
+  caseZapRequestLocks.set(key, current);
+  return current.finally(function() {
+    if (caseZapRequestLocks.get(key) === current) caseZapRequestLocks.delete(key);
+  });
+}
 
 function setRedisClient(redisClient) {
   tdCache = redisClient;
@@ -272,6 +282,19 @@ function buildLegacyWebhookIntegrationQuery(projectId, secret) {
   };
 }
 
+function buildCaseZapRequestQuery(integration, phone) {
+  return {
+    id_project: integration.id_project,
+    integrationId: integration._id,
+    'channel.name': ChannelConstants.CASEZAP,
+    status: { $lt: 1000 },
+    $or: [
+      { 'attributes.casezapPhone': phone },
+      { createdBy: 'casezap-' + phone }
+    ]
+  };
+}
+
 async function emitPresenceTyping(integration, body) {
   if (!isTypingPresence(body && body.presence)) {
     return false;
@@ -283,18 +306,9 @@ async function emitPresenceTyping(integration, body) {
     return false;
   }
 
-  var integrationId = integration._id.toString();
-  var leadId = 'casezap-' + integrationId + '-' + phone;
+  var leadId = 'casezap-' + phone;
   try {
-    var request = await Request.findOne({
-      id_project: integration.id_project,
-      'channel.name': ChannelConstants.CASEZAP,
-      status: { $lt: 1000 },
-      $or: [
-        { 'attributes.casezapPhone': phone },
-        { createdBy: leadId }
-      ]
-    }).sort({ createdAt: -1 });
+    var request = await Request.findOne(buildCaseZapRequestQuery(integration, phone)).sort({ createdAt: -1 });
 
     if (!request) {
       return false;
@@ -633,7 +647,7 @@ async function handleWebhook(integration, req, res) {
     mapped = await mediaStorage.persistMappedMedia(mapped, integration);
 
     var integrationId = integration._id.toString();
-    var leadId = 'casezap-' + integrationId + '-' + mapped.phone;
+    var leadId = mapped.leadId;
     var instanceLabel = (integration.value.instanceName || '') + ' (' + (integration.value.number || mapped.phone) + ')';
 
     var lead = await leadService.createIfNotExistsWithLeadId(
@@ -647,43 +661,51 @@ async function handleWebhook(integration, req, res) {
       mapped.phone
     );
 
-    var existingRequest = await Request.findOne({
-      id_project: projectId,
-      'channel.name': ChannelConstants.CASEZAP,
-      $or: [{ integrationId: integration._id }, { integrationId: { $exists: false } }],
-      lead: lead._id,
-      status: { $lt: 1000 }
-    }).sort({ createdAt: -1 });
+    // Serialize request creation per conversation within this process.
+    var requestState = await withCaseZapRequestLock(
+      projectId + ':' + integrationId + ':' + String(lead._id),
+      async function() {
+        var existingRequest = await Request.findOne({
+          id_project: projectId,
+          'channel.name': ChannelConstants.CASEZAP,
+          integrationId: integration._id,
+          lead: lead._id,
+          status: { $lt: 1000 }
+        }).sort({ createdAt: -1 });
 
-    var requestId;
-    var newRequest;
-    if (existingRequest) {
-      requestId = existingRequest.request_id;
-    } else {
-      requestId = 'support-group-' + projectId + '-' + uuidv4();
-      var boundDept = await departmentService.getDepartmentByChannelBinding(projectId, ChannelConstants.CASEZAP, [
-        integration._id,
-        integration.value && integration.value.number
-      ]);
-      var defaultDept = boundDept || await Department.findOne({ id_project: projectId, default: true });
-      newRequest = {
-        request_id: requestId,
-        id_project: projectId,
-        lead_id: lead._id,
-        lead: lead,
-        first_text: messageMapper.stripQuoteMarker(mapped.text) || '',
-        departmentid: defaultDept ? defaultDept._id : undefined,
-        integrationId: integration._id,
-        channel: { name: ChannelConstants.CASEZAP },
-        skipDepartmentBot: shouldSkipCaseZapDepartmentBot(boundDept),
-        createdBy: leadId,
-        attributes: {
-          casezapPhone: mapped.phone,
-          instanceLabel: instanceLabel
+        if (existingRequest) {
+          return { existingRequest: existingRequest, requestId: existingRequest.request_id };
         }
-      };
-      await requestService.create(newRequest);
-    }
+
+        var requestId = 'support-group-' + projectId + '-' + uuidv4();
+        var boundDept = await departmentService.getDepartmentByChannelBinding(projectId, ChannelConstants.CASEZAP, [
+          integration._id,
+          integration.value && integration.value.number
+        ]);
+        var defaultDept = boundDept || await Department.findOne({ id_project: projectId, default: true });
+        var newRequest = {
+          request_id: requestId,
+          id_project: projectId,
+          lead_id: lead._id,
+          lead: lead,
+          first_text: messageMapper.stripQuoteMarker(mapped.text) || '',
+          departmentid: defaultDept ? defaultDept._id : undefined,
+          integrationId: integration._id,
+          channel: { name: ChannelConstants.CASEZAP },
+          skipDepartmentBot: shouldSkipCaseZapDepartmentBot(boundDept),
+          createdBy: leadId,
+          attributes: {
+            casezapPhone: mapped.phone,
+            instanceLabel: instanceLabel
+          }
+        };
+        await requestService.create(newRequest);
+        return { newRequest: newRequest, requestId: requestId };
+      }
+    );
+    var existingRequest = requestState.existingRequest;
+    var newRequest = requestState.newRequest;
+    var requestId = requestState.requestId;
 
     var sender = leadId;
     var createdBy = leadId;
@@ -1118,11 +1140,13 @@ module.exports = {
   isTypingPresence: isTypingPresence,
   shouldSkipCaseZapDepartmentBot: shouldSkipCaseZapDepartmentBot,
   buildLegacyWebhookIntegrationQuery: buildLegacyWebhookIntegrationQuery,
+  buildCaseZapRequestQuery: buildCaseZapRequestQuery,
   extractConnectionStatus: extractConnectionStatus,
   extractWebhookReceipt: extractWebhookReceipt,
   hasStoredCaseZapMessage: hasStoredCaseZapMessage,
   mapConnectionHealth: mapConnectionHealth,
   mapConnectionStatus: mapConnectionStatus,
+  withCaseZapRequestLock: withCaseZapRequestLock,
   setRedisClient: setRedisClient,
   casezapProjects: casezapProjects
 };
