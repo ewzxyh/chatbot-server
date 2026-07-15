@@ -68,13 +68,20 @@ describe('CaseZap duplicate lead migration', function() {
     }), false);
   });
 
-  it('accepts historical CaseZap requests after their integration was removed', async function() {
-    var unsafe = await migration.findUnsafeRequests([{
-      channel: { name: 'casezap' },
-      integrationId: 'removed-integration'
-    }]);
-
-    assert.deepStrictEqual(unsafe, []);
+  it('accepts removed integrations but rejects live WABA or cross-project integrations', function() {
+    assert.strictEqual(migration.isSafeCaseZapIntegration(null, 'project-1'), true);
+    assert.strictEqual(migration.isSafeCaseZapIntegration({
+      name: 'whatsapp',
+      id_project: 'project-1'
+    }, 'project-1'), false);
+    assert.strictEqual(migration.isSafeCaseZapIntegration({
+      name: 'casezap',
+      id_project: 'project-2'
+    }, 'project-1'), false);
+    assert.strictEqual(migration.isSafeCaseZapIntegration({
+      name: 'casezap',
+      id_project: 'project-1'
+    }, 'project-1'), true);
   });
 
   it('infers a missing integration from an embedded legacy lead', function() {

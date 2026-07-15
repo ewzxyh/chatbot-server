@@ -7,6 +7,7 @@ var mongoose = require('mongoose');
 var config = require('../config/database');
 var Lead = require('../models/lead');
 var Request = require('../models/request');
+var Integration = require('../models/integrations');
 var ChannelConstants = require('../models/channelConstants');
 var LeadConstants = require('../models/leadConstants');
 var phoneUtil = require('../utils/phoneUtil');
@@ -40,6 +41,11 @@ function isSafeCaseZapRequest(request) {
   return true;
 }
 
+function isSafeCaseZapIntegration(integration, projectId) {
+  if (!integration) return true;
+  return integration.name === ChannelConstants.CASEZAP && String(integration.id_project) === String(projectId);
+}
+
 function resolveRequestIntegrationId(request, leadsById) {
   if (request.integrationId) return String(request.integrationId);
   var lead = leadsById.get(String(request.lead));
@@ -67,9 +73,26 @@ function buildRequestReferenceProjection() {
   };
 }
 
-async function findUnsafeRequests(requests) {
+async function findUnsafeRequests(requests, projectId, leads) {
+  var leadsById = new Map((leads || []).map(function(lead) {
+    return [String(lead._id), lead];
+  }));
+  var integrationIds = requests.map(function(request) {
+    return resolveRequestIntegrationId(request, leadsById);
+  }).filter(function(integrationId) {
+    return integrationId && mongoose.Types.ObjectId.isValid(integrationId);
+  });
+  var integrations = await Integration.find({ _id: { $in: integrationIds } })
+    .select('_id id_project name')
+    .lean();
+  var integrationsById = new Map(integrations.map(function(integration) {
+    return [String(integration._id), integration];
+  }));
+
   return requests.filter(function(request) {
-    return !isSafeCaseZapRequest(request);
+    var integrationId = resolveRequestIntegrationId(request, leadsById);
+    var integration = integrationId && integrationsById.get(integrationId);
+    return !isSafeCaseZapRequest(request) || !isSafeCaseZapIntegration(integration, projectId);
   });
 }
 
@@ -200,7 +223,7 @@ async function collectPlans() {
     var requests = await Request.find(buildRequestReferenceQuery(group.projectId, sourceLeadIds))
       .select(buildRequestReferenceProjection())
       .lean();
-    var unsafeRequests = await findUnsafeRequests(requests);
+    var unsafeRequests = await findUnsafeRequests(requests, group.projectId, [target].concat(duplicateLeads));
 
     plans.push({
       status: unsafeRequests.length ? 'skipped' : 'ready',
@@ -285,7 +308,7 @@ async function applyPlan(plan) {
     .select(buildRequestReferenceProjection())
     .lean();
   var sourceLeads = await Lead.find({ _id: { $in: sourceLeadIds }, id_project: plan.projectId }).lean();
-  var unsafeRequests = await findUnsafeRequests(requests);
+  var unsafeRequests = await findUnsafeRequests(requests, plan.projectId, sourceLeads);
   if (unsafeRequests.length) {
     throw new Error('Refusing to merge non-CaseZap Request references');
   }
@@ -438,6 +461,7 @@ module.exports = {
   normalizeCaseZapPhone: normalizeCaseZapPhone,
   extractLegacyCaseZapLead: extractLegacyCaseZapLead,
   isSafeCaseZapRequest: isSafeCaseZapRequest,
+  isSafeCaseZapIntegration: isSafeCaseZapIntegration,
   resolveRequestIntegrationId: resolveRequestIntegrationId,
   buildRequestReferenceQuery: buildRequestReferenceQuery,
   buildRequestReferenceProjection: buildRequestReferenceProjection,
