@@ -58,6 +58,16 @@ function buildRequestReferenceQuery(projectId, leadIds) {
   };
 }
 
+function buildRequestReferenceProjection() {
+  return {
+    _id: 1,
+    lead: 1,
+    integrationId: 1,
+    channel: 1,
+    snapshot: 1
+  };
+}
+
 async function findUnsafeRequests(requests, projectId, leads) {
   var leadsById = new Map(leads.map(function(lead) {
     return [String(lead._id), lead];
@@ -205,7 +215,7 @@ async function collectPlans() {
 
     var sourceLeadIds = [target._id].concat(duplicateLeads.map(function(lead) { return lead._id; }));
     var requests = await Request.find(buildRequestReferenceQuery(group.projectId, sourceLeadIds))
-      .select('_id lead integrationId channel snapshot.lead')
+      .select(buildRequestReferenceProjection())
       .lean();
     var unsafeRequests = await findUnsafeRequests(requests, group.projectId, [target].concat(duplicateLeads));
 
@@ -289,7 +299,7 @@ async function applyPlan(plan) {
   var duplicateIds = plan.duplicateLeads.map(function(lead) { return lead._id; });
   var sourceLeadIds = [target._id].concat(duplicateIds);
   var requests = await Request.find(buildRequestReferenceQuery(plan.projectId, sourceLeadIds))
-    .select('_id lead integrationId channel snapshot.lead')
+    .select(buildRequestReferenceProjection())
     .lean();
   var sourceLeads = await Lead.find({ _id: { $in: sourceLeadIds }, id_project: plan.projectId }).lean();
   var unsafeRequests = await findUnsafeRequests(requests, plan.projectId, sourceLeads);
@@ -446,6 +456,7 @@ module.exports = {
   isSafeCaseZapRequest: isSafeCaseZapRequest,
   resolveRequestIntegrationId: resolveRequestIntegrationId,
   buildRequestReferenceQuery: buildRequestReferenceQuery,
+  buildRequestReferenceProjection: buildRequestReferenceProjection,
   mergeLeadData: mergeLeadData,
   parseArgs: parseArgs,
   planSummary: planSummary

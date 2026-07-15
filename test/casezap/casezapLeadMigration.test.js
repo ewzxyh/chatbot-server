@@ -91,6 +91,16 @@ describe('CaseZap duplicate lead migration', function() {
     });
   });
 
+  it('projects the snapshot once to avoid MongoDB parent-child path collisions', function() {
+    assert.deepStrictEqual(migration.buildRequestReferenceProjection(), {
+      _id: 1,
+      lead: 1,
+      integrationId: 1,
+      channel: 1,
+      snapshot: 1
+    });
+  });
+
   it('defaults to dry-run and requires --apply to mutate', function() {
     assert.strictEqual(migration.parseArgs([]).apply, false);
     assert.strictEqual(migration.parseArgs(['--apply']).apply, true);
