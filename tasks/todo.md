@@ -183,3 +183,29 @@ distintos. O conector grava diretamente e o evento `message.sending` grava de no
   antes da limpeza.
 - Foram removidos 2.066 registros redundantes; a verificacao final encontrou zero
   grupos duplicados e manteve uma copia por timeline nos exemplos auditados.
+
+# Correcao: identidade unica de contatos CaseZap
+
+- [x] Usar o `leadId` canonico do mapper no connector, sem alterar `Request.integrationId`.
+- [x] Cobrir duas integracoes CaseZap concorrentes para o mesmo telefone e impedir qualquer mescla WABA.
+- [x] Criar migracao auditavel e retomavel de leads legados CaseZap, com dry-run padrao, backup e `--apply` explicito.
+- [x] Rodar testes focais e sintaxe; revisar o diff antes de commit, push e deploy.
+
+## Revisao
+
+- Os testes focais de conector, migração e histórico passaram (31 testes), mais 2 testes de upsert atômico do lead.
+- A migração inclui registros legados únicos, atualiza snapshots, preserva ou preenche `Request.integrationId` e recusa referências que não sejam CaseZap.
+- A criação de Request é serializada no processo único usado no deploy atual; escala horizontal exigirá invariante no Mongo ou lock distribuído.
+- `npx ultracite check` nao executou porque o repositorio nao possui configuracao nem dependencia local do Ultracite.
+- A auditoria independente aprovou a mudança para o deployment atual de um único processo servidor.
+
+# Historico de atividades ativo por padrao
+
+- [x] Ativar o arquivamento quando `ACTIVITY_HISTORY_ENABLED` estiver ausente.
+- [x] Preservar o opt-out explicito com `ACTIVITY_HISTORY_ENABLED=false`.
+- [x] Cobrir os dois comportamentos com teste focal.
+
+## Revisao
+
+- A configuração passa a valer para todos os projetos atendidos pelo processo do servidor.
+- Os dois cenários passaram no Mocha; a configuração de deploy usa `true` como valor padrão.

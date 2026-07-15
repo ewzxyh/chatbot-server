@@ -9,7 +9,7 @@ class ActivityArchiver {
 
         winston.debug('ActivityArchiver listen');   
 
-        var enabled = process.env.ACTIVITY_HISTORY_ENABLED || "false";
+        var enabled = process.env.ACTIVITY_HISTORY_ENABLED === undefined ? "true" : process.env.ACTIVITY_HISTORY_ENABLED;
         winston.debug('ActivityArchiver enabled:'+enabled);
     
         if (enabled==="true") {
@@ -18,6 +18,11 @@ class ActivityArchiver {
           winston.info('ActivityArchiver disabled');
           return 0;
         }
+
+        if (this.listening) {
+          return 0;
+        }
+        this.listening = true;
 
         if (process.env.MONGOOSE_SYNCINDEX) {
           Activity.syncIndexes();
