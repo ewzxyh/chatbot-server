@@ -205,7 +205,7 @@ distintos. O conector grava diretamente e o evento `message.sending` grava de no
 - [x] Tornar tokens de reset aleatorios, armazenados como hash, expiraveis e de uso unico.
 - [x] Criar endpoints superadmin para criar e excluir logicamente usuarios.
 - [x] Proteger self-delete, superadmins e usuarios vinculados a projetos.
-- [ ] Rodar testes focais, auditar, criar commit, push e publicar na VPS DEV.
+- [x] Rodar testes focais, auditar, criar commit, push e publicar na VPS DEV.
 
 ## Criterios de aceite
 
@@ -221,6 +221,8 @@ distintos. O conector grava diretamente e o evento `message.sending` grava de no
 - O reset usa token aleatorio de 32 bytes, SHA-256 no banco, validade de uma hora, consumo atomico e revogacao das sessoes anteriores.
 - A criacao e a exclusao administrativa exigem superadmin; self-delete, superadmins e usuarios vinculados a projetos permanecem protegidos.
 - A auditoria independente aprovou a implementacao sem achados criticos ou altos.
+- O commit `cefea905` foi enviado ao `master`, implantado na VPS DEV e o container `chatcase-server` permaneceu saudavel.
+- A API publica respondeu `200` apos o deploy; o ambiente foi recriado com `.env.dev-vps` para preservar as credenciais corretas do RabbitMQ.
 
 # Historico de atividades ativo por padrao
 
