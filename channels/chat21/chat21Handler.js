@@ -328,6 +328,9 @@ class Chat21Handler {
                             if (message.request && message.request.channel  && message.request.channel.name ) {
                                 attributes['request_channel'] = message.request.channel.name;
                             }
+                            if (message.request && message.request.integrationId) {
+                                attributes['integrationId'] = String(message.request.integrationId);
+                            }
 
                             /*
                             const parsedReply = tiledeskUtil.parseReply(message.text);
@@ -581,6 +584,12 @@ class Chat21Handler {
                             gAttributes['departmentName'] = request.department.name; //used by ionic to open request detail 
                         }                        
                         gAttributes['sourcePage'] = request.sourcePage; //used by ionic to open request detail 
+                        if (requestObj.channel && requestObj.channel.name) {
+                            gAttributes['request_channel'] = requestObj.channel.name;
+                        }
+                        if (requestObj.integrationId) {
+                            gAttributes['integrationId'] = String(requestObj.integrationId);
+                        }
 
                         
                         // https://stackoverflow.com/questions/42310950/handling-undefined-values-with-firebase/42315610

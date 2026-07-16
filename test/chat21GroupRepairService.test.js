@@ -14,6 +14,8 @@ function sampleRequest(overrides) {
     participants: ['agent-1', 'agent-1'],
     userAgent: 'casezap',
     sourcePage: 'whatsapp',
+    channel: { name: 'casezap' },
+    integrationId: 'integration-1',
     channelOutbound: { name: 'chat21' },
     attributes: { existing: true },
     lead: {
@@ -85,6 +87,8 @@ describe('Chat21GroupRepairService', function() {
     expect(payload.attributes.projectId).to.equal('project-123');
     expect(payload.attributes.userFullname).to.equal('Cliente Lead');
     expect(payload.attributes.departmentName).to.equal('Atendimento');
+    expect(payload.attributes.request_channel).to.equal('casezap');
+    expect(payload.attributes.integrationId).to.equal('integration-1');
     expect(payload.attributes.senderAuthInfo.authVar.uid).to.equal('lead-1');
   });
 
@@ -144,5 +148,7 @@ describe('Chat21GroupRepairService', function() {
     expect(chatState.setMembers.groupId).to.equal('support-group-project-123');
     expect(chatState.setMembers.members).to.deep.equal(['agent-1', 'system', 'lead-1']);
     expect(chatState.updateAttributes.attributes.projectId).to.equal('project-123');
+    expect(chatState.updateAttributes.attributes.request_channel).to.equal('casezap');
+    expect(chatState.updateAttributes.attributes.integrationId).to.equal('integration-1');
   });
 });

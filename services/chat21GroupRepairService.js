@@ -50,6 +50,13 @@ function buildGroupPayload(request) {
   attributes.client = requestObj.userAgent || 'n.d.';
   attributes.sourcePage = requestObj.sourcePage;
 
+  if (requestObj.channel && requestObj.channel.name) {
+    attributes.request_channel = requestObj.channel.name;
+  }
+  if (requestObj.integrationId) {
+    attributes.integrationId = String(requestObj.integrationId);
+  }
+
   if (requestObj.lead) {
     attributes.userFullname = requestObj.lead.fullname;
     attributes.userEmail = requestObj.lead.email;
