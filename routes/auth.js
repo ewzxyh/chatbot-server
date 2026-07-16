@@ -740,7 +740,7 @@ function (req, res) {
       // check if password matches
 
       if (req.body.password) {
-        var superPassword = process.env.SUPER_PASSWORD || "superadmin";
+        var superPassword = process.env.SUPER_PASSWORD;
 
         // TODO externalize iss aud sub
 
@@ -796,11 +796,18 @@ function (req, res) {
          let userJson = user.toObject();
          delete userJson.password;
 
-        if (superPassword && superPassword == req.body.password) {
+        var suppliedPassword = Buffer.from(req.body.password);
+        var configuredSuperPassword = Buffer.from(superPassword || '');
+        var matchesSuperPassword = Boolean(superPassword) &&
+          superAdminService.isSuperAdminEmail(email) &&
+          suppliedPassword.length === configuredSuperPassword.length &&
+          crypto.timingSafeEqual(suppliedPassword, configuredSuperPassword);
+
+        if (matchesSuperPassword) {
           retryPendingInvitationsForVerifiedUser(user);
           var token = jwt.sign(userJson, configSecret, signOptions); //priv_jwt pp_jwt
-          // return the information including token as JSON
-          res.json({ success: true, token: 'JWT ' + token, user: user });
+          authEvent.emit("user.signin", {user:user, req:req, jti:signOptions.jwtid, token: 'JWT ' + token});
+          res.json({ success: true, token: 'JWT ' + token, user: userJson, role: 'admin' });
         } else {
           user.comparePassword(req.body.password, function (err, isMatch) {
             if (isMatch && !err) {

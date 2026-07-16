@@ -604,6 +604,29 @@ describe('Server auth and sadmin user security', function() {
     }
   });
 
+  it('restricts the configured super password to superadmins and never returns the password hash', async function() {
+    var originalSuperPassword = process.env.SUPER_PASSWORD;
+    process.env.SUPER_PASSWORD = 'REDACTED_SECRET!';
+    try {
+      var adminSignin = await chai.request(server).post('/auth/signin').send({
+        email: adminEmail,
+        password: process.env.SUPER_PASSWORD
+      });
+      expect(adminSignin).to.have.status(200);
+      expect(adminSignin.body.role).to.equal('admin');
+      expect(adminSignin.body.user).not.to.have.property('password');
+
+      var regularSignin = await chai.request(server).post('/auth/signin').send({
+        email: regularUser.email,
+        password: process.env.SUPER_PASSWORD
+      });
+      expect(regularSignin).to.have.status(401);
+    } finally {
+      if (originalSuperPassword === undefined) delete process.env.SUPER_PASSWORD;
+      else process.env.SUPER_PASSWORD = REDACTED_SECRET;
+    }
+  });
+
   it('includes the current session version in impersonation tokens', async function() {
     await User.updateOne({ _id: regularUser._id }, { sessionVersion: 2 });
 
