@@ -94,6 +94,18 @@ class TdCache {
       });
     }
 
+    async incrementWithLimit(key, limit, ttlSeconds) {
+      return new Promise((resolve, reject) => {
+        this.client.multi()
+          .incr(key)
+          .expire(key, ttlSeconds)
+          .exec((err, replies) => {
+            if (err) return reject(err);
+            resolve(Number(replies[0]) <= limit);
+          });
+      });
+    }
+
 
 
 

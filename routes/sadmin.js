@@ -30,9 +30,12 @@ var usageMeteringSnapshotService = require('../services/usageMeteringSnapshotSer
 var billingLifecycleService = require('../services/billingLifecycleService');
 var auditService = require('../services/auditService');
 var superAdminService = require('../services/superAdminService');
+var userService = require('../services/userService');
+var authEvent = require('../event/authEvent');
 var privacyService = require('../services/privacyService');
 var privacyRetentionService = require('../services/privacyRetentionService');
 var chat21GroupRepairService = require('../services/chat21GroupRepairService');
+var { check, validationResult } = require('express-validator');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
 
@@ -44,7 +47,7 @@ if (privateKey) {
 
 var IMPERSONATION_USER_FIELDS = [
   '_id', 'email', 'firstname', 'lastname', 'emailverified', 'description',
-  'public_email', 'public_website', 'status', 'createdAt', 'updatedAt'
+  'public_email', 'public_website', 'status', 'sessionVersion', 'createdAt', 'updatedAt'
 ];
 var IMPERSONATION_USER_SELECT = IMPERSONATION_USER_FIELDS.join(' ');
 
@@ -321,7 +324,7 @@ router.get('/users', auth, async function (req, res) {
 
     var filter = { status: 100 };
     if (search) {
-      var regex = new RegExp(search, 'i');
+      var regex = new RegExp(escapeRegex(search), 'i');
       filter.$or = [{ email: regex }, { firstname: regex }, { lastname: regex }];
     }
 
@@ -335,7 +338,9 @@ router.get('/users', auth, async function (req, res) {
     var count = await User.countDocuments(filter);
 
     for (var i = 0; i < data.length; i++) {
-      var projectCount = await Project_user.countDocuments({ id_user: data[i]._id, status: 'active' });
+      var projectCount = await Project_user.countDocuments({
+        $or: [{ id_user: data[i]._id }, { uuid_user: String(data[i]._id) }]
+      });
       data[i].projectCount = projectCount;
     }
 
@@ -343,6 +348,93 @@ router.get('/users', auth, async function (req, res) {
   } catch (err) {
     winston.error('sadmin users error', err);
     res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+router.post('/users', auth, [
+  check('email').isString().bail().trim().isLength({ min: 3, max: 254 }).bail().isEmail()
+    .customSanitizer(function(value) { return value.toLowerCase(); }),
+  check('firstname').isString().bail().trim().isLength({ min: 1, max: 100 }),
+  check('lastname').optional({ nullable: true }).isString().bail().trim().isLength({ max: 100 }),
+  check('password').isString().bail().isLength({ min: 8, max: 72 }).bail()
+    .custom(function(password) { return Buffer.byteLength(password, 'utf8') <= 72; })
+], async function (req, res) {
+  var errors = validationResult(req).array().map(function(error) {
+    return { msg: error.msg, param: error.param, location: error.location };
+  });
+  if (errors.length > 0) {
+    return res.status(400).json({ errors: errors });
+  }
+
+  try {
+    var duplicate = await User.exists({ email: req.body.email });
+    if (duplicate) {
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+
+    var savedUser = await userService.signup(
+      req.body.email,
+      req.body.password,
+      req.body.firstname,
+      req.body.lastname,
+      true
+    );
+
+    return res.status(201).json(buildImpersonationUser(savedUser.toObject()));
+  } catch (err) {
+    if (err && err.code === 11000) {
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+    winston.error('sadmin user creation error');
+    return res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+router.delete('/users/:id', auth, async function (req, res) {
+  if (!/^[a-f0-9]{24}$/i.test(req.params.id)) {
+    return res.status(400).json({ error: 'Invalid user id' });
+  }
+
+  try {
+    var user = await User.findById(req.params.id).exec();
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (String(user._id) === String(req.user._id) || superAdminService.isSuperAdminEmail(user.email)) {
+      return res.status(409).json({ error: 'Protected user cannot be deleted' });
+    }
+
+    var projectMembershipFilter = {
+      $or: [{ id_user: user._id }, { uuid_user: String(user._id) }]
+    };
+    var linkedProjectUser = await Project_user.exists(projectMembershipFilter);
+    if (linkedProjectUser) {
+      return res.status(409).json({ error: 'User has project memberships' });
+    }
+
+    user.status = 0;
+    user.email = uuidv4() + '@deleted.invalid';
+    user.firstname = 'anonymized';
+    user.lastname = 'anonymized';
+    user.emailverified = false;
+    user.password = uuidv4() + uuidv4();
+    user.phone = undefined;
+    user.description = undefined;
+    user.public_email = undefined;
+    user.public_website = undefined;
+    user.authUrl = undefined;
+    user.attributes = undefined;
+    user.signedInAt = undefined;
+    user.resetpswrequestid = undefined;
+    user.resetpswrequestexpires = undefined;
+    await user.save();
+    authEvent.emit('user.cache.invalidate', { userId: String(user._id) });
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    winston.error('sadmin user deletion error');
+    return res.status(500).json({ error: 'Failed to delete user' });
   }
 });
 

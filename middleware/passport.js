@@ -448,6 +448,12 @@ module.exports = function(passport) {
             return done(err, false);
           }
           if (user) {
+            var tokenSessionVersion = Number(jwt_payload.sessionVersion || 0);
+            var userSessionVersion = Number(user.sessionVersion || 0);
+            if (tokenSessionVersion !== userSessionVersion) {
+              winston.warn("Passport JWT rejected revoked user session", {userId: String(user._id)});
+              return done(null, false);
+            }
             winston.debug("Passport JWT generic user ", user);
             var authInfo = isValidImpersonation(jwt_payload, user) ? { impersonation: jwt_payload.impersonation } : undefined;
             return done(null, user, authInfo);
@@ -533,7 +539,7 @@ module.exports = function(passport) {
                     if (cred) {
                         // Already linked: return the corresponding user
                         const user = await User.findOne({email: email, status: 100})
-                            .select('email firstname lastname password emailverified id')
+                            .select('email firstname lastname password emailverified sessionVersion id')
                             .exec();
 
                         if (!user) {
@@ -546,7 +552,7 @@ module.exports = function(passport) {
 
                     // Not linked yet: try to reuse existing account by email
                     let user = await User.findOne({email: email, status: 100})
-                        .select('email firstname lastname password emailverified id')
+                        .select('email firstname lastname password emailverified sessionVersion id')
                         .exec();
 
                     if (!user) {
@@ -710,7 +716,7 @@ module.exports = function(passport) {
 
                         User.findOne({
                             email: email, status: 100
-                        }, 'email firstname lastname emailverified id', function (err, user) {
+                        }, 'email firstname lastname emailverified sessionVersion id', function (err, user) {
 
                             winston.debug("user", user, err);
                             // winston.debug("usertoJSON()",user.toJSON());

@@ -291,6 +291,17 @@
         });
     });
 
+    authEvent.on('user.cache.invalidate', function(data) {
+        setImmediate(() => {
+            var key = "users:id:" + data.userId;
+            winston.verbose("Deleting cache for disabled user with key: " + key);
+            del(client._cache._engine.client, key, function(err, reply) {
+                winston.debug("Deleted cache for disabled user", reply);
+                winston.verbose("Deleted cache for disabled user", {err: err});
+            });
+        });
+    });
+
 
 
 

@@ -6,7 +6,8 @@ var User = require("../models/user");
 var Subscription = require("../models/subscription");
 var Project_user = require("../models/project_user");
 var RoleConstants = require("../models/roleConstants");
-var uniqid = require('uniqid');
+var crypto = require('crypto');
+var bcrypt = require('bcrypt-nodejs');
 var emailService = require("../services/emailService");
 var pendinginvitation = require("../services/pendingInvitationService");
 var userService = require("../services/userService");
@@ -43,6 +44,156 @@ if (pubKey) {
 var recaptcha = require('../middleware/recaptcha');
 const errorCodes = require('../errorCodes');
 
+var RESET_PASSWORD_TTL_MS = 60 * 60 * 1000;
+var RESET_REQUEST_RATE_LIMIT_SECONDS = 60;
+var RESET_REQUEST_IP_LIMIT = 5;
+var RESET_ATTEMPT_RATE_LIMIT_SECONDS = 15 * 60;
+var RESET_ATTEMPT_IP_LIMIT = 10;
+var RESET_ATTEMPT_TOKEN_LIMIT = 5;
+var SIGNUP_RATE_LIMIT_SECONDS = 60 * 60;
+var SIGNUP_IP_LIMIT = 10;
+var RESET_TOKEN_PATTERN = /^[a-f0-9]{64}$/i;
+var VERIFICATION_TOKEN_PATTERN = /^[a-f0-9]{64}$/i;
+
+function getPublicValidationErrors(req) {
+  return validationResult(req).array().map(function(error) {
+    return { msg: error.msg, param: error.param, location: error.location };
+  });
+}
+
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function isWithinBcryptLimit(password) {
+  return Buffer.byteLength(password, 'utf8') <= 72;
+}
+
+function retryPendingInvitationsForVerifiedUser(user) {
+  if (!user || !user.emailverified) return;
+  pendinginvitation.checkNewUserInPendingInvitationAndSavePrcjUser(user.email, user._id)
+    .catch(function() {
+      winston.error('Pending invitations could not be applied after signin', { userId: String(user._id) });
+    });
+}
+
+function hashPassword(password) {
+  return new Promise(function(resolve, reject) {
+    bcrypt.genSalt(10, function(saltError, salt) {
+      if (saltError) return reject(saltError);
+      bcrypt.hash(password, salt, null, function(hashError, hash) {
+        if (hashError) return reject(hashError);
+        resolve(hash);
+      });
+    });
+  });
+}
+
+function rateLimitMustBeAvailable() {
+  return process.env.NODE_ENV === 'production' || process.env.CACHE_ENABLED === 'true';
+}
+
+function getRateLimitClient(req) {
+  var redisClient = req.app.get('redis_client');
+  if (redisClient && redisClient.readyAt && typeof redisClient.incrementWithLimit === 'function') {
+    return redisClient;
+  }
+  return null;
+}
+
+function rateLimitError(code, message) {
+  var error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+async function enforceSignupRateLimit(req) {
+  var redisClient = getRateLimitClient(req);
+  if (!redisClient) {
+    if (rateLimitMustBeAvailable()) {
+      throw rateLimitError('RATE_LIMIT_UNAVAILABLE', 'Signup rate limit unavailable');
+    }
+    return;
+  }
+
+  var allowed;
+  try {
+    allowed = await redisClient.incrementWithLimit(
+      'signup:ip:' + hashResetToken(req.ip || 'unknown'),
+      SIGNUP_IP_LIMIT,
+      SIGNUP_RATE_LIMIT_SECONDS
+    );
+  } catch (error) {
+    throw rateLimitError('RATE_LIMIT_UNAVAILABLE', 'Signup rate limit unavailable');
+  }
+
+  if (!allowed) {
+    throw rateLimitError('RATE_LIMITED', 'Too many signup attempts');
+  }
+}
+
+async function enforcePasswordResetRateLimit(req, email) {
+  var redisClient = req.app.get('redis_client');
+  var redisReady = redisClient && redisClient.readyAt &&
+    typeof redisClient.setNX === 'function' &&
+    typeof redisClient.incrementWithLimit === 'function';
+
+  if (!redisReady) {
+    if (rateLimitMustBeAvailable()) {
+      throw rateLimitError('RATE_LIMIT_UNAVAILABLE', 'Password reset rate limit unavailable');
+    }
+    return;
+  }
+
+  var ipKey = 'passwordreset:ip:' + hashResetToken(req.ip || 'unknown');
+  var emailKey = 'passwordreset:email:' + hashResetToken(email);
+  var results;
+  try {
+    results = await Promise.all([
+      redisClient.incrementWithLimit(ipKey, RESET_REQUEST_IP_LIMIT, RESET_REQUEST_RATE_LIMIT_SECONDS),
+      redisClient.setNX(emailKey, '1', RESET_REQUEST_RATE_LIMIT_SECONDS)
+    ]);
+  } catch (error) {
+    throw rateLimitError('RATE_LIMIT_UNAVAILABLE', 'Password reset rate limit unavailable');
+  }
+
+  if (!results[0] || !results[1]) {
+    throw rateLimitError('RATE_LIMITED', 'Too many password reset requests');
+  }
+}
+
+async function enforcePasswordResetAttemptRateLimit(req, resetTokenHash) {
+  var redisClient = getRateLimitClient(req);
+  if (!redisClient) {
+    if (rateLimitMustBeAvailable()) {
+      throw rateLimitError('RATE_LIMIT_UNAVAILABLE', 'Password reset rate limit unavailable');
+    }
+    return;
+  }
+
+  var results;
+  try {
+    results = await Promise.all([
+      redisClient.incrementWithLimit(
+        'passwordreset:attempt:ip:' + hashResetToken(req.ip || 'unknown'),
+        RESET_ATTEMPT_IP_LIMIT,
+        RESET_ATTEMPT_RATE_LIMIT_SECONDS
+      ),
+      redisClient.incrementWithLimit(
+        'passwordreset:attempt:token:' + resetTokenHash,
+        RESET_ATTEMPT_TOKEN_LIMIT,
+        RESET_ATTEMPT_RATE_LIMIT_SECONDS
+      )
+    ]);
+  } catch (error) {
+    throw rateLimitError('RATE_LIMIT_UNAVAILABLE', 'Password reset rate limit unavailable');
+  }
+
+  if (!results[0] || !results[1]) {
+    throw rateLimitError('RATE_LIMITED', 'Too many password reset attempts');
+  }
+}
+
 
 
 // const fs  = require('fs');
@@ -51,15 +202,17 @@ const errorCodes = require('../errorCodes');
 
 router.post('/signup',
   [
-    check('email').isEmail(),
-    check('firstname').notEmpty(),
-    check('lastname').notEmpty(),
+    check('email').isString().bail().trim().isLength({ min: 3, max: 254 }).bail().isEmail()
+      .customSanitizer(function(value) { return value.toLowerCase(); }),
+    check('firstname').isString().bail().trim().isLength({ min: 1, max: 100 }),
+    check('lastname').optional({ nullable: true }).isString().bail().trim().isLength({ max: 100 }),
+    check('password').isString().bail().isLength({ min: 8, max: 72 }).bail().custom(isWithinBcryptLimit),
     recaptcha
 
   ]
   // recaptcha.middleware.verify
 
-, function (req, res) {
+, async function (req, res) {
 
   // if (!req.recaptcha.error) {
   //   winston.error("Signup recaptcha ok");
@@ -68,16 +221,26 @@ router.post('/signup',
   //   winston.error("Signup recaptcha ko");
   // }
 
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    winston.error("Signup validation error", errors);
-    return res.status(422).json({ errors: errors.array() });
+  const errors = getPublicValidationErrors(req);
+  if (errors.length > 0) {
+    winston.error("Signup validation error");
+    return res.status(422).json({ errors: errors });
   }
 
   if (!req.body.email || !req.body.password) {
-    winston.error("Signup validation error. Email or password is missing", {email: req.body.email, password: REDACTED_SECRET});
-    return res.json({ success: false, msg: 'Please pass email and password.' });
+    winston.error("Signup validation error. Email or password is missing");
+    return res.status(422).json({ success: false, msg: 'Please pass email and password.' });
   } else {
+
+    try {
+      await enforceSignupRateLimit(req);
+    } catch (err) {
+      if (err && err.code === 'RATE_LIMITED') {
+        return res.status(429).json({ success: false, msg: 'Too many signup attempts' });
+      }
+      winston.error('Signup rate limit unavailable');
+      return res.status(503).json({ success: false, msg: 'Registration temporarily unavailable' });
+    }
 
     // TODO: move the regex control inside signup method of UserService.
     // Warning: the pwd used in every test must be changed!
@@ -89,7 +252,7 @@ router.post('/signup',
     return userService.signup(req.body.email, req.body.password, req.body.firstname, req.body.lastname, false, req.body.phone)
       .then( async function (savedUser) {
 
-        winston.debug('-- >> -- >> savedUser ', savedUser.toObject());
+        winston.debug('User signup completed');
 
         let skipVerificationEmail = false;
         if (req.headers.authorization) {
@@ -98,7 +261,7 @@ router.post('/signup',
           let decode = jwt.verify(token, pubConfigSecret)
           if (decode && superAdminService.isSuperAdminEmail(decode.email)) {
             let updatedUser = await User.findByIdAndUpdate(savedUser._id, { emailverified: true }, { new: true }).exec();
-            winston.debug("updatedUser: ", updatedUser);
+            winston.debug("Signup email marked as verified");
             skipVerificationEmail = true;
             winston.verbose("skip sending verification email")
           }
@@ -107,9 +270,7 @@ router.post('/signup',
         if (!req.body.disableEmail){
           if (!skipVerificationEmail) {
 
-            let verify_email_code = String(Math.floor(100000 + Math.random() * 900000));
-            winston.verbose("(Auth) verify_email_code: ", verify_email_code);
-
+            let verify_email_code = crypto.randomBytes(32).toString('hex');
             let redis_client = req.app.get('redis_client');
             let key = "emailverify:verify-" + verify_email_code;
             let obj = { _id: savedUser._id, email: savedUser.email}
@@ -124,21 +285,14 @@ router.post('/signup',
         // }
 
 
-        /*
-         * *** CHECK THE EMAIL OF THE NEW USER IN THE PENDING INVITATIONS TABLE ***
-         * IF EXIST MEANS THAT THE NEW USER HAS BEEN INVITED TO A PROJECT WHEN IT HAS NOT YET REGISTERED
-         * SO IF ITS EMAIL EXIST IN THE PENDING INVITATIONS TABLE ARE CREATED THE PROJECT USER FOR THE PROJECTS
-         * TO WHICH WAS INVITED, AT THE SAME TIME THE USER ARE DELETED FROM THE PENDING INVITATION TABLE
-         */
-        pendinginvitation.checkNewUserInPendingInvitationAndSavePrcjUser(savedUser.email, savedUser._id);
-          // .then(function (projectUserSaved) {
-          //   return res.json({ msg: "Saved project user ", projectUser: projectUserSaved });
-          // }).catch(function (err) {
-          //   return res.send(err);
-          // });
-
-
-          authEvent.emit("user.signup", {savedUser: savedUser, req: req});
+          authEvent.emit("user.signup", { savedUser: {
+            _id: savedUser._id,
+            id: String(savedUser._id),
+            email: savedUser.email,
+            firstname: savedUser.firstname,
+            lastname: savedUser.lastname,
+            emailverified: savedUser.emailverified
+          } });
 
 
           //remove password
@@ -149,8 +303,8 @@ router.post('/signup',
          res.json({ success: true, msg: 'Successfully created new user.', user: userJson });
       }).catch(function (err) {
 
-        winston.error('Error registering new user', err);
-        authEvent.emit("user.signup.error",  {req: req, err:err});
+        winston.error('Error registering new user');
+        authEvent.emit("user.signup.error", { code: err && err.code });
 
         if (err.code === 11000) {
           res.status(403).send({ success: false, message: "Email already registered" });
@@ -571,7 +725,7 @@ function (req, res) {
   winston.debug("email", email);
   User.findOne({
     email: email, status: 100
-  }, 'email firstname lastname password emailverified id', function (err, user) {
+  }, 'email firstname lastname password emailverified sessionVersion id', function (err, user) {
     if (err) {
       winston.error("Error signin", err);
       throw err;
@@ -643,12 +797,14 @@ function (req, res) {
          delete userJson.password;
 
         if (superPassword && superPassword == req.body.password) {
+          retryPendingInvitationsForVerifiedUser(user);
           var token = jwt.sign(userJson, configSecret, signOptions); //priv_jwt pp_jwt
           // return the information including token as JSON
           res.json({ success: true, token: 'JWT ' + token, user: user });
         } else {
           user.comparePassword(req.body.password, function (err, isMatch) {
             if (isMatch && !err) {
+              retryPendingInvitationsForVerifiedUser(user);
               // if user is found and password is right create a token
               var token = jwt.sign(userJson, configSecret, signOptions); //priv_jwt pp_jwt
 
@@ -873,10 +1029,6 @@ router.get(
 
 // VERIFY EMAIL
 router.put('/verifyemail/:userid/:code', async function (req, res) {
-
-
-  winston.debug('VERIFY EMAIL - REQ BODY ', req.body);
-
   let user_id = req.params.userid;
   let verify_email_code = req.params.code;
 
@@ -884,10 +1036,13 @@ router.put('/verifyemail/:userid/:code', async function (req, res) {
     return res.status(401).send({ success: false, error: "Unable to verify email: missing verification code.", error_code: errorCodes.AUTH.ERRORS.MISSING_VERIFICATION_CODE})
   }
 
+  if (!VERIFICATION_TOKEN_PATTERN.test(verify_email_code)) {
+    return res.status(401).send({ success: false, error: "Unable to verify email: the verification code is expired or invalid.", error_code: errorCodes.AUTH.ERRORS.VERIFICATION_CODE_EXPIRED})
+  }
+
   let redis_client = req.app.get('redis_client');
   let key = "emailverify:verify-" + verify_email_code;
   let value = await redis_client.get(key);
-  console.log("(Auth) verify value: ", value);
   if (!value) {
     return res.status(401).send({ success: false, error: "Unable to verify email: the verification code is expired or invalid.", error_code: errorCodes.AUTH.ERRORS.VERIFICATION_CODE_EXPIRED})
   }
@@ -897,24 +1052,39 @@ router.put('/verifyemail/:userid/:code', async function (req, res) {
     return res.status(401).send({ success: false, error: "Trying to use a verification code from another user.", error_code: errorCodes.AUTH.ERRORS.VERIFICATION_CODE_OTHER_USER})
   }
 
-  User.findByIdAndUpdate(user_id, req.body, { new: true, upsert: true }, function (err, findUser) {
-    if (err) {
-      winston.error(err);
-      return res.status(500).send({ success: false, msg: err });
-    }
-    winston.debug(findUser);
+  let consumeKey = "emailverify:consumed-" + hashResetToken(verify_email_code);
+  let consumed = await redis_client.setNX(consumeKey, '1', 900);
+  if (!consumed) {
+    return res.status(401).send({ success: false, error: "Unable to verify email: the verification code is expired or invalid.", error_code: errorCodes.AUTH.ERRORS.VERIFICATION_CODE_EXPIRED})
+  }
+
+  await redis_client.del(key);
+
+  try {
+    let findUser = await User.findOneAndUpdate({
+      _id: user_id,
+      email: basic_user.email,
+      status: 100
+    }, {
+      $set: { emailverified: true }
+    }, { new: true }).exec();
+
     if (!findUser) {
-      winston.warn('User not found for verifyemail' );
       return res.status(404).send({ success: false, msg: 'User not found', error_code: errorCodes.AUTH.ERRORS.USER_NOT_FOUND});
     }
-    winston.debug('VERIFY EMAIL - RETURNED USER ', findUser);
 
-    if (findUser.emailverified) {
-      emailService.sendWelcomeEmail(findUser.email, findUser);
+    try {
+      await pendinginvitation.checkNewUserInPendingInvitationAndSavePrcjUser(findUser.email, findUser._id);
+    } catch (invitationError) {
+      winston.error('Pending invitations could not be applied after email verification');
     }
 
-    res.json(findUser);
-  });
+    emailService.sendWelcomeEmail(findUser.email, findUser);
+    return res.json(findUser);
+  } catch (err) {
+    winston.error('Email verification failed');
+    return res.status(500).send({ success: false, msg: 'Unable to verify email' });
+  }
 });
 
 
@@ -942,125 +1112,135 @@ router.get('/pendinginvitationsnoauth/:pendinginvitationid', function (req, res)
  * SEND THE RESET PSW EMAIL AND UPDATE THE USER OBJECT WITH THE PROPERTY new_psw_request
  * TO WHICH ASSIGN (AS VALUE) A UNIQUE ID
  */
-router.put('/requestresetpsw', function (req, res) {
+router.put('/requestresetpsw', [
+  check('email').isString().bail().trim().isLength({ min: 3, max: 254 }).bail().isEmail()
+    .customSanitizer(function(value) { return value.toLowerCase(); })
+], async function (req, res) {
+  var errors = getPublicValidationErrors(req);
+  if (errors.length > 0) {
+    return res.status(422).json({ errors: errors });
+  }
 
-  winston.debug('REQUEST RESET PSW - EMAIL REQ BODY ', req.body);
+  try {
+    await enforcePasswordResetRateLimit(req, req.body.email);
 
-  var email = req.body.email.toLowerCase();
-  winston.debug("email", email);
+    var user = await User.findOne({ email: req.body.email, status: 100 }).exec();
+    if (user) {
+      var resetToken = crypto.randomBytes(32).toString('hex');
+      await User.updateOne({ _id: user._id }, {
+        resetpswrequestid: hashResetToken(resetToken),
+        resetpswrequestexpires: new Date(Date.now() + RESET_PASSWORD_TTL_MS)
+      }).exec();
 
-// auttype
-  User.findOne({ email: email, status: 100
-    // , authType: 'email_password'
-  }, function (err, user) {
-    if (err) {
-      winston.error('REQUEST RESET PSW - ERROR ', err);
-      return res.status(500).send({ success: false, msg: err });
-    }
-
-    if (!user) {
-      winston.warn('User not found.');
-      res.json({ success: false, msg: 'User not found.' });
-    } else if (user) {
-
-      winston.debug('REQUEST RESET PSW - USER FOUND ', user);
-      winston.debug('REQUEST RESET PSW - USER FOUND - ID ', user._id);
-      var reset_psw_request_id = uniqid()
-
-      winston.debug('REQUEST RESET PSW - UNIC-ID GENERATED ', reset_psw_request_id)
-
-      User.findByIdAndUpdate(user._id, { resetpswrequestid: reset_psw_request_id }, { new: true, upsert: true }).select("+resetpswrequestid").exec(function (err, updatedUser) {
-
-        if (err) {
-          winston.error(err);
-          return res.status(500).send({ success: false, msg: err });
+      try {
+        var emailPromise = emailService.sendPasswordResetRequestEmail(
+          user.email,
+          resetToken,
+          user.firstname,
+          user.lastname
+        );
+        if (emailPromise && typeof emailPromise.catch === 'function') {
+          emailPromise.catch(function() { winston.error('Password reset email failed'); });
         }
+      } catch (emailError) {
+        winston.error('Password reset email failed');
+      }
 
-        if (!updatedUser) {
-          winston.warn('User not found.');
-          return res.status(404).send({ success: false, msg: 'User not found' });
-        }
-
-        winston.debug('REQUEST RESET PSW - UPDATED USER ', updatedUser);
-
-        if (updatedUser) {
-
-          /**
-           * SEND THE PASSWORD RESET REQUEST EMAIL
-           */
-          emailService.sendPasswordResetRequestEmail(updatedUser.email, updatedUser.resetpswrequestid, updatedUser.firstname, updatedUser.lastname);
-
-
-        //  TODO emit user.update?
-          authEvent.emit('user.requestresetpassword', {updatedUser:updatedUser, req:req});
-
-          let userWithoutResetPassword = REDACTED_SECRET();
-          delete userWithoutResetPassword.resetpswrequestid;
-          delete userWithoutResetPassword._id;
-          delete userWithoutResetPassword.createdAt;
-          delete userWithoutResetPassword.updatedAt;
-          delete userWithoutResetPassword.__v;
-
-          // return res.json({ success: true, user: userWithoutResetPassword });
-          return res.json({ success: true, message: "An email has been sent to reset your password" });
-          // }
-          // catch (err) {
-          //   winston.debug('PSW RESET REQUEST - SEND EMAIL ERR ', err)
-          // }
-
-        }
+      authEvent.emit('user.requestresetpassword', {
+        userId: String(user._id),
+        email: user.email
       });
-      // res.json({ success: true, msg: 'User found.' });
     }
-  });
 
+    return res.json({ success: true, message: "An email has been sent to reset your password" });
+  } catch (err) {
+    if (err && err.code === 'RATE_LIMITED') {
+      return res.status(429).json({ success: false, msg: 'Too many password reset requests' });
+    }
+    if (err && err.code === 'RATE_LIMIT_UNAVAILABLE') {
+      winston.error('Password reset rate limit unavailable');
+      return res.status(503).json({ success: false, msg: 'Password reset temporarily unavailable' });
+    }
+    winston.error('Password reset request failed');
+    return res.status(500).send({ success: false, msg: 'Password reset request failed' });
+  }
 });
 
 /**
  * *** RESET PSW ***
  */
-router.put('/resetpsw/:resetpswrequestid', function (req, res) {
-  winston.debug("--> RESET PSW - REQUEST ID", req.params.resetpswrequestid);
-  winston.debug("--> RESET PSW - NEW PSW ", req.body.password);
+router.put('/resetpsw/:resetpswrequestid', [
+  check('password').isString().bail().isLength({ min: 8, max: 72 }).bail().custom(isWithinBcryptLimit)
+], async function (req, res) {
+  var errors = getPublicValidationErrors(req);
+  if (errors.length > 0) {
+    return res.status(422).json({ errors: errors });
+  }
 
-  User.findOne({ resetpswrequestid: req.params.resetpswrequestid }, function (err, user) {
+  var resetToken = req.params.resetpswrequestid;
+  if (!RESET_TOKEN_PATTERN.test(resetToken)) {
+    return res.status(404).send({ success: false, msg: 'Invalid password reset key' });
+  }
 
-    if (err) {
-      winston.error('--> RESET PSW - Error getting user ', err)
-      return (err);
-    }
+  try {
+    var resetTokenHash = hashResetToken(resetToken);
+    await enforcePasswordResetAttemptRateLimit(req, resetTokenHash);
 
-    if (!user) {
-      winston.warn('--> RESET PSW - INVALID PSW RESET KEY');
+    var resetUserExists = await User.exists({
+      resetpswrequestid: resetTokenHash,
+      resetpswrequestexpires: { $gt: new Date() },
+      status: 100
+    });
+    if (!resetUserExists) {
       return res.status(404).send({ success: false, msg: 'Invalid password reset key' });
     }
 
-    if (user && req.body.password) {
-      winston.debug('--> RESET PSW - User Found ', user);
-      winston.debug('--> RESET PSW - User ID Found ', user._id);
+    var passwordHash = await hashPassword(req.body.password);
+    var savedUser = await User.findOneAndUpdate({
+      resetpswrequestid: resetTokenHash,
+      resetpswrequestexpires: { $gt: new Date() },
+      status: 100
+    }, {
+      $set: { password: passwordHash },
+      $inc: { sessionVersion: 1 },
+      $unset: { resetpswrequestid: 1, resetpswrequestexpires: 1 }
+    }, { new: true }).exec();
 
-      user.password = REDACTED_SECRET;
-      user.resetpswrequestid = '';
-
-      user.save(function (err, saveUser) {
-
-        if (err) {
-          winston.error('--- > USER SAVE -ERROR ', err)
-          return res.status(500).send({ success: false, msg: 'Error saving object.' });
-        }
-        winston.debug('--- > USER SAVED  ', saveUser)
-
-        emailService.sendYourPswHasBeenChangedEmail(saveUser.email, saveUser.firstname, saveUser.lastname);
-
-            //  TODO emit user.update?
-        authEvent.emit('user.resetpassword', {saveUser:saveUser, req:req});
-
-
-        res.status(200).json({ message: 'Password change successful', user: saveUser });
-
-      });
+    if (!savedUser) {
+      return res.status(404).send({ success: false, msg: 'Invalid password reset key' });
     }
-  });
+
+    try {
+      var emailPromise = emailService.sendYourPswHasBeenChangedEmail(
+        savedUser.email,
+        savedUser.firstname,
+        savedUser.lastname
+      );
+      if (emailPromise && typeof emailPromise.catch === 'function') {
+        emailPromise.catch(function() { winston.error('Password changed email failed'); });
+      }
+    } catch (emailError) {
+      winston.error('Password changed email failed');
+    }
+
+    authEvent.emit('user.resetpassword', {
+      userId: String(savedUser._id),
+      email: savedUser.email
+    });
+    authEvent.emit('user.cache.invalidate', { userId: String(savedUser._id) });
+
+    return res.status(200).json({ message: 'Password change successful' });
+  } catch (err) {
+    if (err && err.code === 'RATE_LIMITED') {
+      return res.status(429).json({ success: false, msg: 'Too many password reset attempts' });
+    }
+    if (err && err.code === 'RATE_LIMIT_UNAVAILABLE') {
+      winston.error('Password reset rate limit unavailable');
+      return res.status(503).json({ success: false, msg: 'Password reset temporarily unavailable' });
+    }
+    winston.error('Password reset failed');
+    return res.status(500).send({ success: false, msg: 'Error saving object.' });
+  }
 })
 
 /**
@@ -1068,25 +1248,26 @@ router.put('/resetpsw/:resetpswrequestid', function (req, res) {
  * if no
  */
 router.get('/checkpswresetkey/:resetpswrequestid', function (req, res) {
-  winston.debug("--> CHECK RESET PSW REQUEST ID", req.params.resetpswrequestid);
+  var resetToken = req.params.resetpswrequestid;
+  if (!RESET_TOKEN_PATTERN.test(resetToken)) {
+    return res.status(404).send({ success: false, msg: 'Invalid password reset key' });
+  }
 
-  User.findOne({ resetpswrequestid: req.params.resetpswrequestid }, function (err, user) {
-
+  User.exists({
+    resetpswrequestid: hashResetToken(resetToken),
+    resetpswrequestexpires: { $gt: new Date() },
+    status: 100
+  }, function (err, exists) {
     if (err) {
-      winston.error('--> CHECK RESET PSW REQUEST ID - Error getting user ', err)
-      return (err);
+      winston.error('Password reset key check failed');
+      return res.status(500).send({ success: false, msg: 'Error checking password reset key' });
     }
 
-    if (!user) {
-      winston.warn('Invalid password reset key' );
+    if (!exists) {
       return res.status(404).send({ success: false, msg: 'Invalid password reset key' });
     }
 
-    if (user) {
-
-      res.status(200).json({ message: 'Valid password reset key', user: user });
-
-    }
+    return res.status(200).json({ success: true });
   });
 })
 

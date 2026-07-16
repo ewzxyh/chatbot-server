@@ -37,7 +37,7 @@ class UserService {
                     
                 }
 
-                winston.verbose('User created', savedUser.toObject());
+                winston.verbose('User created');
                 return resolve(savedUser);
             });
         });

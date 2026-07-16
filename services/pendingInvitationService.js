@@ -65,59 +65,35 @@ class Pending_Invitation {
     });
   };
 
-  checkNewUserInPendingInvitationAndSavePrcjUser(newUserEmail, newUserId) {
+  async checkNewUserInPendingInvitationAndSavePrcjUser(newUserEmail, newUserId) {
     winston.debug('** ** CHECK NEW USER EMAIL ** **');
-    var that = this;
-    return new Promise(function (resolve, reject) {
+    var pendinginvitations = await PendingInvitation.find({ email: newUserEmail }).exec();
+    if (!pendinginvitations.length) {
+      return { msg: 'New user email not found in pending invitation' };
+    }
 
-      return PendingInvitation.find({ email: newUserEmail }, function (err, pendinginvitations) {
-        if (err) {
-          winston.error('CHECK NEW USER EMAIL IN PENDING INVITATION ** ERROR ** ', err);
-          return reject({ msg: 'Error getting pending invitation' });
-        }
-        if (!pendinginvitations.length) {
-          winston.warn('CHECK NEW USER EMAIL IN PENDING INVITATION ** OBJECT NOT FOUND with email:  '+newUserEmail);
-          return resolve({ msg: 'New user email not found in pending invitation' });
-        }
+    var savedProjectUsers = [];
+    for (var invite of pendinginvitations) {
+      var savedProjectUser = await Project_user.findOne({
+        id_project: invite.id_project,
+        id_user: newUserId
+      }).exec();
+      if (!savedProjectUser) {
+        savedProjectUser = await new Project_user({
+          id_project: invite.id_project,
+          id_user: newUserId,
+          role: invite.role,
+          roleType: RoleConstants.TYPE_AGENTS,
+          user_available: true,
+          createdBy: invite.createdBy,
+          updatedBy: invite.createdBy
+        }).save();
+      }
+      await PendingInvitation.deleteOne({ _id: invite._id }).exec();
+      savedProjectUsers.push(savedProjectUser);
+    }
 
-        winston.debug('** ** CHECK NEW USER EMAIL ** PENDING INVITATION FOUND ** SAVE A NEW PROJECT USER', pendinginvitations);
-
-        pendinginvitations.forEach(invite => {
-
-          winston.debug('** ** CHECK NEW USER EMAIL ** PENDING INVITATION FOUND ** PENDING INVITATION ROLE', invite.role);
-          winston.debug('** ** CHECK NEW USER EMAIL ** PENDING INVITATION FOUND ** PENDING INVITATION PRJCT ID', invite.id_project);
-
-          var newProject_user = new Project_user({
-            // _id: new mongoose.Types.ObjectId(),
-            id_project: invite.id_project,
-            id_user: newUserId,
-            role: invite.role,
-            roleType : RoleConstants.TYPE_AGENTS,   
-            user_available: true,
-            createdBy: invite.createdBy,
-            updatedBy: invite.createdBy
-          });
-
-          return newProject_user.save(function (err, savedProject_user) {
-            if (err) {
-              winston.warn('--- > ERROR ', err)
-              return reject({ msg: 'Error saving project user.' });
-
-            }
-            that.removePendingInvitation(invite._id)
-
-            //cancella inviti pending
-            winston.debug('** ** CHECK NEW USER EMAIL ** PENDING INVITATION FOUND ** SAVED PROJECT USER', savedProject_user);
-            return resolve(savedProject_user);
-          });
-
-
-          // return resolve(pendinginvitation);
-        });
-      });
-      // });
-    });
-
+    return savedProjectUsers;
   }
 
   removePendingInvitation(pendingInvitationId) {

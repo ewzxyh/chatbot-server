@@ -4,7 +4,7 @@ function normalizeEmail(email) {
 
 function getSuperAdminEmails() {
   var emails = [];
-  var adminEmail = process.env.ADMIN_EMAIL || 'redacted@example.invalid';
+  var adminEmail = process.env.ADMIN_EMAIL || '';
   if (adminEmail) {
     emails.push(adminEmail);
   }

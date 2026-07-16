@@ -1,5 +1,6 @@
 var express = require('express');
 var router = express.Router();
+var crypto = require('crypto');
 
 var User = require("../models/user");
 var emailService = require("../services/emailService");
@@ -170,12 +171,11 @@ router.put('/changepsw', function (req, res) {
 });
 
 router.get('/resendverifyemail', function (req, res) {
-  winston.debug('RE-SEND VERIFY EMAIL - LOGGED USER ', req.user);
-  console.log("resendverifyemail req.user", req.user)
+  winston.debug('RE-SEND VERIFY EMAIL');
   let user = req.user;
   try {
     // TODO req.user.email is null for bot visitor
-    let verify_email_code = String(Math.floor(100000 + Math.random() * 900000));
+    let verify_email_code = crypto.randomBytes(32).toString('hex');
     let redis_client = req.app.get('redis_client');
     let key = "emailverify:verify-" + verify_email_code;
     let obj = { _id: user._id, email: user.email}

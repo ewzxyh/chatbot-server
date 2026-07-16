@@ -325,8 +325,11 @@ class EmailService {
       sender: mail.sender
     };
 
-    winston.debug('mailOptions', mailOptions);
-    winston.debug(' mail.config', mail.config);
+    winston.debug('Email send requested', {
+      hasRecipient: Boolean(mailOptions.to),
+      hasHtml: Boolean(mailOptions.html),
+      hasText: Boolean(mailOptions.text)
+    });
 
     if (!mail.to) {
       // return winston.warn("EmailService send method. to field is not defined", mailOptions);
@@ -343,7 +346,7 @@ class EmailService {
         return winston.error("Error sending email ", { error: error, mailConfig: mail.config });
       }
       winston.verbose('Email sent:', { info: info });
-      winston.debug('Email sent:', { info: info, mailOptions: mailOptions });
+      winston.debug('Email sent:', { info: info });
 
       if (quoteEnabled && quoteEnabled === true) {
         emailEvent.emit('email.send.quote', payload);

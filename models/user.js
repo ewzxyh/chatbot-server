@@ -33,8 +33,17 @@ var UserSchema = new Schema({
         type: String,
         select: false
     },
+    resetpswrequestexpires: {
+        type: Date,
+        select: false
+    },
     signedInAt: {
         type: Date
+    },
+    sessionVersion: {
+        type: Number,
+        required: true,
+        default: 0
     },
 
     // db.users.find({authUrl: {$exists : false }}).forEach(function(mydoc) {

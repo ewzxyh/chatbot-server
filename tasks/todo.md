@@ -199,6 +199,29 @@ distintos. O conector grava diretamente e o evento `message.sending` grava de no
 - `npx ultracite check` nao executou porque o repositorio nao possui configuracao nem dependencia local do Ultracite.
 - A auditoria independente aprovou a mudança para o deployment atual de um único processo servidor.
 
+# Cadastro, recuperacao de senha e administracao de usuarios
+
+- [x] Validar entradas do cadastro publico sem alterar o fluxo CasePay.
+- [x] Tornar tokens de reset aleatorios, armazenados como hash, expiraveis e de uso unico.
+- [x] Criar endpoints superadmin para criar e excluir logicamente usuarios.
+- [x] Proteger self-delete, superadmins e usuarios vinculados a projetos.
+- [ ] Rodar testes focais, auditar, criar commit, push e publicar na VPS DEV.
+
+## Criterios de aceite
+
+- Senhas, hashes e tokens nao aparecem em respostas ou logs.
+- Pedido de reset nao revela se o e-mail existe e novos tokens expiram em uma hora.
+- Criacao administrativa usa o hook de hash existente e retorna apenas dados publicos.
+- Exclusao administrativa nunca remove fisicamente um usuario nem deixa vinculos orfaos.
+
+## Revisao
+
+- A suite focal de autenticacao e administracao passou com 14 casos.
+- O cadastro e o reset aplicam limites compativeis com bcrypt e nao registram senhas ou tokens.
+- O reset usa token aleatorio de 32 bytes, SHA-256 no banco, validade de uma hora, consumo atomico e revogacao das sessoes anteriores.
+- A criacao e a exclusao administrativa exigem superadmin; self-delete, superadmins e usuarios vinculados a projetos permanecem protegidos.
+- A auditoria independente aprovou a implementacao sem achados criticos ou altos.
+
 # Historico de atividades ativo por padrao
 
 - [x] Ativar o arquivamento quando `ACTIVITY_HISTORY_ENABLED` estiver ausente.
