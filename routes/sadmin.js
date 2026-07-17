@@ -35,6 +35,7 @@ var authEvent = require('../event/authEvent');
 var privacyService = require('../services/privacyService');
 var privacyRetentionService = require('../services/privacyRetentionService');
 var chat21GroupRepairService = require('../services/chat21GroupRepairService');
+var uazapiAccountService = require('../services/uazapiAccountService');
 var { check, validationResult } = require('express-validator');
 
 var auth = [passport.authenticate(['basic', 'jwt'], { session: false }), validtoken, superAdminCheck];
@@ -229,6 +230,63 @@ async function recordNotificationTest(status, result, error, req) {
     }
   });
 }
+
+var UAZAPI_ERROR_MESSAGES = {
+  uazapi_proxy_not_configured: 'UAZAPI account proxy is not configured',
+  uazapi_upstream_timeout: 'UAZAPI account service timed out',
+  uazapi_upstream_error: 'UAZAPI account service request failed',
+  uazapi_proxy_error: 'UAZAPI account proxy request failed'
+};
+
+async function proxyUazapiAccountRequest(res, requestFactory) {
+  res.set('Cache-Control', 'no-store');
+  try {
+    var result = await requestFactory();
+    var statusCode = result && result.status ? result.status : 200;
+    if (statusCode === 204) return res.status(statusCode).send();
+    return res.status(statusCode).json(result && result.data);
+  } catch (error) {
+    var errorCode = error && UAZAPI_ERROR_MESSAGES[error.code] ? error.code : 'uazapi_proxy_error';
+    var errorStatus = error && error.statusCode;
+    var safeStatus = errorStatus >= 400 && errorStatus <= 599 ? errorStatus : 502;
+    return res.status(safeStatus).json({
+      error: {
+        code: errorCode,
+        message: UAZAPI_ERROR_MESSAGES[errorCode]
+      }
+    });
+  }
+}
+
+router.get('/uazapi-accounts', auth, function (req, res) {
+  return proxyUazapiAccountRequest(res, function () {
+    return uazapiAccountService.listAccounts();
+  });
+});
+
+router.post('/uazapi-accounts', auth, function (req, res) {
+  return proxyUazapiAccountRequest(res, function () {
+    return uazapiAccountService.createAccount(req.body);
+  });
+});
+
+router.put('/uazapi-accounts/:id', auth, function (req, res) {
+  return proxyUazapiAccountRequest(res, function () {
+    return uazapiAccountService.updateAccount(req.params.id, req.body);
+  });
+});
+
+router.delete('/uazapi-accounts/:id', auth, function (req, res) {
+  return proxyUazapiAccountRequest(res, function () {
+    return uazapiAccountService.deleteAccount(req.params.id);
+  });
+});
+
+router.post('/uazapi-accounts/:id/test', auth, function (req, res) {
+  return proxyUazapiAccountRequest(res, function () {
+    return uazapiAccountService.testAccount(req.params.id);
+  });
+});
 
 router.get('/stats', auth, async function (req, res) {
   try {
