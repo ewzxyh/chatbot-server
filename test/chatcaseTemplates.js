@@ -22,6 +22,7 @@ function getFlowSnapshot(template) {
     actions: intent.actions.map((action) => ({
       actionId: action._tdActionId,
       buttons: getActionButtons(action).map((button) => ({
+        type: button.type,
         uid: button.uid,
         action: button.action
       }))
@@ -161,6 +162,11 @@ describe('ChatCase chatbot templates', () => {
           actionIds.push(action._tdActionId);
 
           getActionButtons(action).forEach((button) => {
+            assert.strictEqual(
+              button.type,
+              'action',
+              `${template._id}: connected buttons should be action buttons`
+            );
             assert(button.uid, `${template._id}: every button should have a stable id`);
             assert(/^#.+/.test(button.action || ''), `${template._id}: every button should persist its target`);
             assert(

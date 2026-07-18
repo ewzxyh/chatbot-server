@@ -491,6 +491,7 @@ function assignFlowConnections(template, referenceMap) {
       action._tdActionId = actionId;
       getActionButtons(action).forEach((button, buttonIndex) => {
         const targetId = resolveButtonTarget(referenceMap, button, template._id);
+        button.type = 'action';
         button.uid = `${actionId}-button-${buttonIndex + 1}`;
         button.action = `#${targetId}`;
         adjacency.get(item.intent_id).push(targetId);
