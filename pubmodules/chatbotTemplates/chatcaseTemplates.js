@@ -236,7 +236,11 @@ function createActionFallbackForChannel(action, channel) {
     return null;
   }
 
-  return messageAction(extractActionFallbackText(action));
+  const fallback = messageAction(extractActionFallbackText(action));
+  if (action._tdActionId) {
+    fallback._tdActionId = action._tdActionId;
+  }
+  return fallback;
 }
 
 function sanitizeIntentsForChannel(intents, channel) {
@@ -421,8 +425,147 @@ function intent({ id, name, question, answer, buttons, aliases, handoff, x, y })
   return item;
 }
 
+const FLOW_LAYOUT = {
+  originX: 160,
+  originY: 160,
+  columnGap: 520,
+  rowGap: 720,
+  disconnectedRows: 6
+};
+
+function normalizeFlowReference(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getActionButtons(action) {
+  const commands = action && action.attributes && Array.isArray(action.attributes.commands)
+    ? action.attributes.commands
+    : [];
+  const messageCommand = commands.find((command) => command.type === 'message' && command.message);
+  const attachment = messageCommand && messageCommand.message.attributes &&
+    messageCommand.message.attributes.attachment;
+  return attachment && Array.isArray(attachment.buttons) ? attachment.buttons : [];
+}
+
+function addIntentReference(referenceMap, value, intentId) {
+  const reference = normalizeFlowReference(value);
+  if (!reference) {
+    return;
+  }
+  const intentIds = referenceMap.get(reference) || [];
+  if (!intentIds.includes(intentId)) {
+    intentIds.push(intentId);
+  }
+  referenceMap.set(reference, intentIds);
+}
+
+function buildIntentReferenceMap(intents) {
+  const referenceMap = new Map();
+  intents.forEach((item) => {
+    addIntentReference(referenceMap, item.intent_id, item.intent_id);
+    addIntentReference(referenceMap, item.intent_display_name, item.intent_id);
+    addIntentReference(referenceMap, item.question, item.intent_id);
+    const aliases = item.attributes && Array.isArray(item.attributes.aliases)
+      ? item.attributes.aliases
+      : [];
+    aliases.forEach((alias) => addIntentReference(referenceMap, alias, item.intent_id));
+  });
+  return referenceMap;
+}
+
+function resolveButtonTarget(referenceMap, button, templateId) {
+  const reference = normalizeFlowReference(button.value || button.label);
+  const targets = referenceMap.get(reference) || [];
+  if (targets.length !== 1) {
+    const reason = targets.length ? 'ambiguous' : 'missing';
+    throw new Error(`${templateId}: ${reason} target for button "${button.label || button.value}"`);
+  }
+  return targets[0];
+}
+
+function assignFlowConnections(template, referenceMap) {
+  const adjacency = new Map(template.intents.map((item) => [item.intent_id, []]));
+  template.intents.forEach((item) => {
+    item.actions.forEach((action, actionIndex) => {
+      const actionId = `${item.intent_id}-action-${actionIndex + 1}`;
+      action._tdActionId = actionId;
+      getActionButtons(action).forEach((button, buttonIndex) => {
+        const targetId = resolveButtonTarget(referenceMap, button, template._id);
+        button.uid = `${actionId}-button-${buttonIndex + 1}`;
+        button.action = `#${targetId}`;
+        adjacency.get(item.intent_id).push(targetId);
+      });
+    });
+  });
+  return adjacency;
+}
+
+function getFlowDepths(intents, adjacency) {
+  const root = intents.find((item) => item.question === '\\start') || intents[0];
+  const depths = new Map([[root.intent_id, 0]]);
+  const queue = [root.intent_id];
+  while (queue.length) {
+    const sourceId = queue.shift();
+    const nextDepth = depths.get(sourceId) + 1;
+    (adjacency.get(sourceId) || []).forEach((targetId) => {
+      if (!depths.has(targetId)) {
+        depths.set(targetId, nextDepth);
+        queue.push(targetId);
+      }
+    });
+  }
+  return depths;
+}
+
+function assignFlowPositions(intents, adjacency) {
+  const depths = getFlowDepths(intents, adjacency);
+  const connectedByDepth = new Map();
+  intents.forEach((item) => {
+    if (!depths.has(item.intent_id)) {
+      return;
+    }
+    const depth = depths.get(item.intent_id);
+    const layer = connectedByDepth.get(depth) || [];
+    layer.push(item);
+    connectedByDepth.set(depth, layer);
+  });
+
+  connectedByDepth.forEach((layer, depth) => {
+    layer.forEach((item, row) => {
+      item.attributes.position = {
+        x: FLOW_LAYOUT.originX + depth * FLOW_LAYOUT.columnGap,
+        y: FLOW_LAYOUT.originY + row * FLOW_LAYOUT.rowGap
+      };
+    });
+  });
+
+  const maxDepth = Math.max(...Array.from(depths.values()));
+  const disconnected = intents.filter((item) => !depths.has(item.intent_id));
+  disconnected.forEach((item, index) => {
+    item.attributes.position = {
+      x: FLOW_LAYOUT.originX +
+        (maxDepth + 2 + Math.floor(index / FLOW_LAYOUT.disconnectedRows)) * FLOW_LAYOUT.columnGap,
+      y: FLOW_LAYOUT.originY + (index % FLOW_LAYOUT.disconnectedRows) * FLOW_LAYOUT.rowGap
+    };
+  });
+}
+
+function finalizeTemplateFlow(template) {
+  if (!Array.isArray(template.intents) || !template.intents.length) {
+    throw new Error(`${template._id}: template must include intents`);
+  }
+  const intentIds = template.intents.map((item) => item.intent_id);
+  if (new Set(intentIds).size !== intentIds.length) {
+    throw new Error(`${template._id}: duplicate intent_id`);
+  }
+  const referenceMap = buildIntentReferenceMap(template.intents);
+  const adjacency = assignFlowConnections(template, referenceMap);
+  assignFlowPositions(template.intents, adjacency);
+  return template;
+}
+
 function createTemplate(config) {
-  return Object.assign({
+  return finalizeTemplateFlow(Object.assign({
     certified: true,
     public: true,
     language: 'pt',
@@ -434,7 +577,7 @@ function createTemplate(config) {
     createdBy: 'chatcase',
     webhook_enabled: false,
     webhook_url: undefined
-  }, config);
+  }, config));
 }
 
 function wabaSuggestion({ name, category, body, variables, buttons, purpose, useCase, whenToUse }) {
@@ -678,6 +821,7 @@ const ECOMMERCE_ORDERS = createTemplate({
       question: '1',
       aliases: ['Status pedido', 'Pedido', 'Entrega'],
       answer: 'Para consultar seu pedido, envie o numero do pedido ou CPF usado na compra. Uma atendente confirma o status em seguida.',
+      buttons: ['Menu'],
       x: 420,
       y: 360
     }),
@@ -687,6 +831,7 @@ const ECOMMERCE_ORDERS = createTemplate({
       question: '2',
       aliases: ['Trocas', 'Devolucao', 'Trocas ou devolucoes'],
       answer: 'Para troca ou devolucao, envie o numero do pedido, o item e o motivo. Vamos conferir a politica e te orientar.',
+      buttons: ['Menu'],
       x: 680,
       y: 360
     }),
@@ -788,6 +933,7 @@ const CLINIC_SCHEDULING = createTemplate({
       question: '1',
       aliases: ['Agendar', 'Agendar horario'],
       answer: 'Para agendar, envie seu nome completo, especialidade desejada e os melhores dias/horarios para atendimento.',
+      buttons: ['Menu'],
       x: 420,
       y: 360
     }),
@@ -797,6 +943,7 @@ const CLINIC_SCHEDULING = createTemplate({
       question: '2',
       aliases: ['Valores', 'Convenios', 'Valores e convenios'],
       answer: 'Para valores e convenios, envie a especialidade ou procedimento. A recepcao confirma as opcoes disponiveis.',
+      buttons: ['Menu'],
       x: 680,
       y: 360
     }),
@@ -899,6 +1046,7 @@ const RESTAURANT_DELIVERY = createTemplate({
       question: '1',
       aliases: ['Cardapio', 'Ver cardapio'],
       answer: 'Envie aqui o link do seu cardapio ou substitua esta mensagem pelo cardapio do dia. Para fazer um pedido, informe os itens e o endereco de entrega.',
+      buttons: ['Menu'],
       x: 300,
       y: 360
     }),
@@ -908,6 +1056,7 @@ const RESTAURANT_DELIVERY = createTemplate({
       question: '2',
       aliases: ['Horario', 'Horario e entrega', 'Entrega'],
       answer: 'Nosso horario de atendimento e entrega pode ser configurado aqui. Informe seu bairro para confirmarmos prazo e taxa de entrega.',
+      buttons: ['Menu'],
       x: 540,
       y: 360
     }),
@@ -917,6 +1066,7 @@ const RESTAURANT_DELIVERY = createTemplate({
       question: '3',
       aliases: ['Pedido', 'Status do pedido', 'Status pedido'],
       answer: 'Para consultar seu pedido, envie o nome usado na compra ou o numero do pedido.',
+      buttons: ['Menu'],
       x: 780,
       y: 360
     }),
@@ -1019,6 +1169,7 @@ const REAL_ESTATE_LEADS = createTemplate({
       question: '1',
       aliases: ['Comprar', 'Comprar imovel'],
       answer: 'Para compra, envie bairro desejado, tipo de imovel, faixa de valor e se precisa de financiamento.',
+      buttons: ['Menu'],
       x: 300,
       y: 360
     }),
@@ -1028,6 +1179,7 @@ const REAL_ESTATE_LEADS = createTemplate({
       question: '2',
       aliases: ['Alugar', 'Alugar imovel'],
       answer: 'Para aluguel, envie bairro desejado, tipo de imovel, faixa de valor e data prevista de mudanca.',
+      buttons: ['Menu'],
       x: 540,
       y: 360
     }),
@@ -1037,6 +1189,7 @@ const REAL_ESTATE_LEADS = createTemplate({
       question: '3',
       aliases: ['Visita', 'Agendar visita'],
       answer: 'Para agendar visita, envie o codigo ou link do imovel e os melhores dias/horarios.',
+      buttons: ['Menu'],
       x: 780,
       y: 360
     }),
@@ -1138,6 +1291,7 @@ const EDUCATION_COURSES = createTemplate({
       question: '1',
       aliases: ['Cursos', 'Ver cursos'],
       answer: 'Informe a area de interesse ou substitua esta mensagem pela lista de cursos disponiveis da escola.',
+      buttons: ['Menu'],
       x: 300,
       y: 360
     }),
@@ -1147,6 +1301,7 @@ const EDUCATION_COURSES = createTemplate({
       question: '2',
       aliases: ['Valores', 'Valores e bolsas', 'Bolsas'],
       answer: 'Para valores e bolsas, envie o curso de interesse e a modalidade desejada. Um consultor confirma as condicoes.',
+      buttons: ['Menu'],
       x: 540,
       y: 360
     }),
@@ -1156,6 +1311,7 @@ const EDUCATION_COURSES = createTemplate({
       question: '3',
       aliases: ['Matricula', 'Fazer matricula'],
       answer: 'Para iniciar a matricula, envie nome completo, curso desejado, telefone e melhor horario para contato.',
+      buttons: ['Menu'],
       x: 780,
       y: 360
     }),

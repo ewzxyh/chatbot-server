@@ -11,6 +11,47 @@ function getIntentButtons(intent) {
     messageCommand.message.attributes.attachment.buttons || [];
 }
 
+function getActionButtons(action) {
+  return getIntentButtons({ actions: [action] });
+}
+
+function getFlowSnapshot(template) {
+  return template.intents.map((intent) => ({
+    intentId: intent.intent_id,
+    position: intent.attributes.position,
+    actions: intent.actions.map((action) => ({
+      actionId: action._tdActionId,
+      buttons: getActionButtons(action).map((button) => ({
+        uid: button.uid,
+        action: button.action
+      }))
+    }))
+  }));
+}
+
+function getReachableIntentIds(template) {
+  const startIntent = template.intents.find((intent) => intent.question === '\\start');
+  const intentIds = new Set(template.intents.map((intent) => intent.intent_id));
+  const reachable = new Set(startIntent ? [startIntent.intent_id] : []);
+  const queue = startIntent ? [startIntent] : [];
+
+  while (queue.length) {
+    const currentIntent = queue.shift();
+    currentIntent.actions.forEach((action) => {
+      getActionButtons(action).forEach((button) => {
+        const targetId = String(button.action || '').replace(/^#/, '');
+        if (!intentIds.has(targetId) || reachable.has(targetId)) {
+          return;
+        }
+        reachable.add(targetId);
+        queue.push(template.intents.find((intent) => intent.intent_id === targetId));
+      });
+    });
+  }
+
+  return reachable;
+}
+
 describe('ChatCase chatbot templates', () => {
   it('lists all certified local templates with import metadata', () => {
     const templates = chatcaseTemplates.listMetadata();
@@ -106,6 +147,92 @@ describe('ChatCase chatbot templates', () => {
     });
   });
 
+  it('persists valid block connections when every template is imported', () => {
+    chatcaseTemplates.listMetadata().forEach((template) => {
+      const imported = chatcaseTemplates.getTemplatePayloadById(template._id);
+      const serialized = JSON.parse(JSON.stringify(imported));
+      const intentIds = new Set(imported.intents.map((intent) => intent.intent_id));
+      const actionIds = [];
+      const buttonIds = [];
+
+      imported.intents.forEach((intent) => {
+        intent.actions.forEach((action) => {
+          assert(action._tdActionId, `${template._id}: every action should have a stable id`);
+          actionIds.push(action._tdActionId);
+
+          getActionButtons(action).forEach((button) => {
+            assert(button.uid, `${template._id}: every button should have a stable id`);
+            assert(/^#.+/.test(button.action || ''), `${template._id}: every button should persist its target`);
+            assert(
+              intentIds.has(button.action.slice(1)),
+              `${template._id}: button target ${button.action} should reference an imported block`
+            );
+            buttonIds.push(button.uid);
+          });
+        });
+      });
+
+      assert.strictEqual(new Set(actionIds).size, actionIds.length, `${template._id}: action ids should be unique`);
+      assert.strictEqual(new Set(buttonIds).size, buttonIds.length, `${template._id}: button ids should be unique`);
+      assert.deepStrictEqual(
+        getFlowSnapshot(serialized),
+        getFlowSnapshot(imported),
+        `${template._id}: serialization should preserve block connections`
+      );
+
+      const exported = chatcaseTemplates.getTemplateExportById(template._id);
+      assert.deepStrictEqual(
+        getFlowSnapshot(exported),
+        getFlowSnapshot(imported),
+        `${template._id}: exported import payload should preserve block connections`
+      );
+    });
+  });
+
+  it('assigns deterministic initial positions without overlapping blocks', () => {
+    chatcaseTemplates.listMetadata().forEach((template) => {
+      const firstImport = chatcaseTemplates.getTemplatePayloadById(template._id);
+      const secondImport = chatcaseTemplates.getTemplatePayloadById(template._id);
+      const firstPositions = firstImport.intents.map((intent) => ({
+        intentId: intent.intent_id,
+        position: intent.attributes.position
+      }));
+      const positionKeys = firstPositions.map(({ position }) => `${position.x}:${position.y}`);
+
+      firstPositions.forEach(({ position }) => {
+        assert(Number.isFinite(position.x), `${template._id}: initial x position should be numeric`);
+        assert(Number.isFinite(position.y), `${template._id}: initial y position should be numeric`);
+      });
+      assert.strictEqual(
+        new Set(positionKeys).size,
+        positionKeys.length,
+        `${template._id}: initial blocks should not overlap`
+      );
+      assert.deepStrictEqual(
+        firstPositions,
+        secondImport.intents.map((intent) => ({
+          intentId: intent.intent_id,
+          position: intent.attributes.position
+        })),
+        `${template._id}: repeated imports should use the same initial positions`
+      );
+    });
+  });
+
+  it('keeps imported template blocks reachable except for the fallback block', () => {
+    chatcaseTemplates.listMetadata().forEach((template) => {
+      const imported = chatcaseTemplates.getTemplatePayloadById(template._id);
+      const reachable = getReachableIntentIds(imported);
+      const disconnected = imported.intents.filter((intent) => !reachable.has(intent.intent_id));
+
+      assert.deepStrictEqual(
+        disconnected.map((intent) => intent.intent_display_name),
+        ['defaultFallback'],
+        `${template._id}: only the fallback block should remain intentionally disconnected`
+      );
+    });
+  });
+
   it('filters template metadata and payloads by channel compatibility without scoping generic flows', () => {
     const casezapTemplates = chatcaseTemplates.listMetadata({ channel: 'casezap' });
     assert(casezapTemplates.length >= 6, 'casezap should list local templates');
@@ -191,6 +318,7 @@ describe('ChatCase chatbot templates', () => {
 
   it('classifies WABA-specific actions with a safe text fallback for CaseZap', () => {
     const action = {
+      _tdActionId: 'stable-action-id',
       _tdActionType: 'whatsapp_static',
       attributes: {
         body: 'Olá, escolha uma opção no menu.'
@@ -204,6 +332,7 @@ describe('ChatCase chatbot templates', () => {
     assert.strictEqual(compatibility.reason, 'waba_action_on_non_waba_channel');
 
     const fallback = chatcaseTemplates.createActionFallbackForChannel(action, 'casezap');
+    assert.strictEqual(fallback._tdActionId, action._tdActionId);
     assert.strictEqual(fallback._tdActionType, 'reply');
     assert.strictEqual(fallback.text, 'Olá, escolha uma opção no menu.');
   });
