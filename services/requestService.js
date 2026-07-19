@@ -54,6 +54,23 @@ class RequestService {
     return Boolean(request && request.skipDepartmentBot === true);
   }
 
+  getDraftParticipants(sourcePage) {
+    if (typeof sourcePage !== 'string' || !sourcePage.includes('td_draft=true')) {
+      return [];
+    }
+
+    const match = sourcePage.match(/[?&]tiledesk_participants=([^&#]*)/);
+    if (!match) {
+      return [];
+    }
+
+    return match[1]
+      .split(',')
+      .filter(function(participant) {
+        return /^bot_[a-f\d]{24}$/i.test(participant);
+      });
+  }
+
   resolveOperatorsForAssignment(result) {
     if (!result) {
       return [];
@@ -527,6 +544,8 @@ class RequestService {
     let departmentid = request.departmentid || 'default';
     let createdBy = request.createdBy || project_user_id || "system";
     const skipDepartmentBot = this.shouldSkipDepartmentBot(request);
+    const draftSourcePage = attributes?.sourcePage || sourcePage;
+    const draftParticipants = this.getDraftParticipants(draftSourcePage);
 
     // Utils and flags
     let payload;
@@ -589,7 +608,7 @@ class RequestService {
       payload = { project, request };
 
       // Test conversation
-      if (attributes?.sourcePage?.includes("td_draft=true")) {
+      if (draftSourcePage?.includes("td_draft=true")) {
         winston.verbose("is a test conversation --> skip quote availability check");
         isTestConversation = true;
       }
@@ -615,6 +634,10 @@ class RequestService {
       }
 
       // Assignment
+      if (isTestConversation && participants.length === 0 && draftParticipants.length > 0) {
+        participants.push(...draftParticipants);
+      }
+
       if (participants.length === 0) {
         const operators = this.resolveOperatorsForAssignment(result);
         if (operators?.length > 0) {

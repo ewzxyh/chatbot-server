@@ -951,6 +951,7 @@ describe('RequestRoute', () => {
         let savedPU = savedProjectAndPU.project_user;
         leadService.createIfNotExists("Lead Fullname", "redacted@example.invalid", savedProject._id).then((createdLead) => {
           let now = Date.now();
+          let draftBotId = savedUser._id.toString();
           let request = {
             request_id: "request_id-exludeDraftConversations-" + now, 
             project_user_id: savedPU._id,
@@ -959,13 +960,15 @@ describe('RequestRoute', () => {
             first_text: "first_text",
             lead: createdLead,
             requester: savedPU,
-            attributes: { sourcePage: "https://widget-pre.tiledesk.com/v2/index.html?tiledesk_projectid=5ce3d1ceb25ad30017279999&td_draft=true" }
+            attributes: { sourcePage: "https://widget-pre.tiledesk.com/v2/index.html?tiledesk_projectid=5ce3d1ceb25ad30017279999&tiledesk_participants=bot_" + draftBotId + "&td_draft=true" }
           }
 
           requestService.create(request).then(async (savedRequest) => {
             
             // Case 1 - request with source page that contains td_draft
             expect(savedRequest.draft).to.equal(true);
+            expect(savedRequest.participants).to.deep.equal(["bot_" + draftBotId]);
+            expect(savedRequest.participantsBots).to.deep.equal([draftBotId]);
 
             // Case 2 - request without source page that contains td_draft
             //expect(savedRequest.draft).to.be.undefined;
