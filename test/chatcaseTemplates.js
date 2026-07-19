@@ -21,6 +21,8 @@ function getFlowSnapshot(template) {
     position: intent.attributes.position,
     actions: intent.actions.map((action) => ({
       actionId: action._tdActionId,
+      actionType: action._tdActionType,
+      intentName: action.intentName,
       buttons: getActionButtons(action).map((button) => ({
         type: button.type,
         uid: button.uid,
@@ -36,11 +38,13 @@ function getReachableIntentIds(template) {
   const reachable = new Set(startIntent ? [startIntent.intent_id] : []);
   const queue = startIntent ? [startIntent] : [];
 
-  while (queue.length) {
-    const currentIntent = queue.shift();
-    currentIntent.actions.forEach((action) => {
-      getActionButtons(action).forEach((button) => {
-        const targetId = String(button.action || '').replace(/^#/, '');
+    while (queue.length) {
+      const currentIntent = queue.shift();
+      currentIntent.actions.forEach((action) => {
+      const targets = getActionButtons(action).map((button) => button.action);
+      if (action._tdActionType === 'intent') targets.push(action.intentName);
+      targets.forEach((target) => {
+        const targetId = String(target || '').replace(/^#/, '');
         if (!intentIds.has(targetId) || reachable.has(targetId)) {
           return;
         }
@@ -192,6 +196,31 @@ describe('ChatCase chatbot templates', () => {
         getFlowSnapshot(imported),
         `${template._id}: exported import payload should preserve block connections`
       );
+    });
+  });
+
+  it('uses the editor contract for start reload, removal and reconnection', () => {
+    chatcaseTemplates.listMetadata().forEach((template) => {
+      const imported = chatcaseTemplates.getTemplatePayloadById(template._id);
+      let start = imported.intents.find((intent) => intent.question === '\\start');
+      assert.strictEqual(start.actions.length, 1, `${template._id}: start should expose one connection`);
+      assert.strictEqual(start.actions[0]._tdActionType, 'intent');
+      assert(/^#.+/.test(start.actions[0].intentName));
+
+      let persisted = JSON.parse(JSON.stringify(imported));
+      start = persisted.intents.find((intent) => intent.question === '\\start');
+      assert(start.actions[0].intentName, `${template._id}: start connection should survive reload`);
+
+      start.actions[0].intentName = null;
+      persisted = JSON.parse(JSON.stringify(persisted));
+      start = persisted.intents.find((intent) => intent.question === '\\start');
+      assert.strictEqual(start.actions[0].intentName, null, `${template._id}: removal should survive reload`);
+
+      const replacement = persisted.intents.find((intent) => intent.intent_display_name === 'human_handoff');
+      start.actions[0].intentName = `#${replacement.intent_id}`;
+      persisted = JSON.parse(JSON.stringify(persisted));
+      start = persisted.intents.find((intent) => intent.question === '\\start');
+      assert.strictEqual(start.actions[0].intentName, `#${replacement.intent_id}`);
     });
   });
 

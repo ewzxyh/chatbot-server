@@ -483,12 +483,28 @@ function resolveButtonTarget(referenceMap, button, templateId) {
   return targets[0];
 }
 
+function normalizeStartConnection(template) {
+  const start = template.intents.find((item) => item.question === '\\start');
+  const menu = template.intents.find((item) => item.intent_display_name === 'menu');
+  if (!start || !menu) {
+    throw new Error(`${template._id}: start and menu intents are required`);
+  }
+  start.actions = [{ _tdActionType: 'intent', intentName: `#${menu.intent_id}` }];
+}
+
 function assignFlowConnections(template, referenceMap) {
   const adjacency = new Map(template.intents.map((item) => [item.intent_id, []]));
   template.intents.forEach((item) => {
     item.actions.forEach((action, actionIndex) => {
       const actionId = `${item.intent_id}-action-${actionIndex + 1}`;
       action._tdActionId = actionId;
+      if (action._tdActionType === 'intent' && action.intentName) {
+        const targetId = action.intentName.replace(/^#/, '');
+        if (!adjacency.has(targetId)) {
+          throw new Error(`${template._id}: missing target for intent action "${action.intentName}"`);
+        }
+        adjacency.get(item.intent_id).push(targetId);
+      }
       getActionButtons(action).forEach((button, buttonIndex) => {
         const targetId = resolveButtonTarget(referenceMap, button, template._id);
         button.type = 'action';
@@ -559,6 +575,7 @@ function finalizeTemplateFlow(template) {
   if (new Set(intentIds).size !== intentIds.length) {
     throw new Error(`${template._id}: duplicate intent_id`);
   }
+  normalizeStartConnection(template);
   const referenceMap = buildIntentReferenceMap(template.intents);
   const adjacency = assignFlowConnections(template, referenceMap);
   assignFlowPositions(template.intents, adjacency);
