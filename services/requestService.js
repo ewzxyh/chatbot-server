@@ -553,6 +553,15 @@ class RequestService {
     let isVoiceConversation = false;
     let isStandardConversation = false;
 
+    if (draftSourcePage?.includes("td_draft=true")) {
+      winston.verbose("is a test conversation --> skip quote availability check");
+      isTestConversation = true;
+    }
+
+    if (isTestConversation && participants.length === 0 && draftParticipants.length > 0) {
+      participants.push(...draftParticipants);
+    }
+
     const context = {
       request: {
         request_id, project_user_id, lead_id, id_project,
@@ -607,14 +616,8 @@ class RequestService {
 
       payload = { project, request };
 
-      // Test conversation
-      if (draftSourcePage?.includes("td_draft=true")) {
-        winston.verbose("is a test conversation --> skip quote availability check");
-        isTestConversation = true;
-      }
-
       // Voice conversation
-      else if (channel?.name === "voice-vxml") {
+      if (!isTestConversation && channel?.name === "voice-vxml") {
         isVoiceConversation = true;
         const available = await qm.checkQuote(project, request, "voice_duration");
         if (!available) {
@@ -624,7 +627,7 @@ class RequestService {
       }
 
       // Standard conversation
-      else {
+      else if (!isTestConversation) {
         isStandardConversation = true;
         const available = await qm.checkQuote(project, request, "requests");
         if (!available) {
@@ -634,10 +637,6 @@ class RequestService {
       }
 
       // Assignment
-      if (isTestConversation && participants.length === 0 && draftParticipants.length > 0) {
-        participants.push(...draftParticipants);
-      }
-
       if (participants.length === 0) {
         const operators = this.resolveOperatorsForAssignment(result);
         if (operators?.length > 0) {

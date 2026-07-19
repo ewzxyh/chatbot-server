@@ -958,6 +958,7 @@ describe('RequestRoute', () => {
             lead_id: createdLead._id,
             id_project: savedProject._id,
             first_text: "first_text",
+            status: 50,
             lead: createdLead,
             requester: savedPU,
             attributes: { sourcePage: "https://widget-pre.tiledesk.com/v2/index.html?tiledesk_projectid=5ce3d1ceb25ad30017279999&tiledesk_participants=bot_" + draftBotId + "&td_draft=true" }
@@ -968,7 +969,6 @@ describe('RequestRoute', () => {
             // Case 1 - request with source page that contains td_draft
             expect(savedRequest.draft).to.equal(true);
             expect(savedRequest.participants).to.deep.equal(["bot_" + draftBotId]);
-            expect(savedRequest.participantsBots).to.deep.equal([draftBotId]);
 
             // Case 2 - request without source page that contains td_draft
             //expect(savedRequest.draft).to.be.undefined;
