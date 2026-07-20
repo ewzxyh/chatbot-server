@@ -406,11 +406,16 @@ class DataTableService {
     if (hasConditions(body)) {
       const matches = await TableRow.find(filter).sort({ createdAt: 1 });
       if (matches.length === 0) return undefined;
+      const matchedIds = matches.map(function (row) { return row._id; });
       const sizeDelta = computeUpdateDelta(matches, update);
       assertTableSizeLimit(table, sizeDelta);
       await TableRow.updateMany(filter, update);
       await incrementTableStats(id_project, id_table, 0, sizeDelta);
-      const updatedRows = await TableRow.find(filter).sort({ createdAt: 1 });
+      const updatedRows = await TableRow.find({
+        id_project: id_project,
+        id_table: id_table,
+        _id: { $in: matchedIds },
+      }).sort({ createdAt: 1 });
       return updatedRows.map(function (r) { return formatRow(r, schema); });
     }
 

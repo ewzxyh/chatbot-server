@@ -624,7 +624,7 @@ describe('Data Tables Route', () => {
                   .send({
                     must_match: 'all',
                     conditions: [{ column: 'name', operator: 'equal', value: 'Jane Baker' }],
-                    data: { repo: 99 },
+                    data: { name: 'Jane Updated' },
                   })
                   .end((err, res) => {
 
@@ -633,7 +633,7 @@ describe('Data Tables Route', () => {
 
                     res.should.have.status(200);
                     expect(res.body).to.be.an('array').that.has.lengthOf(1);
-                    expect(res.body[0].data.repo).to.equal(99);
+                    expect(res.body[0].data.name).to.equal('Jane Updated');
                     done();
                   });
               });
