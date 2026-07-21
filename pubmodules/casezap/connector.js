@@ -710,7 +710,13 @@ async function handleWebhook(integration, req, res) {
     var sender = leadId;
     var createdBy = leadId;
     var senderFullname = mapped.fullname || mapped.phone;
-    var messageAttributes = { casezapMessageId: mapped.messageId };
+    var messageAttributes = {
+      casezapMessageId: mapped.messageId,
+      payload: {
+        casezapIsSavedContact: mapped.isSavedContact,
+        casezapContactName: mapped.contactName
+      }
+    };
     if (mapped.quote) {
       messageAttributes.casezapQuote = mapped.quote;
     }

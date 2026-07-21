@@ -378,6 +378,7 @@ function mapInbound(webhookData) {
   var phone = extractPhone(chatid);
   var messageType = (message.messageType || message.type || '').toLowerCase();
   var senderName = message.senderName || chat.wa_name || chat.wa_contactName || '';
+  var contactName = typeof chat.wa_contactName === 'string' ? chat.wa_contactName.trim() : '';
   var fromMe = Boolean(message.fromMe || (message.key && message.key.fromMe));
 
   var result = {
@@ -385,6 +386,8 @@ function mapInbound(webhookData) {
     phone: phone,
     leadId: 'casezap-' + phone,
     fullname: fromMe ? null : (senderName || phone),
+    contactName: contactName,
+    isSavedContact: Boolean(contactName),
     fromMe: fromMe,
     isGroup: message.isGroup || chat.wa_isGroup || chatid.includes('@g.us'),
     timestamp: message.messageTimestamp || Date.now(),

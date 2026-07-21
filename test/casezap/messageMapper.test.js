@@ -20,7 +20,7 @@ describe('CaseZap messageMapper', function() {
       var webhook = {
         EventType: 'messages',
         message: { messageid: '3EB09D59070B', chatid: 'redacted@example.invalid', content: 'Ola teste', text: 'Ola teste', fromMe: false, isGroup: false, messageType: 'Conversation', senderName: 'Enzo Yoshida', messageTimestamp: 1777406588000 },
-        chat: { wa_name: 'Enzo Yoshida', wa_chatid: 'redacted@example.invalid', wa_isGroup: false }
+        chat: { wa_name: 'Enzo Yoshida', wa_contactName: 'Enzo salvo', wa_chatid: 'redacted@example.invalid', wa_isGroup: false }
       };
       var result = messageMapper.mapInbound(webhook);
       assert.strictEqual(result.text, 'Ola teste');
@@ -28,6 +28,8 @@ describe('CaseZap messageMapper', function() {
       assert.strictEqual(result.phone, '556284268492');
       assert.strictEqual(result.leadId, 'casezap-556284268492');
       assert.strictEqual(result.fullname, 'Enzo Yoshida');
+      assert.strictEqual(result.contactName, 'Enzo salvo');
+      assert.strictEqual(result.isSavedContact, true);
       assert.strictEqual(result.messageId, '3EB09D59070B');
       assert.strictEqual(result.fromMe, false);
       assert.strictEqual(result.isGroup, false);
@@ -49,6 +51,8 @@ describe('CaseZap messageMapper', function() {
       assert.strictEqual(result.type, 'text');
       assert.strictEqual(result.phone, '5511999999999');
       assert.strictEqual(result.messageId, '3EB0538DA65A59F6D8A251');
+      assert.strictEqual(result.contactName, '');
+      assert.strictEqual(result.isSavedContact, false);
     });
 
     it('should preserve quoted text message metadata from UazApi extended text payload', function() {
