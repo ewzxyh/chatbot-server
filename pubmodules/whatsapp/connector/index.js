@@ -31,6 +31,7 @@ const { TemplateManager } = require("./tiledesk/TemplateManager");
 const { WhatsappLogger } = require("./tiledesk/WhatsappLogger");
 const Utils = require("./tiledesk/Utils");
 const whatsappService = require("./tiledesk/WhatsappService");
+const whatsappIntegration = require("./utils/WhatsappIntegration");
 const Integration = require("../../../models/integrations");
 const departmentService = require("../../../services/departmentService");
 const operationalLogger = require("../../../services/operationalLogger");
@@ -68,6 +69,10 @@ let JOB_TOPIC_EXCHANGE = null;
 let BRAND_NAME = null;
 let FB_APP_ID = null;
 let CONFIGURATION_ID = null;
+
+function ensureWhatsappIntegration(settings, apiUrl, httpClient) {
+  return whatsappIntegration.ensure(settings, apiUrl || API_URL, httpClient || axios);
+}
 
 function getWebhookValue(body) {
   return body && body.entry && body.entry[0] && body.entry[0].changes && body.entry[0].changes[0] && body.entry[0].changes[0].value
@@ -235,22 +240,17 @@ router.get("/configure", async (req, res) => {
     });
   }
 
-  let settings = await utils.getSettingsByProjectId(project_id);
-  if (!settings) {
-    settings = await utils.getSettings(project_id, null);
-  }
+  const isNewManual = type === 'manual' && req.query.new === 'true';
+  let settings = isNewManual ? null : await utils.getSettingsByProjectId(project_id);
+  if (!settings && !isNewManual) settings = await utils.getSettings(project_id, null);
 
   let allInstances = await utils.getAllSettingsByProjectId(project_id);
 
   let departments = await getDepartments(project_id, token);
 
-  let proxy_url = BASE_URL + "/webhook/" + project_id;
+  let proxy_url = BASE_URL + "/webhook";
 
   if (settings) {
-
-    if (settings.source !== 'oauth') {
-      isOAuth = false;
-    }
 
     readHTMLFile("/configure.html", (err, html) => {
       let template = handlebars.compile(html);
@@ -260,7 +260,7 @@ router.get("/configure", async (req, res) => {
         token: token,
         proxy_url: proxy_url,
         wab_token: settings.wab_token,
-        verify_token: settings.verify_token,
+        verify_token: settings.verify_token || process.env.VERIFY_TOKEN,
         business_account_id: settings.business_account_id,
         phone_number: settings.phone_number,
         phone_number_id: settings.phone_number_id,
@@ -289,6 +289,7 @@ router.get("/configure", async (req, res) => {
       project_id: project_id,
       token: token,
       proxy_url: proxy_url,
+      verify_token: process.env.VERIFY_TOKEN,
       departments: departments,
       popup_view: popup_view,
       brand_name: BRAND_NAME,
@@ -347,24 +348,21 @@ router.get('/onboarding/callback', async (req, res) => {
     }
 
     let CONTENT_KEY = "whatsapp-" + waba_id;
-    await db.set(CONTENT_KEY, settings);
 
-    // Dual-write to integrations collection
     try {
-      await axios.post(API_URL + '/' + settings.project_id + '/integration', {
-        name: 'whatsapp',
-        value: {
-          phone_number_id: settings.phone_number_id,
-          waba_id: settings.waba_id,
-          phone_number: settings.phone_number,
-          verified_name: settings.verified_name
-        }
-      }, {
-        headers: { 'Authorization': 'JWT ' + settings.token }
-      });
+      await ensureWhatsappIntegration(settings);
     } catch(intErr) {
-      winston.error("(wab) Error creating integration document: " + intErr.message);
+      await tdClient.unsubscribe(subscription._id).catch(function() {});
+      const status = intErr.response && intErr.response.status || 500;
+      const data = intErr.response && intErr.response.data || {};
+      return res.status(status).send({
+        success: false,
+        code: data.error,
+        message: data.message || "Unable to connect this WhatsApp number"
+      });
     }
+
+    await db.set(CONTENT_KEY, settings);
 
     try {
       let register_result = await whatsappService.registerNumber(data.access_token, data.phone_number_id)
@@ -458,158 +456,79 @@ router.put("/update/department", async (req, res) => {
 router.post("/update", async (req, res) => {
   winston.verbose("(wab) /update");
 
-  let project_id = req.body.project_id;
-  let token = req.body.token;
-  let wab_token = req.body.wab_token;
-  let verify_token = req.body.verify_token;
-  let department_id = req.body.department;
-  let business_account_id = req.body.business_account_id;
+  const project_id = req.body.project_id;
+  const token = req.body.token;
+  const wab_token = req.body.wab_token;
+  const department_id = req.body.department;
+  const business_account_id = req.body.business_account_id;
+  const verify_token = process.env.VERIFY_TOKEN;
 
-  let CONTENT_KEY = "whatsapp-" + project_id;
-  let settings = await db.get(CONTENT_KEY);
+  if (!project_id || !token || !wab_token || !business_account_id || !verify_token) {
+    return res.status(400).send("Missing manual WhatsApp configuration");
+  }
 
-  let proxy_url = BASE_URL + "/webhook/" + project_id;
+  const twClient = new TiledeskWhatsapp({ token: wab_token, GRAPH_URL: GRAPH_URL, API_URL: API_URL });
+  let phoneInfo;
+  try {
+    const info = await twClient.getBusinessAccountInfo(business_account_id);
+    phoneInfo = info && info.data && info.data[0];
+    if (!phoneInfo || !phoneInfo.id) throw new Error("No WhatsApp phone number found");
+  } catch (err) {
+    winston.error("(wab) Error getting WAB Account Info", err && err.message);
+    return res.status(400).send("Unable to read this WhatsApp Business account");
+  }
 
-  // get departments
-  const tdChannel = new TiledeskChannel({
-    settings: { project_id: project_id, token: token },
-    API_URL: API_URL,
-  });
-  let departments = await tdChannel.getDepartments();
+  const contentKey = "whatsapp-" + business_account_id;
+  let settings = await db.get(contentKey);
+  let createdSubscription = null;
 
-  if (settings) {
-    settings.wab_token = wab_token;
-    settings.verify_token = verify_token;
-    settings.department_id = department_id;
-    settings.business_account_id = business_account_id;
-
-    const twClient = new TiledeskWhatsapp({
-      token: settings.wab_token,
-      GRAPH_URL: GRAPH_URL,
-      API_URL: API_URL
-    });
-
-    await twClient.getBusinessAccountInfo(business_account_id).then((info) => {
-      settings.phone_number_id = info.data[0].id;
-      settings.phone_number = info.data[0].display_phone_number;
-      settings.verified_name = info.data[0].verified_name;
-    }).catch((err) => {
-      winston.error("(wab) Error getting WAB Account Info");
-    })
-
-    await db.set(CONTENT_KEY, settings);
-
-    // Dual-write to integrations collection
+  if (!settings) {
+    const tdClient = new TiledeskSubscriptionClient({ API_URL: API_URL, project_id: project_id, token: token });
     try {
-      await axios.post(API_URL + '/' + project_id + '/integration', {
-        name: 'whatsapp',
-        value: {
-          phone_number_id: settings.phone_number_id,
-          waba_id: settings.business_account_id,
-          phone_number: settings.phone_number,
-          verified_name: settings.verified_name
-        }
-      }, {
-        headers: { 'Authorization': 'JWT ' + token }
+      createdSubscription = await tdClient.subscribe({
+        target: BASE_URL + "/tiledesk",
+        event: "message.create.request.channel.whatsapp"
       });
-    } catch(intErr) {
-      winston.error("(wab) Error creating integration document: " + intErr.message);
+    } catch (err) {
+      return res.status(502).send("Unable to subscribe the WhatsApp channel");
     }
 
-    readHTMLFile("/configure.html", (err, html) => {
-      var template = handlebars.compile(html);
-      var replacements = {
-        app_version: pjson.version,
-        project_id: project_id,
-        token: token,
-        proxy_url: proxy_url,
-        wab_token: settings.wab_token,
-        show_success_modal: true,
-        verify_token: settings.verify_token,
-        business_account_id: settings.business_account_id,
-        phone_number: settings.phone_number,
-        phone_number_id: settings.phone_number_id,
-        verified_name: settings.verified_name,
-        subscription_id: settings.subscriptionId,
-        department_id: settings.department_id,
-        departments: departments,
-        brand_name: BRAND_NAME
-      };
-      var html = template(replacements);
-      res.send(html);
-    });
-  } else {
-    const tdClient = new TiledeskSubscriptionClient({
-      API_URL: API_URL,
+    settings = {
+      source: 'manual',
       project_id: project_id,
       token: token,
-    });
-
-    const subscription_info = {
-      target: BASE_URL + "/tiledesk",
-      event: "message.create.request.channel.whatsapp",
+      subscriptionId: createdSubscription._id,
+      secret: REDACTED_SECRET
     };
-
-
-    tdClient.subscribe(subscription_info).then((data) => {
-      let subscription = data;
-      winston.debug("\n(wab) Subscription: ", subscription);
-
-      let settings = {
-        source: 'manual',
-        project_id: project_id,
-        token: token,
-        proxy_url: proxy_url,
-        subscriptionId: subscription._id,
-        secret: REDACTED_SECRET,
-        wab_token: wab_token,
-        verify_token: verify_token,
-        business_account_id: business_account_id,
-        department_id: department_id,
-      };
-
-      db.set(CONTENT_KEY, settings);
-      //let cnt = db.get(CONTENT_KEY);
-
-      readHTMLFile("/configure.html", (err, html) => {
-        var template = handlebars.compile(html);
-        var replacements = {
-          app_version: pjson.version,
-          project_id: project_id,
-          token: token,
-          proxy_url: proxy_url,
-          show_success_modal: true,
-          wab_token: settings.wab_token,
-          verify_token: settings.verify_token,
-          business_account_id: settings.business_account_id,
-          phone_number: settings.phone_number,
-          phone_number_id: settings.phone_number_id,
-          verified_name: settings.verified_name,
-          subscription_id: settings.subscriptionId,
-          department_id: settings.department_id,
-          departments: departments,
-          brand_name: BRAND_NAME
-        };
-        var html = template(replacements);
-        res.send(html);
-      });
-    }).catch((err) => {
-      readHTMLFile("/configure.html", (err, html) => {
-        var template = handlebars.compile(html);
-        var replacements = {
-          app_version: pjson.version,
-          project_id: project_id,
-          token: token,
-          proxy_url: proxy_url,
-          departments: departments,
-          show_error_modal: true,
-          brand_name: BRAND_NAME
-        };
-        var html = template(replacements);
-        res.send(html);
-      });
-    });
   }
+
+  Object.assign(settings, {
+    proxy_url: BASE_URL + "/webhook",
+    wab_token: wab_token,
+    verify_token: verify_token,
+    business_account_id: business_account_id,
+    waba_id: business_account_id,
+    department_id: department_id,
+    phone_number_id: phoneInfo.id,
+    phone_number: phoneInfo.display_phone_number,
+    verified_name: phoneInfo.verified_name
+  });
+
+  try {
+    await ensureWhatsappIntegration(settings);
+  } catch (err) {
+    if (createdSubscription) {
+      const tdClient = new TiledeskSubscriptionClient({ API_URL: API_URL, project_id: project_id, token: token });
+      await tdClient.unsubscribe(createdSubscription._id).catch(function() {});
+    }
+    const status = err.response && err.response.status || 500;
+    const data = err.response && err.response.data || {};
+    return res.status(status).send(data.message || "Unable to connect this WhatsApp number");
+  }
+
+  await db.set(contentKey, settings);
+  const params = new URLSearchParams({ project_id: project_id, token: token, type: 'oauth' });
+  return res.redirect(303, './configure?' + params.toString());
 });
 
 router.post("/getinfo", async (req, res) => {
@@ -2268,4 +2187,10 @@ async function getUserToken(tdChannel, whatsappChannel, settings) {
   });
 }
 
-module.exports = { router: router, startApp: startApp, hasStoredWabaMessage: hasStoredWabaMessage, setWabaMessageId: setWabaMessageId };
+module.exports = {
+  router: router,
+  startApp: startApp,
+  hasStoredWabaMessage: hasStoredWabaMessage,
+  setWabaMessageId: setWabaMessageId,
+  ensureWhatsappIntegration: ensureWhatsappIntegration
+};
