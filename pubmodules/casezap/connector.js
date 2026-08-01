@@ -856,7 +856,7 @@ async function sendToUazApi(domain, token, endpoint, body) {
   } catch (err) {
     if (err.response && err.response.status === 429) {
       winston.warn('CaseZap rate limited on ' + endpoint);
-      return null;
+      throw err;
     }
     throw err;
   }
@@ -919,21 +919,24 @@ async function resolveInboundMedia(integration, mapped) {
 }
 
 async function sendOutboundWithRetry(integration, phone, outbound) {
-  if (!outbound || !outbound.endpoint || !outbound.body) return;
+  if (!outbound || !outbound.endpoint || !outbound.body) return false;
   try {
     await sendToUazApi(integration.value.domain, integration.value.token, outbound.endpoint, outbound.body);
     winston.debug('CaseZap sent to ' + phone + ' via ' + outbound.endpoint);
+    return true;
   } catch (firstErr) {
     if (!isTransientProviderError(firstErr)) {
       winston.error('CaseZap send failed to ' + maskPhoneForLog(phone) + ': ' + describeProviderError(firstErr));
-      return;
+      return false;
     }
     winston.warn('CaseZap send failed, retrying: ' + describeProviderError(firstErr));
     await new Promise(function(resolve) { setTimeout(resolve, 2000); });
     try {
       await sendToUazApi(integration.value.domain, integration.value.token, outbound.endpoint, outbound.body);
+      return true;
     } catch (retryErr) {
       winston.error('CaseZap send failed after retry to ' + maskPhoneForLog(phone) + ': ' + describeProviderError(retryErr));
+      return false;
     }
   }
 }
@@ -1005,8 +1008,8 @@ async function sendOutboundMessage(message) {
         var plannedCommand = commandPlan[planIndex];
         if (plannedCommand.type === 'wait') {
           await new Promise(function(resolve) { setTimeout(resolve, plannedCommand.time); });
-        } else {
-          await sendOutboundWithRetry(integration, phone, plannedCommand.outbound);
+        } else if (!(await sendOutboundWithRetry(integration, phone, plannedCommand.outbound))) {
+          break;
         }
       }
       return;

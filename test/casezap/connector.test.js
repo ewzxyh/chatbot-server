@@ -474,6 +474,44 @@ describe('CaseZap connector', function() {
     ]);
   });
 
+  it('stops command messages after a definitive provider failure', async function() {
+    const originalFindOne = Integration.findOne;
+    const originalPost = axios.post;
+    const calls = [];
+
+    Integration.findOne = function() {
+      return Promise.resolve({ value: { status: 'active', domain: 'https://uazapi.example/', token: 'token-1' } });
+    };
+    axios.post = async function(url, body) {
+      calls.push({ url, body });
+      throw Object.assign(new Error('bad request'), { response: { status: 400 } });
+    };
+
+    try {
+      await sendOutboundMessage({
+        request: { channel: { name: 'casezap' }, lead: { lead_id: 'casezap-5511999999999' } },
+        status: MessageConstants.CHAT_MESSAGE_STATUS.SENDING,
+        channel_type: MessageConstants.CHANNEL_TYPE.GROUP,
+        id_project: 'project-1',
+        sender: 'agent-1',
+        attributes: {
+          commands: [
+            { type: 'message', message: { type: 'text', text: 'primeira' } },
+            { type: 'message', message: { type: 'text', text: 'segunda' } }
+          ]
+        }
+      });
+    } finally {
+      Integration.findOne = originalFindOne;
+      axios.post = originalPost;
+    }
+
+    assert.deepStrictEqual(calls, [{
+      url: 'https://uazapi.example/send/text',
+      body: { number: '5511999999999', text: 'primeira' }
+    }]);
+  });
+
   it('falls back to the original message when commands are invalid or media has no file', async function() {
     const originalFindOne = Integration.findOne;
     const originalPost = axios.post;
@@ -516,6 +554,7 @@ describe('CaseZap connector', function() {
 
   it('retries only transient provider failures', function() {
     assert.strictEqual(isTransientProviderError({ response: { status: 400 } }), false);
+    assert.strictEqual(isTransientProviderError({ response: { status: 429 } }), true);
     assert.strictEqual(isTransientProviderError({ response: { status: 503 } }), true);
     assert.strictEqual(isTransientProviderError({ code: 'ECONNRESET' }), true);
   });
