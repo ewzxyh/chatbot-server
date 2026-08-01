@@ -918,6 +918,21 @@ async function resolveInboundMedia(integration, mapped) {
   return mapped;
 }
 
+async function sendOutboundWithRetry(integration, phone, outbound) {
+  try {
+    await sendToUazApi(integration.value.domain, integration.value.token, outbound.endpoint, outbound.body);
+    winston.debug('CaseZap sent to ' + phone + ' via ' + outbound.endpoint);
+  } catch (firstErr) {
+    winston.warn('CaseZap send failed, retrying: ' + describeProviderError(firstErr));
+    await new Promise(function(resolve) { setTimeout(resolve, 2000); });
+    try {
+      await sendToUazApi(integration.value.domain, integration.value.token, outbound.endpoint, outbound.body);
+    } catch (retryErr) {
+      winston.error('CaseZap send failed after retry to ' + maskPhoneForLog(phone) + ': ' + describeProviderError(retryErr));
+    }
+  }
+}
+
 async function sendOutboundMessage(message) {
   try {
     if (!message || !message.request) return;
@@ -955,20 +970,24 @@ async function sendOutboundMessage(message) {
       phone = leadId.replace('casezap-', '');
     }
 
-    var outbound = messageMapper.mapOutbound(message, phone);
-
-    try {
-      await sendToUazApi(integration.value.domain, integration.value.token, outbound.endpoint, outbound.body);
-      winston.debug('CaseZap sent to ' + phone + ' via ' + outbound.endpoint);
-    } catch (firstErr) {
-      winston.warn('CaseZap send failed, retrying: ' + describeProviderError(firstErr));
-      await new Promise(function(resolve) { setTimeout(resolve, 2000); });
-      try {
-        await sendToUazApi(integration.value.domain, integration.value.token, outbound.endpoint, outbound.body);
-      } catch (retryErr) {
-        winston.error('CaseZap send failed after retry to ' + maskPhoneForLog(phone) + ': ' + describeProviderError(retryErr));
+    var commands = message.attributes && message.attributes.commands;
+    if (Array.isArray(commands) && commands.length > 0) {
+      for (var i = 0; i < commands.length; i++) {
+        var command = commands[i];
+        if (command.type === 'wait') {
+          await new Promise(function(resolve) { setTimeout(resolve, command.time); });
+        } else if (command.type === 'message' && command.message) {
+          await sendOutboundWithRetry(
+            integration,
+            phone,
+            messageMapper.mapOutbound(command.message, phone)
+          );
+        }
       }
+      return;
     }
+
+    await sendOutboundWithRetry(integration, phone, messageMapper.mapOutbound(message, phone));
 
   } catch (err) {
     winston.error('CaseZap outbound error: ' + describeProviderError(err));
@@ -1150,6 +1169,7 @@ module.exports = {
   extractConnectionStatus: extractConnectionStatus,
   extractWebhookReceipt: extractWebhookReceipt,
   hasStoredCaseZapMessage: hasStoredCaseZapMessage,
+  sendOutboundMessage: sendOutboundMessage,
   mapConnectionHealth: mapConnectionHealth,
   mapConnectionStatus: mapConnectionStatus,
   withCaseZapRequestLock: withCaseZapRequestLock,

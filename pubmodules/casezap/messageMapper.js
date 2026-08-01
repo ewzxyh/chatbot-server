@@ -551,6 +551,17 @@ function mapOutbound(tiledeskMessage, recipientPhone) {
     };
   }
 
+  if (type === 'sticker') {
+    return {
+      endpoint: '/send/media',
+      body: {
+        number: number,
+        file: outboundMediaUrl(),
+        type: 'sticker'
+      }
+    };
+  }
+
   if (type === 'image' || (metadata.type === 'image')) {
     return {
       endpoint: '/send/media',

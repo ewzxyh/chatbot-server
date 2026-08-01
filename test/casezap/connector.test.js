@@ -13,12 +13,16 @@ const {
   isTypingPresence,
   mapConnectionHealth,
   mapConnectionStatus,
+  sendOutboundMessage,
   shouldSkipCaseZapDepartmentBot,
   syncCaseZapChat21LastMessage,
   syncCaseZapRequestLastMessage
 } = require('../../pubmodules/casezap/connector');
 const Lead = require('../../models/lead');
 const leadService = require('../../services/leadService');
+const Integration = require('../../models/integrations');
+const axios = require('axios');
+const MessageConstants = require('../../models/messageConstants');
 
 describe('CaseZap connector', function() {
   it('resolves legacy project webhooks by secret so multiple instances can coexist', function() {
@@ -387,6 +391,86 @@ describe('CaseZap connector', function() {
       text: 'Ola',
       attributes: {}
     }), false);
+  });
+
+  it('sends command messages sequentially, including stickers and documents', async function() {
+    const originalFindOne = Integration.findOne;
+    const originalPost = axios.post;
+    const calls = [];
+
+    Integration.findOne = function() {
+      return Promise.resolve({
+        _id: 'integration-1',
+        value: {
+          status: 'active',
+          domain: 'https://uazapi.example/',
+          token: 'token-1'
+        }
+      });
+    };
+    axios.post = async function(url, body) {
+      calls.push({ url, body });
+      return { data: { success: true } };
+    };
+
+    try {
+      await sendOutboundMessage({
+        request: {
+          channel: { name: 'casezap' },
+          lead: { lead_id: 'casezap-5511999999999' }
+        },
+        status: MessageConstants.CHAT_MESSAGE_STATUS.SENDING,
+        channel_type: MessageConstants.CHANNEL_TYPE.GROUP,
+        id_project: 'project-1',
+        sender: 'agent-1',
+        attributes: {
+          commands: [
+            { type: 'wait', time: 0 },
+            {
+              type: 'message',
+              message: {
+                type: 'sticker',
+                metadata: { downloadCdnUrl: 'https://media.example/sticker.webp' }
+              }
+            },
+            { type: 'wait', time: 0 },
+            {
+              type: 'message',
+              message: {
+                type: 'file',
+                metadata: {
+                  downloadCdnUrl: 'https://media.example/report.pdf',
+                  name: 'report.pdf'
+                }
+              }
+            }
+          ]
+        }
+      });
+    } finally {
+      Integration.findOne = originalFindOne;
+      axios.post = originalPost;
+    }
+
+    assert.deepStrictEqual(calls, [
+      {
+        url: 'https://uazapi.example/send/media',
+        body: {
+          number: '5511999999999',
+          file: 'https://media.example/sticker.webp',
+          type: 'sticker'
+        }
+      },
+      {
+        url: 'https://uazapi.example/send/media',
+        body: {
+          number: '5511999999999',
+          file: 'https://media.example/report.pdf',
+          type: 'document',
+          docName: 'report.pdf'
+        }
+      }
+    ]);
   });
 
   it('detects only live composing presences as typing indicators', function() {
