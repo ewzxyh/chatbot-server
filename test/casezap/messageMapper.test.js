@@ -531,6 +531,11 @@ describe('CaseZap messageMapper', function() {
       assert.strictEqual(result.body.docName, 'report.pdf');
       assert.strictEqual(result.body.file, 'https://media.example/f.pdf');
     });
+    it('should skip sticker and document without a file', function() {
+      assert.strictEqual(messageMapper.mapOutbound({ type: 'sticker', metadata: {} }, '55'), null);
+      assert.strictEqual(messageMapper.mapOutbound({ type: 'file', metadata: {} }, '55'), null);
+      assert.strictEqual(messageMapper.mapOutbound({ type: 'document', metadata: { src: '   ' } }, '55'), null);
+    });
     it('should map buttons to /send/menu', function() {
       var result = messageMapper.mapOutbound({
         text: 'Choose:',

@@ -919,10 +919,15 @@ async function resolveInboundMedia(integration, mapped) {
 }
 
 async function sendOutboundWithRetry(integration, phone, outbound) {
+  if (!outbound || !outbound.endpoint || !outbound.body) return;
   try {
     await sendToUazApi(integration.value.domain, integration.value.token, outbound.endpoint, outbound.body);
     winston.debug('CaseZap sent to ' + phone + ' via ' + outbound.endpoint);
   } catch (firstErr) {
+    if (!isTransientProviderError(firstErr)) {
+      winston.error('CaseZap send failed to ' + maskPhoneForLog(phone) + ': ' + describeProviderError(firstErr));
+      return;
+    }
     winston.warn('CaseZap send failed, retrying: ' + describeProviderError(firstErr));
     await new Promise(function(resolve) { setTimeout(resolve, 2000); });
     try {
@@ -931,6 +936,12 @@ async function sendOutboundWithRetry(integration, phone, outbound) {
       winston.error('CaseZap send failed after retry to ' + maskPhoneForLog(phone) + ': ' + describeProviderError(retryErr));
     }
   }
+}
+
+function isTransientProviderError(err) {
+  var status = err && err.response && err.response.status;
+  if (status === 408 || status === 425 || status === 429 || status >= 500) return true;
+  return Boolean(err && ['ECONNABORTED', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND'].includes(err.code));
 }
 
 async function sendOutboundMessage(message) {
@@ -971,17 +982,31 @@ async function sendOutboundMessage(message) {
     }
 
     var commands = message.attributes && message.attributes.commands;
-    if (Array.isArray(commands) && commands.length > 0) {
+    var commandPlan = [];
+    if (Array.isArray(commands)) {
       for (var i = 0; i < commands.length; i++) {
         var command = commands[i];
-        if (command.type === 'wait') {
-          await new Promise(function(resolve) { setTimeout(resolve, command.time); });
-        } else if (command.type === 'message' && command.message) {
-          await sendOutboundWithRetry(
-            integration,
-            phone,
-            messageMapper.mapOutbound(command.message, phone)
-          );
+        if (command && command.type === 'wait') {
+          var waitTime = Number(command.time);
+          var hasWaitValue = typeof command.time === 'number' ||
+            (typeof command.time === 'string' && command.time.trim() !== '');
+          if (hasWaitValue && Number.isFinite(waitTime) && waitTime >= 0) {
+            commandPlan.push({ type: 'wait', time: waitTime });
+          }
+        } else if (command && command.type === 'message' && command.message) {
+          var outbound = messageMapper.mapOutbound(command.message, phone);
+          if (outbound) commandPlan.push({ type: 'message', outbound: outbound });
+        }
+      }
+    }
+
+    if (commandPlan.some(function(command) { return command.type === 'message'; })) {
+      for (var planIndex = 0; planIndex < commandPlan.length; planIndex++) {
+        var plannedCommand = commandPlan[planIndex];
+        if (plannedCommand.type === 'wait') {
+          await new Promise(function(resolve) { setTimeout(resolve, plannedCommand.time); });
+        } else {
+          await sendOutboundWithRetry(integration, phone, plannedCommand.outbound);
         }
       }
       return;
@@ -1170,6 +1195,7 @@ module.exports = {
   extractWebhookReceipt: extractWebhookReceipt,
   hasStoredCaseZapMessage: hasStoredCaseZapMessage,
   sendOutboundMessage: sendOutboundMessage,
+  isTransientProviderError: isTransientProviderError,
   mapConnectionHealth: mapConnectionHealth,
   mapConnectionStatus: mapConnectionStatus,
   withCaseZapRequestLock: withCaseZapRequestLock,

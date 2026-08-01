@@ -552,11 +552,13 @@ function mapOutbound(tiledeskMessage, recipientPhone) {
   }
 
   if (type === 'sticker') {
+    var stickerFile = outboundMediaUrl();
+    if (typeof stickerFile !== 'string' || !stickerFile.trim()) return null;
     return {
       endpoint: '/send/media',
       body: {
         number: number,
-        file: outboundMediaUrl(),
+        file: stickerFile,
         type: 'sticker'
       }
     };
@@ -586,7 +588,7 @@ function mapOutbound(tiledeskMessage, recipientPhone) {
     };
   }
 
-  if (type === 'file') {
+  if (type === 'file' || type === 'document' || metadata.type === 'document') {
     if (metadata.type === 'audio') {
       return {
         endpoint: '/send/media',
@@ -597,11 +599,13 @@ function mapOutbound(tiledeskMessage, recipientPhone) {
         }
       };
     }
+    var documentFile = outboundMediaUrl();
+    if (typeof documentFile !== 'string' || !documentFile.trim()) return null;
     return {
       endpoint: '/send/media',
       body: {
         number: number,
-        file: outboundMediaUrl(),
+        file: documentFile,
         type: 'document',
         docName: metadata.name || 'document'
       }
