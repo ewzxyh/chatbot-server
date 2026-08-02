@@ -4,8 +4,11 @@ const CHATCASE_TEMPLATE_IDS = {
   CLINIC_SCHEDULING: 'chatcase-clinic-scheduling',
   RESTAURANT_DELIVERY: 'chatcase-restaurant-delivery',
   REAL_ESTATE_LEADS: 'chatcase-real-estate-leads',
-  EDUCATION_COURSES: 'chatcase-education-courses'
+  EDUCATION_COURSES: 'chatcase-education-courses',
+  CASEZAP_COMMERCIAL_CONTINUITY: 'chatcase-casezap-commercial-continuity'
 };
+
+const CASEZAP_COMMERCIAL_CONTINUITY_FLOW = require('./flows/casezap-commercial-continuity.json');
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -1346,13 +1349,18 @@ const EDUCATION_COURSES = createTemplate({
   ]
 });
 
+const CASEZAP_COMMERCIAL_CONTINUITY = createTemplate(Object.assign({}, CASEZAP_COMMERCIAL_CONTINUITY_FLOW, {
+  _id: CHATCASE_TEMPLATE_IDS.CASEZAP_COMMERCIAL_CONTINUITY
+}));
+
 const CHATCASE_TEMPLATES = [
   WHATSAPP_MENU_BASIC,
   ECOMMERCE_ORDERS,
   CLINIC_SCHEDULING,
   RESTAURANT_DELIVERY,
   REAL_ESTATE_LEADS,
-  EDUCATION_COURSES
+  EDUCATION_COURSES,
+  CASEZAP_COMMERCIAL_CONTINUITY
 ];
 
 const TEMPLATE_BY_ID = CHATCASE_TEMPLATES.reduce((acc, template) => {

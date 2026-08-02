@@ -15,6 +15,13 @@ function getActionButtons(action) {
   return getIntentButtons({ actions: [action] });
 }
 
+function getIntentMessages(intent) {
+  return intent.actions
+    .flatMap((action) => action.attributes && action.attributes.commands || [])
+    .filter((command) => command.type === 'message' && command.message)
+    .map((command) => command.message);
+}
+
 function getFlowSnapshot(template) {
   return template.intents.map((intent) => ({
     intentId: intent.intent_id,
@@ -23,6 +30,8 @@ function getFlowSnapshot(template) {
       actionId: action._tdActionId,
       actionType: action._tdActionType,
       intentName: action.intentName,
+      trueIntent: action.trueIntent,
+      falseIntent: action.falseIntent,
       buttons: getActionButtons(action).map((button) => ({
         type: button.type,
         uid: button.uid,
@@ -43,6 +52,7 @@ function getReachableIntentIds(template) {
       currentIntent.actions.forEach((action) => {
       const targets = getActionButtons(action).map((button) => button.action);
       if (action._tdActionType === 'intent') targets.push(action.intentName);
+      targets.push(action.trueIntent, action.falseIntent);
       targets.forEach((target) => {
         const targetId = String(target || '').replace(/^#/, '');
         if (!intentIds.has(targetId) || reachable.has(targetId)) {
@@ -76,6 +86,19 @@ describe('ChatCase chatbot templates', () => {
       assert(template.attributes.channels.includes('casezap'), 'template should support CaseZap');
       assert(!template.attributes.channels.includes('telegram'), 'template should not advertise Telegram when not supported');
       assert(Array.isArray(template.attributes.availableChannels), 'template should expose available channel modes');
+
+      if (template.attributes.exclusiveChannel === true) {
+        assert.strictEqual(chatcaseTemplates.getDefaultChannel(template), 'casezap');
+        assert.strictEqual(template.attributes.targetChannel, 'casezap');
+        assert.strictEqual(template.attributes.selectedChannel, 'casezap');
+        assert.strictEqual(template.attributes.channelCompatibility.waba, undefined);
+        assert.strictEqual(template.attributes.publication.wabaTemplates, undefined);
+        assert(!template.attributes.availableChannels.includes('waba'));
+        assert.strictEqual(template.attributes.nativeInteractions.casezap, 'menu');
+        assert(!template.intents, 'metadata list should not include full intents payload');
+        return;
+      }
+
       assert(template.attributes.availableChannels.includes('waba'), 'template should expose WABA as a separate publication mode');
       assert.strictEqual(template.attributes.channelCompatibility.casezap.status, 'supported');
       assert.strictEqual(template.attributes.channelCompatibility.waba.status, 'requires_approval');
@@ -120,15 +143,27 @@ describe('ChatCase chatbot templates', () => {
       assert(detail.intents.some((intent) => getIntentButtons(intent).length > 0), 'detail should include native button metadata');
 
       const handoffIntent = detail.intents.find((intent) => intent.intent_display_name === 'human_handoff');
-      assert(handoffIntent, `detail should include human handoff intent for ${template._id}`);
-      assert(
-        !handoffIntent.answer.includes('\\agent'),
-        `${template._id}: human handoff answer should not leak routing commands to the user`
-      );
-      assert(
-        handoffIntent.actions.some((action) => action._tdActionType === 'agent'),
-        `${template._id}: human handoff action should trigger Tiledesk agent routing`
-      );
+      if (template.attributes.exclusiveChannel === true) {
+        const handoffCheck = detail.intents.find((intent) => intent.intent_display_name === 'handoff_check');
+        const handoffOnline = detail.intents.find((intent) => intent.intent_display_name === 'handoff_online');
+        const handoffOffline = detail.intents.find((intent) => intent.intent_display_name === 'handoff_offline');
+        assert(handoffCheck, `detail should include handoff check intent for ${template._id}`);
+        assert(handoffOnline, `detail should include online handoff intent for ${template._id}`);
+        assert(handoffOffline, `detail should include offline handoff intent for ${template._id}`);
+        assert.strictEqual(handoffCheck.actions[0]._tdActionType, 'ifonlineagentsv2');
+        assert(handoffOnline.actions.some((action) => action._tdActionType === 'agent'));
+        assert(handoffOffline.actions.some((action) => action._tdActionType === 'reply'));
+      } else {
+        assert(handoffIntent, `detail should include human handoff intent for ${template._id}`);
+        assert(
+          !handoffIntent.answer.includes('\\agent'),
+          `${template._id}: human handoff answer should not leak routing commands to the user`
+        );
+        assert(
+          handoffIntent.actions.some((action) => action._tdActionType === 'agent'),
+          `${template._id}: human handoff action should trigger Tiledesk agent routing`
+        );
+      }
 
       detail.intents
         .filter((intent) => /^[0-9]+$/.test(intent.question || ''))
@@ -145,11 +180,63 @@ describe('ChatCase chatbot templates', () => {
       assert.strictEqual(exported.source, 'chatcase-template-export');
       assert(Date.parse(exported.exportedAt), 'export should include exportedAt timestamp');
       assert.strictEqual(exported.intents.length, template.intentsCount);
-      assert.strictEqual(exported.attributes.nativeInteractions.whatsapp, 'buttons');
       assert.strictEqual(exported.attributes.nativeInteractions.casezap, 'menu');
       assert(exported.attributes.publication, 'export should include publication readiness metadata');
       assert(Array.isArray(exported.attributes.publication.checklist), 'export should include publication checklist');
+
+      if (template.attributes.exclusiveChannel === true) {
+        assert.strictEqual(exported.attributes.publication.wabaTemplates, undefined);
+      } else {
+        assert.strictEqual(exported.attributes.nativeInteractions.whatsapp, 'buttons');
+      }
     });
+  });
+
+  it('preserves the CaseZap commercial continuity flow by slug', () => {
+    const templateId = chatcaseTemplates.CHATCASE_TEMPLATE_IDS.CASEZAP_COMMERCIAL_CONTINUITY;
+    const metadata = chatcaseTemplates.listMetadata().find((template) => template._id === templateId);
+    const detail = chatcaseTemplates.getTemplatePayloadById(templateId);
+
+    assert(metadata, 'CaseZap template should be listed');
+    assert(detail, 'CaseZap template detail should resolve by slug');
+    assert.strictEqual(metadata.intentsCount, 17);
+    assert.strictEqual(detail.intents.length, 17);
+    assert.strictEqual(metadata.attributes.exclusiveChannel, true);
+    assert.strictEqual(metadata.attributes.targetChannel, 'casezap');
+    assert.strictEqual(metadata.attributes.selectedChannel, 'casezap');
+    assert.strictEqual(metadata.attributes.publication.wabaTemplates, undefined);
+
+    const newCustomer = detail.intents.find((intent) => intent.intent_display_name === 'new_customer_menu');
+    const returningCustomer = detail.intents.find((intent) => intent.intent_display_name === 'returning_customer_menu');
+    const handoffCheck = detail.intents.find((intent) => intent.intent_display_name === 'handoff_check');
+    const handoffOnline = detail.intents.find((intent) => intent.intent_display_name === 'handoff_online');
+    const handoffOffline = detail.intents.find((intent) => intent.intent_display_name === 'handoff_offline');
+    const messages = detail.intents.flatMap(getIntentMessages);
+    const stickers = messages.filter((message) => message.type === 'sticker');
+    const pdfs = messages.filter((message) => message.type === 'file' && message.metadata && message.metadata.type === 'application/pdf');
+
+    assert.strictEqual(newCustomer.question, '1');
+    assert.strictEqual(returningCustomer.question, '2');
+    assert.strictEqual(stickers.length, 2);
+    assert.strictEqual(pdfs.length, 1);
+    assert(pdfs[0].metadata.src.endsWith('catalogo-chatcase.pdf'));
+    assert.strictEqual(handoffCheck.actions[0]._tdActionType, 'ifonlineagentsv2');
+    assert.strictEqual(handoffCheck.actions[0].trueIntent, `#${handoffOnline.intent_id}`);
+    assert.strictEqual(handoffCheck.actions[0].falseIntent, `#${handoffOffline.intent_id}`);
+    assert(handoffOnline.actions.some((action) => action._tdActionType === 'agent'));
+    assert(handoffOffline.actions.some((action) => action._tdActionType === 'reply'));
+
+    const reachable = getReachableIntentIds(detail);
+    assert(reachable.has(handoffCheck.intent_id));
+    assert(reachable.has(handoffOnline.intent_id));
+    assert(reachable.has(handoffOffline.intent_id));
+
+    const serialized = JSON.parse(JSON.stringify(detail));
+    assert.deepStrictEqual(getFlowSnapshot(serialized), getFlowSnapshot(detail));
+    assert.strictEqual(
+      serialized.intents.find((intent) => intent.intent_display_name === 'handoff_check').actions[0].trueIntent,
+      `#${handoffOnline.intent_id}`
+    );
   });
 
   it('persists valid block connections when every template is imported', () => {
@@ -216,7 +303,9 @@ describe('ChatCase chatbot templates', () => {
       start = persisted.intents.find((intent) => intent.question === '\\start');
       assert.strictEqual(start.actions[0].intentName, null, `${template._id}: removal should survive reload`);
 
-      const replacement = persisted.intents.find((intent) => intent.intent_display_name === 'human_handoff');
+      const replacementName = template.attributes.exclusiveChannel === true ? 'handoff_online' : 'human_handoff';
+      const replacement = persisted.intents.find((intent) => intent.intent_display_name === replacementName);
+      assert(replacement, `${template._id}: replacement handoff intent should exist`);
       start.actions[0].intentName = `#${replacement.intent_id}`;
       persisted = JSON.parse(JSON.stringify(persisted));
       start = persisted.intents.find((intent) => intent.question === '\\start');
@@ -262,7 +351,9 @@ describe('ChatCase chatbot templates', () => {
 
       assert.deepStrictEqual(
         disconnected.map((intent) => intent.intent_display_name),
-        ['defaultFallback'],
+        template.attributes.exclusiveChannel === true
+          ? ['defaultFallback', 'media_received']
+          : ['defaultFallback'],
         `${template._id}: only the fallback block should remain intentionally disconnected`
       );
     });
@@ -273,6 +364,20 @@ describe('ChatCase chatbot templates', () => {
     assert(casezapTemplates.length >= 6, 'casezap should list local templates');
 
     casezapTemplates.forEach((template) => {
+      if (template.attributes.exclusiveChannel === true) {
+        assert.strictEqual(chatcaseTemplates.getDefaultChannel(template), 'casezap');
+        assert.strictEqual(template.attributes.targetChannel, 'casezap');
+        assert.strictEqual(template.attributes.selectedChannel, 'casezap');
+        assert.deepStrictEqual(template.attributes.channels, ['casezap']);
+        assert.deepStrictEqual(template.attributes.availableChannels, ['casezap']);
+        assert(template.attributes.channelCompatibility.casezap, 'exclusive CaseZap compatibility should remain visible');
+        assert.strictEqual(template.attributes.channelCompatibility.waba, undefined);
+        assert.strictEqual(template.attributes.nativeInteractions.casezap, 'menu');
+        assert.strictEqual(template.attributes.publication.wabaTemplates, undefined);
+        assert(template.attributes.publication.readiness.every((item) => item.channel === 'casezap'));
+        return;
+      }
+
       assert.strictEqual(chatcaseTemplates.getDefaultChannel(template), 'all');
       assert.strictEqual(template.attributes.targetChannel, undefined);
       assert.strictEqual(template.attributes.selectedChannel, undefined);

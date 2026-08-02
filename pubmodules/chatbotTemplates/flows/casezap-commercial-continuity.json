@@ -1,0 +1,1063 @@
+{
+  "_id": "chatcase-casezap-commercial-continuity",
+  "name": "ChatCase CaseZap comercial com continuidade",
+  "title": "Primeiro pedido e cliente recorrente",
+  "description": "Fluxo deterministico para atendimento comercial no CaseZap, com escolha explicita entre primeiro pedido e cliente recorrente, entradas diretas e transferencia segura para atendimento humano.",
+  "short_description": "Menu CaseZap para primeiro pedido, recompra, catalogo, pedido, entrega, comprovante, pos-venda e atendimento humano.",
+  "shortDescription": "Menu CaseZap para primeiro pedido, recompra, catalogo, pedido, entrega, comprovante, pos-venda e atendimento humano.",
+  "type": "tilebot",
+  "subtype": "chatbot",
+  "language": "pt",
+  "intentsEngine": "none",
+  "webhook_enabled": false,
+  "public": true,
+  "certified": true,
+  "trashed": false,
+  "mainCategory": "Increase Sales",
+  "tags": [
+    "casezap",
+    "whatsapp",
+    "atendimento",
+    "vendas",
+    "pedidos",
+    "pos-venda"
+  ],
+  "certifiedTags": [
+    {
+      "name": "WhatsApp",
+      "color": "#25833e"
+    },
+    {
+      "name": "CaseZap",
+      "color": "#0049bd"
+    }
+  ],
+  "templateFeatures": [
+    "Escolha explicita entre primeiro pedido e cliente recorrente",
+    "Entradas diretas por texto para os principais motivos de contato",
+    "Handoff com verificacao de agente online e caminho offline"
+  ],
+  "bigImage": "/dashboard/assets/img/logos/chatcase-logo.svg",
+  "id_project": "chatcase-system-templates",
+  "createdBy": "chatcase",
+  "attributes": {
+    "source": "chatcase-static-template",
+    "channel": "casezap",
+    "channels": [
+      "whatsapp",
+      "casezap"
+    ],
+    "availableChannels": [
+      "whatsapp",
+      "casezap"
+    ],
+    "exclusiveChannel": true,
+    "targetChannel": "casezap",
+    "selectedChannel": "casezap",
+    "compatibilityVersion": 1,
+    "channelCompatibility": {
+      "whatsapp": {
+        "status": "supported",
+        "title": "WhatsApp com conversa aberta",
+        "mode": "session",
+        "nativeInteractions": "buttons"
+      },
+      "casezap": {
+        "status": "supported",
+        "title": "CaseZap / UAZAPI",
+        "mode": "session",
+        "nativeInteractions": "menu"
+      }
+    },
+    "nativeInteractions": {
+      "whatsapp": "buttons",
+      "casezap": "menu"
+    },
+    "segment": "commercial-continuity",
+    "rules": [],
+    "publication": {
+      "readiness": [
+        {
+          "channel": "whatsapp",
+          "status": "ready",
+          "title": "WhatsApp com conversa aberta",
+          "description": "Compatível com atendimento dentro de uma conversa aberta; não inicia campanhas nem ativa números."
+        },
+        {
+          "channel": "casezap",
+          "status": "ready",
+          "title": "CaseZap / UAZAPI",
+          "description": "Pronto para homologacao em conversas iniciadas pelo cliente; nao associa nem ativa nenhum numero automaticamente."
+        }
+      ],
+      "checklist": [
+        "Revisar textos e aliases no Design Studio.",
+        "Testar menu e handoff online e offline em homologacao.",
+        "Associar ao numero somente depois de aprovacao explicita."
+      ]
+    }
+  },
+  "intents": [
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-default-fallback",
+      "intent_display_name": "defaultFallback",
+      "language": "pt",
+      "answer": "Não consegui identificar certinho. Se você enviou imagem ou arquivo, recebi; diga em uma frase do que se trata. Vou chamar a equipe.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-default-fallback-reply",
+          "text": "Não consegui identificar certinho. Se você enviou imagem ou arquivo, recebi; diga em uma frase do que se trata. Vou chamar a equipe.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Não consegui identificar certinho. Se você enviou imagem ou arquivo, recebi; diga em uma frase do que se trata. Vou chamar a equipe."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_tdActionType": "intent",
+          "_tdActionId": "cc-commercial-default-fallback-next",
+          "intentName": "#cc-commercial-handoff-check"
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 1720,
+          "y": 980
+        },
+        "aliases": []
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-start",
+      "intent_display_name": "start",
+      "question": "\\start",
+      "language": "pt",
+      "answer": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei\n\nVocê também pode escrever: tabela, pedido, comprovante, entrega, dúvida de produto ou atendimento.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-start-reply",
+          "text": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei\n\nVocê também pode escrever: tabela, pedido, comprovante, entrega, dúvida de produto ou atendimento.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei\n\nVocê também pode escrever: tabela, pedido, comprovante, entrega, dúvida de produto ou atendimento.",
+                  "attributes": {
+                    "attachment": {
+                      "type": "text",
+                      "buttons": [
+                        {
+                          "type": "text",
+                          "value": "Primeiro pedido",
+                          "label": "Primeiro pedido"
+                        },
+                        {
+                          "type": "text",
+                          "value": "Já sou cliente",
+                          "label": "Já sou cliente"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 160,
+          "y": 160
+        },
+        "aliases": []
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-menu",
+      "intent_display_name": "menu",
+      "question": "menu",
+      "language": "pt",
+      "answer": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei\n\nVocê também pode escrever: tabela, pedido, comprovante, entrega, dúvida de produto ou atendimento.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-menu-reply",
+          "text": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei\n\nVocê também pode escrever: tabela, pedido, comprovante, entrega, dúvida de produto ou atendimento.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei\n\nVocê também pode escrever: tabela, pedido, comprovante, entrega, dúvida de produto ou atendimento.",
+                  "attributes": {
+                    "attachment": {
+                      "type": "text",
+                      "buttons": [
+                        {
+                          "type": "text",
+                          "value": "Primeiro pedido",
+                          "label": "Primeiro pedido"
+                        },
+                        {
+                          "type": "text",
+                          "value": "Já sou cliente",
+                          "label": "Já sou cliente"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 160,
+          "y": 500
+        },
+        "aliases": [
+          "Menu",
+          "Oi",
+          "Ola",
+          "Olá",
+          "Opa",
+          "Bom dia",
+          "Boa tarde",
+          "Boa noite"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-new-customer-menu",
+      "intent_display_name": "new_customer_menu",
+      "question": "1",
+      "language": "pt",
+      "answer": "Beleza, amigo! No primeiro pedido, escolha:\n\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com atendimento",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-new-customer-menu-reply",
+          "text": "Beleza, amigo! No primeiro pedido, escolha:\n\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com atendimento",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Beleza, amigo! No primeiro pedido, escolha:\n\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com atendimento",
+                  "attributes": {
+                    "attachment": {
+                      "type": "text",
+                      "buttons": [
+                        {
+                          "type": "text",
+                          "value": "Tabela atualizada",
+                          "label": "Tabela atualizada"
+                        },
+                        {
+                          "type": "text",
+                          "value": "Fazer pedido",
+                          "label": "Fazer pedido"
+                        },
+                        {
+                          "type": "text",
+                          "value": "Dúvida de produto",
+                          "label": "Dúvida de produto"
+                        },
+                        {
+                          "type": "text",
+                          "value": "Atendimento",
+                          "label": "Atendimento"
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "sticker",
+                  "text": "",
+                  "metadata": {
+                    "src": "https://chatcase.com.br/community/assets/casezap/sticker-animated.webp",
+                    "downloadURL": "https://chatcase.com.br/community/assets/casezap/sticker-animated.webp",
+                    "type": "sticker"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 680,
+          "y": 100
+        },
+        "aliases": [
+          "Primeiro pedido",
+          "Quero conhecer",
+          "Primeira compra",
+          "Ainda não comprei",
+          "Ainda nao comprei"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-returning-customer-menu",
+      "intent_display_name": "returning_customer_menu",
+      "question": "2",
+      "language": "pt",
+      "answer": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido ou catálogo atualizado\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com atendimento",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-returning-customer-menu-reply",
+          "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido ou catálogo atualizado\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com atendimento",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido ou catálogo atualizado\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com atendimento",
+                  "attributes": {
+                    "attachment": {
+                      "type": "text",
+                      "buttons": [
+                        {
+                          "type": "text",
+                          "value": "Pedido / catálogo",
+                          "label": "Pedido / catálogo"
+                        },
+                        {
+                          "type": "text",
+                          "value": "Entrega",
+                          "label": "Entrega"
+                        },
+                        {
+                          "type": "text",
+                          "value": "Pós-venda",
+                          "label": "Pós-venda"
+                        },
+                        {
+                          "type": "text",
+                          "value": "Comprovante",
+                          "label": "Comprovante"
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "sticker",
+                  "text": "",
+                  "metadata": {
+                    "src": "https://chatcase.com.br/community/assets/casezap/sticker-static.webp",
+                    "downloadURL": "https://chatcase.com.br/community/assets/casezap/sticker-static.webp",
+                    "type": "sticker"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 680,
+          "y": 700
+        },
+        "aliases": [
+          "Já sou cliente",
+          "Ja sou cliente",
+          "Já comprei",
+          "Ja comprei",
+          "já comprei antes",
+          "sou cliente",
+          "comprei antes",
+          "comprei em outro número",
+          "comprei em outro numero"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-catalog-request",
+      "intent_display_name": "catalog_request",
+      "question": "3",
+      "language": "pt",
+      "answer": "Certo, amigo! Vou pedir a tabela atualizada e confirmar preço e estoque com a equipe. Se busca algo específico, mande o nome e a quantidade.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-catalog-request-reply",
+          "text": "Certo, amigo! Vou pedir a tabela atualizada e confirmar preço e estoque com a equipe. Se busca algo específico, mande o nome e a quantidade.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Certo, amigo! Vou pedir a tabela atualizada e confirmar preço e estoque com a equipe. Se busca algo específico, mande o nome e a quantidade."
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "file",
+                  "text": "Tabela em PDF",
+                  "metadata": {
+                    "src": "https://chatcase.com.br/community/assets/casezap/catalogo-chatcase.pdf",
+                    "downloadURL": "https://chatcase.com.br/community/assets/casezap/catalogo-chatcase.pdf",
+                    "name": "catalogo-chatcase.pdf",
+                    "type": "application/pdf",
+                    "mimetype": "application/pdf"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_tdActionType": "intent",
+          "_tdActionId": "cc-commercial-catalog-request-next",
+          "intentName": "#cc-commercial-handoff-check"
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 1200,
+          "y": 0
+        },
+        "aliases": [
+          "tabela",
+          "Tabela atualizada",
+          "catálogo",
+          "catalogo",
+          "Catálogo atualizado",
+          "lista de produtos",
+          "me manda a tabela",
+          "manda a tabela",
+          "preço",
+          "preco",
+          "valor",
+          "estoque",
+          "disponibilidade"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-order-request",
+      "intent_display_name": "order_request",
+      "question": "4",
+      "language": "pt",
+      "answer": "Certo! Mande os produtos, as quantidades e sua cidade ou CEP. A equipe confirma preço, estoque, frete, pagamento e prazo antes de fechar.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-order-request-reply",
+          "text": "Certo! Mande os produtos, as quantidades e sua cidade ou CEP. A equipe confirma preço, estoque, frete, pagamento e prazo antes de fechar.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Certo! Mande os produtos, as quantidades e sua cidade ou CEP. A equipe confirma preço, estoque, frete, pagamento e prazo antes de fechar."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_tdActionType": "intent",
+          "_tdActionId": "cc-commercial-order-request-next",
+          "intentName": "#cc-commercial-handoff-check"
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 1200,
+          "y": 260
+        },
+        "aliases": [
+          "pedido",
+          "Fazer pedido",
+          "quero pedir",
+          "quero comprar",
+          "novo pedido",
+          "meu pedido",
+          "orçamento",
+          "orcamento",
+          "cotacao"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-product-question",
+      "intent_display_name": "product_question",
+      "question": "5",
+      "language": "pt",
+      "answer": "Recebi sua dúvida. Mande o nome do produto e a pergunta. Dose, ciclo, aplicação e indicação precisam de avaliação profissional; não damos orientação médica por aqui.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-product-question-reply",
+          "text": "Recebi sua dúvida. Mande o nome do produto e a pergunta. Dose, ciclo, aplicação e indicação precisam de avaliação profissional; não damos orientação médica por aqui.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Recebi sua dúvida. Mande o nome do produto e a pergunta. Dose, ciclo, aplicação e indicação precisam de avaliação profissional; não damos orientação médica por aqui."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_tdActionType": "intent",
+          "_tdActionId": "cc-commercial-product-question-next",
+          "intentName": "#cc-commercial-handoff-check"
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 1200,
+          "y": 520
+        },
+        "aliases": [
+          "Dúvida de produto",
+          "Duvida de produto",
+          "dúvida produto",
+          "produto",
+          "dose",
+          "ciclo",
+          "aplicação",
+          "aplicacao",
+          "indicação",
+          "indicacao",
+          "bula",
+          "como usar",
+          "refrigeracao"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-human-request",
+      "intent_display_name": "human_request",
+      "question": "6",
+      "language": "pt",
+      "answer": "Certo, amigo. Vou chamar a equipe. Pode resumir em uma mensagem o que você precisa.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-human-request-reply",
+          "text": "Certo, amigo. Vou chamar a equipe. Pode resumir em uma mensagem o que você precisa.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Certo, amigo. Vou chamar a equipe. Pode resumir em uma mensagem o que você precisa."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_tdActionType": "intent",
+          "_tdActionId": "cc-commercial-human-request-next",
+          "intentName": "#cc-commercial-handoff-check"
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 1200,
+          "y": 780
+        },
+        "aliases": [
+          "Atendimento",
+          "atendimento",
+          "atendente",
+          "Falar com atendente",
+          "falar com atendente",
+          "falar com alguem",
+          "humano"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-returning-purchase",
+      "intent_display_name": "returning_purchase",
+      "question": "7",
+      "language": "pt",
+      "answer": "Bom te ver de novo! Mande os produtos e quantidades ou diga se quer a tabela atualizada. A equipe confirma as informações atuais.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-returning-purchase-reply",
+          "text": "Bom te ver de novo! Mande os produtos e quantidades ou diga se quer a tabela atualizada. A equipe confirma as informações atuais.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Bom te ver de novo! Mande os produtos e quantidades ou diga se quer a tabela atualizada. A equipe confirma as informações atuais."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_tdActionType": "intent",
+          "_tdActionId": "cc-commercial-returning-purchase-next",
+          "intentName": "#cc-commercial-handoff-check"
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 1200,
+          "y": 1040
+        },
+        "aliases": [
+          "Pedido / catálogo",
+          "Pedido / catalogo",
+          "Comprar novamente",
+          "Quero comprar de novo",
+          "repetir compra"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-delivery-support",
+      "intent_display_name": "delivery_support",
+      "question": "8",
+      "language": "pt",
+      "answer": "Entendi, amigo. Mande a referência do pedido e sua cidade ou CEP. A equipe confere frete, urgência, rastreio e prazo atualizado.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-delivery-support-reply",
+          "text": "Entendi, amigo. Mande a referência do pedido e sua cidade ou CEP. A equipe confere frete, urgência, rastreio e prazo atualizado.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Entendi, amigo. Mande a referência do pedido e sua cidade ou CEP. A equipe confere frete, urgência, rastreio e prazo atualizado."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_tdActionType": "intent",
+          "_tdActionId": "cc-commercial-delivery-support-next",
+          "intentName": "#cc-commercial-handoff-check"
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 1200,
+          "y": 1300
+        },
+        "aliases": [
+          "Entrega",
+          "entrega",
+          "rastreio",
+          "rastreamento",
+          "status da entrega",
+          "status do pedido",
+          "frete",
+          "prazo",
+          "urgente",
+          "urgência",
+          "urgencia",
+          "chega hoje",
+          "cadê meu pedido",
+          "endereço de entrega"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-after-sales",
+      "intent_display_name": "after_sales",
+      "question": "9",
+      "language": "pt",
+      "answer": "Poxa, entendi. Mande a referência do pedido e conte o que aconteceu. A equipe vai conferir o pós-venda com você.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-after-sales-reply",
+          "text": "Poxa, entendi. Mande a referência do pedido e conte o que aconteceu. A equipe vai conferir o pós-venda com você.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Poxa, entendi. Mande a referência do pedido e conte o que aconteceu. A equipe vai conferir o pós-venda com você."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_tdActionType": "intent",
+          "_tdActionId": "cc-commercial-after-sales-next",
+          "intentName": "#cc-commercial-handoff-check"
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 1200,
+          "y": 1560
+        },
+        "aliases": [
+          "Pós-venda",
+          "pos-venda",
+          "reclamação",
+          "reclamacao",
+          "problema no pedido",
+          "item faltando",
+          "troca",
+          "reembolso",
+          "devolução",
+          "devolucao",
+          "pedido errado"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-payment-receipt",
+      "intent_display_name": "payment_receipt",
+      "question": "10",
+      "language": "pt",
+      "answer": "Recebi seu aviso de pagamento ou comprovante. Não envie senha nem código. A equipe vai conferir manualmente.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-payment-receipt-reply",
+          "text": "Recebi seu aviso de pagamento ou comprovante. Não envie senha nem código. A equipe vai conferir manualmente.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Recebi seu aviso de pagamento ou comprovante. Não envie senha nem código. A equipe vai conferir manualmente."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_tdActionType": "intent",
+          "_tdActionId": "cc-commercial-payment-receipt-next",
+          "intentName": "#cc-commercial-handoff-check"
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 1200,
+          "y": 1820
+        },
+        "aliases": [
+          "Comprovante",
+          "comprovante",
+          "enviar comprovante",
+          "enviei o comprovante",
+          "pagamento",
+          "pix",
+          "paguei",
+          "cartão",
+          "cartao",
+          "parcelamento"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-media-received",
+      "intent_display_name": "media_received",
+      "question": "11",
+      "language": "pt",
+      "answer": "Recebi sua imagem ou arquivo. Diga em uma frase do que se trata; a equipe vai conferir.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-media-received-reply",
+          "text": "Recebi sua imagem ou arquivo. Diga em uma frase do que se trata; a equipe vai conferir.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Recebi sua imagem ou arquivo. Diga em uma frase do que se trata; a equipe vai conferir."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_tdActionType": "intent",
+          "_tdActionId": "cc-commercial-media-received-next",
+          "intentName": "#cc-commercial-handoff-check"
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 1200,
+          "y": 2080
+        },
+        "aliases": [
+          "imagem",
+          "foto",
+          "arquivo",
+          "anexo",
+          "enviei uma foto",
+          "enviei um arquivo"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-handoff-check",
+      "intent_display_name": "handoff_check",
+      "language": "pt",
+      "answer": "Verificando disponibilidade do atendimento.",
+      "actions": [
+        {
+          "_tdActionType": "ifonlineagentsv2",
+          "_tdActionId": "cc-commercial-handoff-check-online",
+          "selectedOption": "all",
+          "ignoreOperatingHours": false,
+          "stopOnConditionMet": true,
+          "trueIntent": "#cc-commercial-handoff-online",
+          "falseIntent": "#cc-commercial-handoff-offline"
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 1740,
+          "y": 500
+        },
+        "aliases": []
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-handoff-online",
+      "intent_display_name": "handoff_online",
+      "language": "pt",
+      "answer": "Certo, vou chamar alguém da equipe agora. Pode deixar os detalhes por aqui.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-handoff-online-reply",
+          "text": "Certo, vou chamar alguém da equipe agora. Pode deixar os detalhes por aqui.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Certo, vou chamar alguém da equipe agora. Pode deixar os detalhes por aqui."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "_tdActionType": "agent",
+          "_tdActionId": "cc-commercial-handoff-online-agent"
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 2260,
+          "y": 300
+        },
+        "aliases": []
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-handoff-offline",
+      "intent_display_name": "handoff_offline",
+      "language": "pt",
+      "answer": "Agora não tem ninguém online. Deixe os detalhes em uma mensagem; a equipe continua assim que estiver disponível.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-handoff-offline-reply",
+          "text": "Agora não tem ninguém online. Deixe os detalhes em uma mensagem; a equipe continua assim que estiver disponível.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Agora não tem ninguém online. Deixe os detalhes em uma mensagem; a equipe continua assim que estiver disponível."
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 2260,
+          "y": 800
+        },
+        "aliases": []
+      }
+    }
+  ]
+}
