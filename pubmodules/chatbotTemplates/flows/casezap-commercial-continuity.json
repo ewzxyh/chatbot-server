@@ -118,15 +118,21 @@
         },
         "new_customer_menu": {
           "label": "Novo cliente",
-          "messagePrefixes": ["Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?", "Depois escolha:"],
+          "messagePrefixes": ["Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?", "Escolha uma opção:"],
           "sequence": ["text"],
-          "routes": ["catalog_request", "order_request", "product_question", "human_request", "freight_question"]
+          "routes": ["catalog_request", "order_request", "human_request", "support_menu"]
         },
         "returning_customer_menu": {
           "label": "Cliente recorrente",
           "messagePrefixes": ["Bom te ver de novo, amigo! Pra continuar:"],
           "sequence": ["text"],
-          "routes": ["returning_purchase", "delivery_support", "after_sales", "payment_receipt", "human_request", "freight_question"]
+          "routes": ["catalog_request", "returning_purchase", "human_request", "support_menu"]
+        },
+        "support_menu": {
+          "label": "Outras opções",
+          "messagePrefixes": ["Claro! Escolha o assunto que você precisa:"],
+          "sequence": ["menu"],
+          "routes": ["product_question", "freight_question", "delivery_support", "after_sales", "payment_receipt"]
         },
         "catalog_request": {
           "label": "Catálogo e PDFs",
@@ -251,12 +257,12 @@
       "intent_display_name": "start",
       "question": "\\start",
       "language": "pt",
-      "answer": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei\n\nVocê também pode escrever: tabela, pedido, comprovante, entrega, dúvida de produto ou atendimento.",
+      "answer": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-start-reply",
-          "text": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei\n\nVocê também pode escrever: tabela, pedido, comprovante, entrega, dúvida de produto ou atendimento.",
+          "text": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -268,7 +274,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei\n\nVocê também pode escrever: tabela, pedido, comprovante, entrega, dúvida de produto ou atendimento.",
+                  "text": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei",
                   "attributes": {
                     "attachment": {
                       "type": "text",
@@ -307,12 +313,12 @@
       "intent_display_name": "menu",
       "question": "menu",
       "language": "pt",
-      "answer": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei\n\nVocê também pode escrever: tabela, pedido, comprovante, entrega, dúvida de produto ou atendimento.",
+      "answer": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-menu-reply",
-          "text": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei\n\nVocê também pode escrever: tabela, pedido, comprovante, entrega, dúvida de produto ou atendimento.",
+          "text": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -324,7 +330,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei\n\nVocê também pode escrever: tabela, pedido, comprovante, entrega, dúvida de produto ou atendimento.",
+                  "text": "Oi, amigo! Tudo bem?\n\nPra te encaminhar certinho:\n1 - Primeiro pedido / Quero conhecer\n2 - Já sou cliente / Já comprei",
                   "attributes": {
                     "attachment": {
                       "type": "text",
@@ -372,12 +378,12 @@
       "intent_display_name": "new_customer_menu",
       "question": "1",
       "language": "pt",
-      "answer": "Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?\n\nDepois escolha:\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com vendedor\n\nSe quiser, também posso explicar o frete.",
+      "answer": "Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-new-customer-menu-reply",
-          "text": "Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?\n\nDepois escolha:\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com vendedor\n\nSe quiser, também posso explicar o frete.",
+          "text": "Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -389,7 +395,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?\n\nDepois escolha:\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com vendedor\n\nSe quiser, também posso explicar o frete.",
+                  "text": "Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
                   "attributes": {
                     "attachment": {
                       "type": "text",
@@ -397,27 +403,22 @@
                         {
                           "type": "text",
                           "value": "Tabela atualizada",
-                          "label": "Tabela atualizada"
+                          "label": "VER TABELA ATUALIZADA"
                         },
                         {
                           "type": "text",
                           "value": "Fazer pedido",
-                          "label": "Fazer pedido"
+                          "label": "FAZER PEDIDO"
                         },
                         {
                           "type": "text",
-                          "value": "Dúvida de produto",
-                          "label": "Dúvida de produto"
+                          "value": "Falar com vendedor",
+                          "label": "FALAR COM VENDEDOR"
                         },
                         {
                           "type": "text",
-                          "value": "Atendimento",
-                          "label": "Atendimento"
-                        },
-                        {
-                          "type": "text",
-                          "value": "frete",
-                          "label": "Frete"
+                          "value": "Outras dúvidas",
+                          "label": "OUTRAS DÚVIDAS"
                         }
                       ]
                     }
@@ -449,12 +450,12 @@
       "intent_display_name": "returning_customer_menu",
       "question": "2",
       "language": "pt",
-      "answer": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido / Recompra\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com vendedor\n\nPara receber a tabela atualizada, escreva \"tabela\". Se quiser, também posso explicar o frete.",
+      "answer": "Bom te ver de novo, amigo! Pra continuar:\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO / RECOMPRA\n3 - FALAR COM VENDEDOR",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-returning-customer-menu-reply",
-          "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido / Recompra\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com vendedor\n\nPara receber a tabela atualizada, escreva \"tabela\". Se quiser, também posso explicar o frete.",
+          "text": "Bom te ver de novo, amigo! Pra continuar:\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO / RECOMPRA\n3 - FALAR COM VENDEDOR",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -466,35 +467,30 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido ou catálogo atualizado\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com vendedor\n\nSe quiser, também posso explicar o frete.",
+                  "text": "Bom te ver de novo, amigo! Pra continuar:\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO / RECOMPRA\n3 - FALAR COM VENDEDOR",
                   "attributes": {
                     "attachment": {
                       "type": "text",
                       "buttons": [
                         {
                           "type": "text",
+                          "value": "Tabela atualizada",
+                          "label": "VER TABELA ATUALIZADA"
+                        },
+                        {
+                          "type": "text",
                           "value": "Comprar novamente",
-                          "label": "Novo pedido"
+                          "label": "FAZER PEDIDO / RECOMPRA"
                         },
                         {
                           "type": "text",
-                          "value": "Entrega",
-                          "label": "Entrega"
+                          "value": "Falar com vendedor",
+                          "label": "FALAR COM VENDEDOR"
                         },
                         {
                           "type": "text",
-                          "value": "Pós-venda",
-                          "label": "Pós-venda"
-                        },
-                        {
-                          "type": "text",
-                          "value": "Comprovante",
-                          "label": "Comprovante"
-                        },
-                        {
-                          "type": "text",
-                          "value": "frete",
-                          "label": "Frete"
+                          "value": "Outras dúvidas",
+                          "label": "OUTRAS DÚVIDAS"
                         }
                       ]
                     }
@@ -794,6 +790,83 @@
           "preco do frete",
           "frete na shopee",
           "frete shopee"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
+      "intent_id": "cc-commercial-support-menu",
+      "intent_display_name": "support_menu",
+      "question": "12",
+      "language": "pt",
+      "answer": "Claro! Escolha o assunto que você precisa:",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-support-menu-reply",
+          "text": "Claro! Escolha o assunto que você precisa:",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Claro! Escolha o assunto que você precisa:",
+                  "attributes": {
+                    "attachment": {
+                      "type": "text",
+                      "buttons": [
+                        {
+                          "type": "text",
+                          "value": "Dúvida de produto",
+                          "label": "Dúvida de produto"
+                        },
+                        {
+                          "type": "text",
+                          "value": "frete",
+                          "label": "Frete"
+                        },
+                        {
+                          "type": "text",
+                          "value": "Entrega",
+                          "label": "Entrega / rastreio"
+                        },
+                        {
+                          "type": "text",
+                          "value": "Pós-venda",
+                          "label": "Pós-venda"
+                        },
+                        {
+                          "type": "text",
+                          "value": "Comprovante",
+                          "label": "Comprovante"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 680,
+          "y": 1300
+        },
+        "aliases": [
+          "Outras dúvidas",
+          "Outras duvidas",
+          "Outros assuntos",
+          "Mais opções",
+          "Mais opcoes"
         ]
       }
     },

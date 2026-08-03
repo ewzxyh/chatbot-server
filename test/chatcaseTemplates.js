@@ -237,8 +237,8 @@ describe('ChatCase chatbot templates', () => {
 
     assert(metadata, 'CaseZap template should be listed');
     assert(detail, 'CaseZap template detail should resolve by slug');
-    assert.strictEqual(metadata.intentsCount, 18);
-    assert.strictEqual(detail.intents.length, 18);
+    assert.strictEqual(metadata.intentsCount, 19);
+    assert.strictEqual(detail.intents.length, 19);
     assert.strictEqual(metadata.attributes.exclusiveChannel, true);
     assert.strictEqual(metadata.attributes.targetChannel, 'casezap');
     assert.strictEqual(metadata.attributes.selectedChannel, 'casezap');
@@ -253,6 +253,7 @@ describe('ChatCase chatbot templates', () => {
     const catalogRequest = detail.intents.find((intent) => intent.intent_display_name === 'catalog_request');
     const freightQuestion = detail.intents.find((intent) => intent.intent_display_name === 'freight_question');
     const orderRequest = detail.intents.find((intent) => intent.intent_display_name === 'order_request');
+    const supportMenu = detail.intents.find((intent) => intent.intent_display_name === 'support_menu');
     const catalogResponse = 'Segue a nova tabela 👇';
     const returningPurchaseResponse = 'Bom te ver de novo! Mande os produtos e as quantidades. A equipe confirma preço, estoque, frete, pagamento e prazo.';
     const messages = detail.intents.flatMap(getIntentMessages);
@@ -261,16 +262,39 @@ describe('ChatCase chatbot templates', () => {
 
     assert.strictEqual(newCustomer.question, '1');
     assert(newCustomer.answer.includes('como você conheceu o Victor?'));
+    assert(newCustomer.answer.includes('1 - VER TABELA ATUALIZADA'));
+    assert.deepStrictEqual(
+      getIntentButtons(newCustomer).map((button) => [button.value, button.label]),
+      [
+        ['Tabela atualizada', 'VER TABELA ATUALIZADA'],
+        ['Fazer pedido', 'FAZER PEDIDO'],
+        ['Falar com vendedor', 'FALAR COM VENDEDOR'],
+        ['Outras dúvidas', 'OUTRAS DÚVIDAS']
+      ]
+    );
     assert.strictEqual(returningCustomer.question, '2');
     assert(!returningCustomer.answer.includes('como você conheceu o Victor?'));
     assert.strictEqual(catalogRequest.question, '3');
     assert(freightQuestion.attributes.aliases.includes('quanto é o frete'));
     assert(freightQuestion.answer.includes('R$ 35,00'));
     assert(freightQuestion.answer.includes('https://shopee.com.br/universal-link/product/1502208056/58262112206'));
-    assert(returningCustomer.answer.includes('7 - Novo pedido / Recompra'));
-    assert(!returningCustomer.answer.includes('catálogo atualizado'));
-    assert.strictEqual(getIntentButtons(returningCustomer)[0].value, 'Comprar novamente');
-    assert.strictEqual(getIntentButtons(returningCustomer)[0].label, 'Novo pedido');
+    assert(returningCustomer.answer.includes('1 - VER TABELA ATUALIZADA'));
+    assert(returningCustomer.answer.includes('2 - FAZER PEDIDO / RECOMPRA'));
+    assert(!returningCustomer.answer.includes('Entrega ou rastreio'));
+    assert.deepStrictEqual(
+      getIntentButtons(returningCustomer).map((button) => [button.value, button.label]),
+      [
+        ['Tabela atualizada', 'VER TABELA ATUALIZADA'],
+        ['Comprar novamente', 'FAZER PEDIDO / RECOMPRA'],
+        ['Falar com vendedor', 'FALAR COM VENDEDOR'],
+        ['Outras dúvidas', 'OUTRAS DÚVIDAS']
+      ]
+    );
+    assert(supportMenu, 'CaseZap template should expose a secondary support menu');
+    assert.deepStrictEqual(
+      getIntentButtons(supportMenu).map((button) => button.value),
+      ['Dúvida de produto', 'frete', 'Entrega', 'Pós-venda', 'Comprovante']
+    );
     assert.strictEqual(returningPurchase.answer, returningPurchaseResponse);
     assert(!returningPurchase.answer.includes('tabela'));
     assert(!returningPurchase.attributes.aliases.includes('Pedido / catálogo'));
