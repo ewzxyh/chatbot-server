@@ -256,12 +256,21 @@ describe('ChatCase chatbot templates', () => {
     const handoffCheck = detail.intents.find((intent) => intent.intent_display_name === 'handoff_check');
     const handoffOnline = detail.intents.find((intent) => intent.intent_display_name === 'handoff_online');
     const handoffOffline = detail.intents.find((intent) => intent.intent_display_name === 'handoff_offline');
+    const catalogRequest = detail.intents.find((intent) => intent.intent_display_name === 'catalog_request');
+    const catalogResponse = 'Claro! Aqui está a tabela atualizada com os produtos. Confira o PDF abaixo. Se quiser algum item específico, me diga o nome e a quantidade.';
     const messages = detail.intents.flatMap(getIntentMessages);
     const stickers = messages.filter((message) => message.type === 'sticker');
     const pdfs = messages.filter((message) => message.type === 'file' && message.metadata && message.metadata.type === 'application/pdf');
 
     assert.strictEqual(newCustomer.question, '1');
     assert.strictEqual(returningCustomer.question, '2');
+    assert.strictEqual(catalogRequest.question, '3');
+    assert.strictEqual(catalogRequest.answer, catalogResponse);
+    assert.strictEqual(catalogRequest.actions.find((action) => action._tdActionType === 'reply').text, catalogResponse);
+    assert.strictEqual(
+      getIntentMessages(catalogRequest).find((message) => message.type === 'text').text,
+      catalogResponse
+    );
     assert.strictEqual(stickers.length, 2);
     assert.strictEqual(pdfs.length, 1);
     assertCasezapAssetBaseUrl(devDetail, 'https://chatcase-dev.69-6-250-104.sslip.io');

@@ -449,12 +449,12 @@
       "intent_display_name": "catalog_request",
       "question": "3",
       "language": "pt",
-      "answer": "Certo, amigo! Vou pedir a tabela atualizada e confirmar preço e estoque com a equipe. Se busca algo específico, mande o nome e a quantidade.",
+      "answer": "Claro! Aqui está a tabela atualizada com os produtos. Confira o PDF abaixo. Se quiser algum item específico, me diga o nome e a quantidade.",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-catalog-request-reply",
-          "text": "Certo, amigo! Vou pedir a tabela atualizada e confirmar preço e estoque com a equipe. Se busca algo específico, mande o nome e a quantidade.",
+          "text": "Claro! Aqui está a tabela atualizada com os produtos. Confira o PDF abaixo. Se quiser algum item específico, me diga o nome e a quantidade.",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -466,7 +466,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Certo, amigo! Vou pedir a tabela atualizada e confirmar preço e estoque com a equipe. Se busca algo específico, mande o nome e a quantidade."
+                  "text": "Claro! Aqui está a tabela atualizada com os produtos. Confira o PDF abaixo. Se quiser algum item específico, me diga o nome e a quantidade."
                 }
               },
               {
