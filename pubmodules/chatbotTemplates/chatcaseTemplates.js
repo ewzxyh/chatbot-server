@@ -9,9 +9,46 @@ const CHATCASE_TEMPLATE_IDS = {
 };
 
 const CASEZAP_COMMERCIAL_CONTINUITY_FLOW = require('./flows/casezap-commercial-continuity.json');
+const CASEZAP_CANONICAL_BASE_URL = 'https://chatcase.com.br';
+const CASEZAP_ASSET_PATH = '/community/assets/casezap/';
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function resolveCasezapAssetUrls(template) {
+  if (!template || template._id !== CHATCASE_TEMPLATE_IDS.CASEZAP_COMMERCIAL_CONTINUITY) {
+    return template;
+  }
+
+  const resolved = clone(template);
+  const baseUrl = String(process.env.EXTERNAL_BASE_URL || CASEZAP_CANONICAL_BASE_URL).replace(/\/+$/, '');
+
+  resolved.intents.forEach((intent) => {
+    intent.actions.forEach((action) => {
+      const commands = action.attributes && action.attributes.commands || [];
+      commands.forEach((command) => {
+        const message = command.type === 'message' && command.message;
+        const metadata = message && message.metadata;
+        if (!metadata) {
+          return;
+        }
+
+        ['src', 'downloadURL'].forEach((field) => {
+          if (typeof metadata[field] !== 'string') {
+            return;
+          }
+          const assetPathIndex = metadata[field].indexOf(CASEZAP_ASSET_PATH);
+          if (assetPathIndex === -1) {
+            return;
+          }
+          metadata[field] = baseUrl + metadata[field].slice(assetPathIndex);
+        });
+      });
+    });
+  });
+
+  return resolved;
 }
 
 function unique(values) {
@@ -1384,7 +1421,7 @@ function listMetadata(options = {}) {
 }
 
 function getTemplateById(id) {
-  return TEMPLATE_BY_ID[id] ? enrichTemplate(TEMPLATE_BY_ID[id]) : null;
+  return TEMPLATE_BY_ID[id] ? resolveCasezapAssetUrls(enrichTemplate(TEMPLATE_BY_ID[id])) : null;
 }
 
 function getTemplatePayloadById(id, options = {}) {

@@ -22,6 +22,36 @@ function getIntentMessages(intent) {
     .map((command) => command.message);
 }
 
+function assertCasezapAssetBaseUrl(detail, baseUrl) {
+  const messages = detail.intents.flatMap(getIntentMessages);
+  const stickers = messages.filter((message) => message.type === 'sticker');
+  const pdfs = messages.filter((message) => message.type === 'file' && message.metadata && message.metadata.type === 'application/pdf');
+  const expectedBaseUrl = baseUrl.replace(/\/+$/, '');
+
+  assert.strictEqual(stickers.length, 2);
+  assert.strictEqual(pdfs.length, 1);
+  assert.deepStrictEqual(
+    stickers.map((message) => [message.metadata.src, message.metadata.downloadURL]).sort(),
+    [
+      [
+        `${expectedBaseUrl}/community/assets/casezap/sticker-animated.webp`,
+        `${expectedBaseUrl}/community/assets/casezap/sticker-animated.webp`
+      ],
+      [
+        `${expectedBaseUrl}/community/assets/casezap/sticker-static.webp`,
+        `${expectedBaseUrl}/community/assets/casezap/sticker-static.webp`
+      ]
+    ]
+  );
+  assert.deepStrictEqual(
+    [pdfs[0].metadata.src, pdfs[0].metadata.downloadURL],
+    [
+      `${expectedBaseUrl}/community/assets/casezap/catalogo-chatcase.pdf`,
+      `${expectedBaseUrl}/community/assets/casezap/catalogo-chatcase.pdf`
+    ]
+  );
+}
+
 function getFlowSnapshot(template) {
   return template.intents.map((intent) => ({
     intentId: intent.intent_id,
@@ -195,7 +225,22 @@ describe('ChatCase chatbot templates', () => {
   it('preserves the CaseZap commercial continuity flow by slug', () => {
     const templateId = chatcaseTemplates.CHATCASE_TEMPLATE_IDS.CASEZAP_COMMERCIAL_CONTINUITY;
     const metadata = chatcaseTemplates.listMetadata().find((template) => template._id === templateId);
-    const detail = chatcaseTemplates.getTemplatePayloadById(templateId);
+    const originalExternalBaseUrl = process.env.EXTERNAL_BASE_URL;
+    let devDetail;
+    let fallbackDetail;
+    try {
+      process.env.EXTERNAL_BASE_URL = 'https://chatcase-dev.69-6-250-104.sslip.io/';
+      devDetail = chatcaseTemplates.getTemplatePayloadById(templateId);
+      delete process.env.EXTERNAL_BASE_URL;
+      fallbackDetail = chatcaseTemplates.getTemplatePayloadById(templateId);
+    } finally {
+      if (originalExternalBaseUrl === undefined) {
+        delete process.env.EXTERNAL_BASE_URL;
+      } else {
+        process.env.EXTERNAL_BASE_URL = originalExternalBaseUrl;
+      }
+    }
+    const detail = devDetail;
 
     assert(metadata, 'CaseZap template should be listed');
     assert(detail, 'CaseZap template detail should resolve by slug');
@@ -219,7 +264,8 @@ describe('ChatCase chatbot templates', () => {
     assert.strictEqual(returningCustomer.question, '2');
     assert.strictEqual(stickers.length, 2);
     assert.strictEqual(pdfs.length, 1);
-    assert(pdfs[0].metadata.src.endsWith('catalogo-chatcase.pdf'));
+    assertCasezapAssetBaseUrl(devDetail, 'https://chatcase-dev.69-6-250-104.sslip.io');
+    assertCasezapAssetBaseUrl(fallbackDetail, 'https://chatcase.com.br');
     assert.strictEqual(handoffCheck.actions[0]._tdActionType, 'ifonlineagentsv2');
     assert.strictEqual(handoffCheck.actions[0].trueIntent, `#${handoffOnline.intent_id}`);
     assert.strictEqual(handoffCheck.actions[0].falseIntent, `#${handoffOffline.intent_id}`);
