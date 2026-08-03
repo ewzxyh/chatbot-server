@@ -118,15 +118,15 @@
         },
         "new_customer_menu": {
           "label": "Novo cliente",
-          "messagePrefixes": ["Beleza, amigo! No primeiro pedido, escolha:"],
+          "messagePrefixes": ["Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?", "Depois escolha:"],
           "sequence": ["text"],
-          "routes": ["catalog_request", "order_request", "product_question", "human_request"]
+          "routes": ["catalog_request", "order_request", "product_question", "human_request", "freight_question"]
         },
         "returning_customer_menu": {
           "label": "Cliente recorrente",
           "messagePrefixes": ["Bom te ver de novo, amigo! Pra continuar:"],
           "sequence": ["text"],
-          "routes": ["returning_purchase", "delivery_support", "after_sales", "payment_receipt", "human_request"]
+          "routes": ["returning_purchase", "delivery_support", "after_sales", "payment_receipt", "human_request", "freight_question"]
         },
         "catalog_request": {
           "label": "Catálogo e PDFs",
@@ -137,6 +137,11 @@
           "label": "Novo pedido",
           "messagePrefixes": ["Certo! Mande os produtos, as quantidades"],
           "sequence": ["text", "handoff_check"]
+        },
+        "freight_question": {
+          "label": "Dúvida sobre frete",
+          "messagePrefixes": ["O frete fica em média R$ 35,00.", "O valor exato aparece na Shopee"],
+          "sequence": ["text_with_shopee_link"]
         },
         "product_question": {
           "label": "Dúvida de produto",
@@ -367,12 +372,12 @@
       "intent_display_name": "new_customer_menu",
       "question": "1",
       "language": "pt",
-      "answer": "Beleza, amigo! No primeiro pedido, escolha:\n\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com vendedor",
+      "answer": "Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?\n\nDepois escolha:\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com vendedor\n\nSe quiser, também posso explicar o frete.",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-new-customer-menu-reply",
-          "text": "Beleza, amigo! No primeiro pedido, escolha:\n\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com vendedor",
+          "text": "Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?\n\nDepois escolha:\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com vendedor\n\nSe quiser, também posso explicar o frete.",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -384,7 +389,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Beleza, amigo! No primeiro pedido, escolha:\n\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com vendedor",
+                  "text": "Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?\n\nDepois escolha:\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com vendedor\n\nSe quiser, também posso explicar o frete.",
                   "attributes": {
                     "attachment": {
                       "type": "text",
@@ -408,6 +413,11 @@
                           "type": "text",
                           "value": "Atendimento",
                           "label": "Atendimento"
+                        },
+                        {
+                          "type": "text",
+                          "value": "frete",
+                          "label": "Frete"
                         }
                       ]
                     }
@@ -439,12 +449,12 @@
       "intent_display_name": "returning_customer_menu",
       "question": "2",
       "language": "pt",
-      "answer": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido / Recompra\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com vendedor\n\nPara receber a tabela atualizada, escreva \"tabela\".",
+      "answer": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido / Recompra\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com vendedor\n\nPara receber a tabela atualizada, escreva \"tabela\". Se quiser, também posso explicar o frete.",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-returning-customer-menu-reply",
-          "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido / Recompra\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com vendedor\n\nPara receber a tabela atualizada, escreva \"tabela\".",
+          "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido / Recompra\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com vendedor\n\nPara receber a tabela atualizada, escreva \"tabela\". Se quiser, também posso explicar o frete.",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -456,7 +466,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido ou catálogo atualizado\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com vendedor",
+                  "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido ou catálogo atualizado\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com vendedor\n\nSe quiser, também posso explicar o frete.",
                   "attributes": {
                     "attachment": {
                       "type": "text",
@@ -480,6 +490,11 @@
                           "type": "text",
                           "value": "Comprovante",
                           "label": "Comprovante"
+                        },
+                        {
+                          "type": "text",
+                          "value": "frete",
+                          "label": "Frete"
                         }
                       ]
                     }
@@ -728,6 +743,63 @@
     {
       "webhook_enabled": false,
       "enabled": true,
+      "intent_id": "cc-commercial-freight-question",
+      "intent_display_name": "freight_question",
+      "question": "frete",
+      "language": "pt",
+      "answer": "O frete fica em média R$ 35,00. O valor exato aparece na Shopee de acordo com o seu endereço. Você consegue conferir aqui: https://shopee.com.br/universal-link/product/1502208056/58262112206\n\nSe você estiver falando de rastreio, me mande a referência do pedido.",
+      "actions": [
+        {
+          "_tdActionType": "reply",
+          "_tdActionId": "cc-commercial-freight-question-reply",
+          "text": "O frete fica em média R$ 35,00. O valor exato aparece na Shopee de acordo com o seu endereço. Você consegue conferir aqui: https://shopee.com.br/universal-link/product/1502208056/58262112206\n\nSe você estiver falando de rastreio, me mande a referência do pedido.",
+          "attributes": {
+            "disableInputMessage": false,
+            "commands": [
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "O frete fica em média R$ 35,00. O valor exato aparece na Shopee de acordo com o seu endereço. Você consegue conferir aqui: https://shopee.com.br/universal-link/product/1502208056/58262112206\n\nSe você estiver falando de rastreio, me mande a referência do pedido.",
+                  "attributes": {
+                    "casezapShopeeFlow": "freight_question"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "attributes": {
+        "position": {
+          "x": 1200,
+          "y": 2340
+        },
+        "aliases": [
+          "frete",
+          "quanto é o frete",
+          "quanto e o frete",
+          "qual o valor do frete",
+          "qual é o valor do frete",
+          "qual e o valor do frete",
+          "valor do frete",
+          "quanto custa o frete",
+          "frete é quanto",
+          "frete e quanto",
+          "preço do frete",
+          "preco do frete",
+          "frete na shopee",
+          "frete shopee"
+        ]
+      }
+    },
+    {
+      "webhook_enabled": false,
+      "enabled": true,
       "intent_id": "cc-commercial-human-request",
       "intent_display_name": "human_request",
       "question": "6",
@@ -876,7 +948,6 @@
           "rastreamento",
           "status da entrega",
           "status do pedido",
-          "frete",
           "prazo",
           "urgente",
           "urgência",

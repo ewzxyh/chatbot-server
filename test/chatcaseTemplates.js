@@ -237,8 +237,8 @@ describe('ChatCase chatbot templates', () => {
 
     assert(metadata, 'CaseZap template should be listed');
     assert(detail, 'CaseZap template detail should resolve by slug');
-    assert.strictEqual(metadata.intentsCount, 17);
-    assert.strictEqual(detail.intents.length, 17);
+    assert.strictEqual(metadata.intentsCount, 18);
+    assert.strictEqual(detail.intents.length, 18);
     assert.strictEqual(metadata.attributes.exclusiveChannel, true);
     assert.strictEqual(metadata.attributes.targetChannel, 'casezap');
     assert.strictEqual(metadata.attributes.selectedChannel, 'casezap');
@@ -251,6 +251,7 @@ describe('ChatCase chatbot templates', () => {
     const handoffOnline = detail.intents.find((intent) => intent.intent_display_name === 'handoff_online');
     const handoffOffline = detail.intents.find((intent) => intent.intent_display_name === 'handoff_offline');
     const catalogRequest = detail.intents.find((intent) => intent.intent_display_name === 'catalog_request');
+    const freightQuestion = detail.intents.find((intent) => intent.intent_display_name === 'freight_question');
     const orderRequest = detail.intents.find((intent) => intent.intent_display_name === 'order_request');
     const catalogResponse = 'Segue a nova tabela 👇';
     const returningPurchaseResponse = 'Bom te ver de novo! Mande os produtos e as quantidades. A equipe confirma preço, estoque, frete, pagamento e prazo.';
@@ -259,8 +260,13 @@ describe('ChatCase chatbot templates', () => {
     const pdfs = messages.filter((message) => message.type === 'file' && message.metadata && message.metadata.type === 'application/pdf');
 
     assert.strictEqual(newCustomer.question, '1');
+    assert(newCustomer.answer.includes('como você conheceu o Victor?'));
     assert.strictEqual(returningCustomer.question, '2');
+    assert(!returningCustomer.answer.includes('como você conheceu o Victor?'));
     assert.strictEqual(catalogRequest.question, '3');
+    assert(freightQuestion.attributes.aliases.includes('quanto é o frete'));
+    assert(freightQuestion.answer.includes('R$ 35,00'));
+    assert(freightQuestion.answer.includes('https://shopee.com.br/universal-link/product/1502208056/58262112206'));
     assert(returningCustomer.answer.includes('7 - Novo pedido / Recompra'));
     assert(!returningCustomer.answer.includes('catálogo atualizado'));
     assert.strictEqual(getIntentButtons(returningCustomer)[0].value, 'Comprar novamente');
@@ -277,6 +283,10 @@ describe('ChatCase chatbot templates', () => {
     assert(!orderRequest.answer.includes('cidade ou CEP'));
     assert.strictEqual(stickers.length, 0);
     assert.strictEqual(pdfs.length, 2);
+    assert.strictEqual(
+      messages.filter((message) => (message.text || '').includes('https://shopee.com.br/universal-link/product/1502208056/58262112206')).length,
+      1
+    );
     assertCasezapAssetBaseUrl(devDetail, 'https://chatcase-dev.69-6-250-104.sslip.io');
     assertCasezapAssetBaseUrl(fallbackDetail, 'https://chatcase.com.br');
     assert.strictEqual(handoffCheck.actions[0]._tdActionType, 'ifonlineagentsv2');

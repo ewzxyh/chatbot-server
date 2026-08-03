@@ -39,6 +39,58 @@ var chat21AdminToken = process.env.CHAT21_ADMIN_TOKEN || chat21Config.adminToken
 var chat21MessagesConnection = null;
 var Chat21Message = null;
 var defaultChat21GroupRepair = chat21GroupRepairService.createChat21GroupRepairService();
+var CASEZAP_SHOPEE_GUARD_PATH = 'attributes.casezapShopeeFreightSent';
+
+function isCaseZapShopeeMessage(message, outbound) {
+  var attributes = message && message.attributes || {};
+  if (attributes.casezapShopeeFlow === true || attributes.casezapShopeeFlow === 'freight_question') {
+    return true;
+  }
+
+  var metadata = message && message.metadata || {};
+  var body = outbound && outbound.body || {};
+  var text = [
+    message && message.text,
+    message && message.caption,
+    metadata.src,
+    metadata.downloadURL,
+    metadata.downloadUrl,
+    body.text,
+    body.file
+  ].filter(Boolean).join('\n');
+
+  if (/shopee\.com\.br/i.test(text)) return true;
+  return /shopee/i.test(text) && /frete/i.test(text);
+}
+
+async function claimCaseZapShopeeFlow(request, projectId) {
+  var requestId = request && request.request_id;
+  if (!requestId || !projectId) return true;
+
+  if (request.attributes && request.attributes.casezapShopeeFreightSent === true) {
+    return false;
+  }
+
+  var claimed = await Request.findOneAndUpdate(
+    {
+      request_id: requestId,
+      id_project: projectId,
+      [CASEZAP_SHOPEE_GUARD_PATH]: { $ne: true }
+    },
+    {
+      $set: {
+        [CASEZAP_SHOPEE_GUARD_PATH]: true,
+        'attributes.casezapShopeeFreightSentAt': new Date()
+      }
+    },
+    { new: true, upsert: false }
+  );
+
+  if (claimed && request.attributes) {
+    request.attributes.casezapShopeeFreightSent = true;
+  }
+  return Boolean(claimed);
+}
 
 function withCaseZapRequestLock(key, operation) {
   var previous = caseZapRequestLocks.get(key) || Promise.resolve();
@@ -1025,8 +1077,24 @@ async function sendOutboundMessage(message) {
           }
         } else if (command && command.type === 'message' && command.message) {
           var outbound = messageMapper.mapOutbound(command.message, phone);
-          if (outbound) commandPlan.push({ type: 'message', outbound: outbound });
+          if (outbound) commandPlan.push({ type: 'message', outbound: outbound, source: command.message });
         }
+      }
+    }
+
+    var shopeeFlowAllowed = false;
+    var shopeeFlowSuppressed = false;
+    var hasShopeeCommand = commandPlan.some(function(command) {
+      return command.type === 'message' && isCaseZapShopeeMessage(command.source, command.outbound);
+    });
+
+    if (hasShopeeCommand) {
+      shopeeFlowAllowed = await claimCaseZapShopeeFlow(message.request, projectId);
+      if (!shopeeFlowAllowed) {
+        shopeeFlowSuppressed = true;
+        commandPlan = commandPlan.filter(function(command) {
+          return command.type !== 'message' || !isCaseZapShopeeMessage(command.source, command.outbound);
+        });
       }
     }
 
@@ -1042,7 +1110,15 @@ async function sendOutboundMessage(message) {
       return;
     }
 
-    await sendOutboundWithRetry(integration, phone, messageMapper.mapOutbound(message, phone));
+    if (shopeeFlowSuppressed) return;
+
+    var fallbackOutbound = messageMapper.mapOutbound(message, phone);
+    if (isCaseZapShopeeMessage(message, fallbackOutbound) && !shopeeFlowAllowed) {
+      shopeeFlowAllowed = await claimCaseZapShopeeFlow(message.request, projectId);
+      if (!shopeeFlowAllowed) return;
+    }
+
+    await sendOutboundWithRetry(integration, phone, fallbackOutbound);
 
   } catch (err) {
     winston.error('CaseZap outbound error: ' + describeProviderError(err));
@@ -1224,6 +1300,8 @@ module.exports = {
   extractConnectionStatus: extractConnectionStatus,
   extractWebhookReceipt: extractWebhookReceipt,
   hasStoredCaseZapMessage: hasStoredCaseZapMessage,
+  isCaseZapShopeeMessage: isCaseZapShopeeMessage,
+  claimCaseZapShopeeFlow: claimCaseZapShopeeFlow,
   sendOutboundMessage: sendOutboundMessage,
   isTransientProviderError: isTransientProviderError,
   mapConnectionHealth: mapConnectionHealth,

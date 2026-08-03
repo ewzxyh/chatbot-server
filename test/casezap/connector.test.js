@@ -20,6 +20,7 @@ const {
   syncCaseZapRequestLastMessage
 } = require('../../pubmodules/casezap/connector');
 const Lead = require('../../models/lead');
+const Request = require('../../models/request');
 const leadService = require('../../services/leadService');
 const Integration = require('../../models/integrations');
 const axios = require('axios');
@@ -472,6 +473,91 @@ describe('CaseZap connector', function() {
         }
       }
     ]);
+  });
+
+  it('persists the Shopee freight guard and suppresses later Shopee messages in the request', async function() {
+    const originalFindOne = Integration.findOne;
+    const originalFindOneAndUpdate = Request.findOneAndUpdate;
+    const originalPost = axios.post;
+    const calls = [];
+    let claims = 0;
+
+    Integration.findOne = function() {
+      return Promise.resolve({
+        value: {
+          status: 'active',
+          domain: 'https://uazapi.example/',
+          token: 'token-1'
+        }
+      });
+    };
+    Request.findOneAndUpdate = function(query, update) {
+      claims += 1;
+      assert.strictEqual(query.request_id, 'request-1');
+      assert.strictEqual(query.id_project, 'project-1');
+      assert.deepStrictEqual(query['attributes.casezapShopeeFreightSent'], { $ne: true });
+      assert.strictEqual(update.$set['attributes.casezapShopeeFreightSent'], true);
+      return Promise.resolve(claims === 1 ? { _id: 'request-1' } : null);
+    };
+    axios.post = async function(url, body) {
+      calls.push({ url, body });
+      return { data: { success: true } };
+    };
+
+    const baseMessage = {
+      request: {
+        request_id: 'request-1',
+        channel: { name: 'casezap' },
+        lead: { lead_id: 'casezap-5511999999999' }
+      },
+      status: MessageConstants.CHAT_MESSAGE_STATUS.SENDING,
+      channel_type: MessageConstants.CHANNEL_TYPE.GROUP,
+      id_project: 'project-1',
+      sender: 'agent-1'
+    };
+
+    try {
+      await sendOutboundMessage(Object.assign({}, baseMessage, {
+        attributes: {
+          commands: [
+            {
+              type: 'message',
+              message: {
+                type: 'text',
+                text: 'O frete fica em média R$ 35,00. Confira na Shopee: https://shopee.com.br/universal-link/product/1/2',
+                attributes: { casezapShopeeFlow: 'freight_question' }
+              }
+            }
+          ]
+        }
+      }));
+      await sendOutboundMessage(Object.assign({}, baseMessage, {
+        attributes: {
+          commands: [
+            {
+              type: 'message',
+              message: {
+                type: 'text',
+                text: 'Confira novamente na Shopee: https://shopee.com.br/universal-link/product/1/2'
+              }
+            }
+          ]
+        }
+      }));
+    } finally {
+      Integration.findOne = originalFindOne;
+      Request.findOneAndUpdate = originalFindOneAndUpdate;
+      axios.post = originalPost;
+    }
+
+    assert.strictEqual(claims, 2);
+    assert.deepStrictEqual(calls, [{
+      url: 'https://uazapi.example/send/text',
+      body: {
+        number: '5511999999999',
+        text: 'O frete fica em média R$ 35,00. Confira na Shopee: https://shopee.com.br/universal-link/product/1/2'
+      }
+    }]);
   });
 
   it('stops command messages after a definitive provider failure', async function() {
