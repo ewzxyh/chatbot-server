@@ -29,7 +29,7 @@ function assertCasezapAssetBaseUrl(detail, baseUrl) {
   const expectedBaseUrl = baseUrl.replace(/\/+$/, '');
 
   assert.strictEqual(stickers.length, 2);
-  assert.strictEqual(pdfs.length, 1);
+  assert.strictEqual(pdfs.length, 2);
   assert.deepStrictEqual(
     stickers.map((message) => [message.metadata.src, message.metadata.downloadURL]).sort(),
     [
@@ -44,11 +44,17 @@ function assertCasezapAssetBaseUrl(detail, baseUrl) {
     ]
   );
   assert.deepStrictEqual(
-    [pdfs[0].metadata.src, pdfs[0].metadata.downloadURL],
+    pdfs.map((message) => [message.metadata.src, message.metadata.downloadURL]).sort(),
     [
-      `${expectedBaseUrl}/community/assets/casezap/catalogo-chatcase.pdf`,
-      `${expectedBaseUrl}/community/assets/casezap/catalogo-chatcase.pdf`
-    ]
+      [
+        `${expectedBaseUrl}/community/assets/casezap/catalogo-chatcase.pdf`,
+        `${expectedBaseUrl}/community/assets/casezap/catalogo-chatcase.pdf`
+      ],
+      [
+        `${expectedBaseUrl}/community/assets/casezap/horse-power-2-0.pdf`,
+        `${expectedBaseUrl}/community/assets/casezap/horse-power-2-0.pdf`
+      ]
+    ].sort()
   );
 }
 
@@ -253,11 +259,13 @@ describe('ChatCase chatbot templates', () => {
 
     const newCustomer = detail.intents.find((intent) => intent.intent_display_name === 'new_customer_menu');
     const returningCustomer = detail.intents.find((intent) => intent.intent_display_name === 'returning_customer_menu');
+    const returningPurchase = detail.intents.find((intent) => intent.intent_display_name === 'returning_purchase');
     const handoffCheck = detail.intents.find((intent) => intent.intent_display_name === 'handoff_check');
     const handoffOnline = detail.intents.find((intent) => intent.intent_display_name === 'handoff_online');
     const handoffOffline = detail.intents.find((intent) => intent.intent_display_name === 'handoff_offline');
     const catalogRequest = detail.intents.find((intent) => intent.intent_display_name === 'catalog_request');
-    const catalogResponse = 'Claro! Aqui está a tabela atualizada com os produtos. Confira o PDF abaixo. Se quiser algum item específico, me diga o nome e a quantidade.';
+    const catalogResponse = 'Claro! Aqui está a tabela atualizada com os produtos. Confira os PDFs abaixo. Se quiser algum item específico, me diga o nome e a quantidade.';
+    const returningPurchaseResponse = 'Bom te ver de novo! Mande os produtos e as quantidades. A equipe confirma preço, estoque, frete, pagamento e prazo.';
     const messages = detail.intents.flatMap(getIntentMessages);
     const stickers = messages.filter((message) => message.type === 'sticker');
     const pdfs = messages.filter((message) => message.type === 'file' && message.metadata && message.metadata.type === 'application/pdf');
@@ -265,6 +273,13 @@ describe('ChatCase chatbot templates', () => {
     assert.strictEqual(newCustomer.question, '1');
     assert.strictEqual(returningCustomer.question, '2');
     assert.strictEqual(catalogRequest.question, '3');
+    assert(returningCustomer.answer.includes('7 - Novo pedido / Recompra'));
+    assert(!returningCustomer.answer.includes('catálogo atualizado'));
+    assert.strictEqual(getIntentButtons(returningCustomer)[0].value, 'Comprar novamente');
+    assert.strictEqual(getIntentButtons(returningCustomer)[0].label, 'Novo pedido');
+    assert.strictEqual(returningPurchase.answer, returningPurchaseResponse);
+    assert(!returningPurchase.answer.includes('tabela'));
+    assert(!returningPurchase.attributes.aliases.includes('Pedido / catálogo'));
     assert.strictEqual(catalogRequest.answer, catalogResponse);
     assert.strictEqual(catalogRequest.actions.find((action) => action._tdActionType === 'reply').text, catalogResponse);
     assert.strictEqual(
@@ -272,7 +287,7 @@ describe('ChatCase chatbot templates', () => {
       catalogResponse
     );
     assert.strictEqual(stickers.length, 2);
-    assert.strictEqual(pdfs.length, 1);
+    assert.strictEqual(pdfs.length, 2);
     assertCasezapAssetBaseUrl(devDetail, 'https://chatcase-dev.69-6-250-104.sslip.io');
     assertCasezapAssetBaseUrl(fallbackDetail, 'https://chatcase.com.br');
     assert.strictEqual(handoffCheck.actions[0]._tdActionType, 'ifonlineagentsv2');

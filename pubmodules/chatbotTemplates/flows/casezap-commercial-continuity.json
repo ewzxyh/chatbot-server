@@ -357,12 +357,12 @@
       "intent_display_name": "returning_customer_menu",
       "question": "2",
       "language": "pt",
-      "answer": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido ou catálogo atualizado\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com atendimento",
+      "answer": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido / Recompra\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com atendimento\n\nPara receber a tabela atualizada, escreva \"tabela\".",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-returning-customer-menu-reply",
-          "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido ou catálogo atualizado\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com atendimento",
+          "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido / Recompra\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com atendimento\n\nPara receber a tabela atualizada, escreva \"tabela\".",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -381,8 +381,8 @@
                       "buttons": [
                         {
                           "type": "text",
-                          "value": "Pedido / catálogo",
-                          "label": "Pedido / catálogo"
+                          "value": "Comprar novamente",
+                          "label": "Novo pedido"
                         },
                         {
                           "type": "text",
@@ -449,12 +449,12 @@
       "intent_display_name": "catalog_request",
       "question": "3",
       "language": "pt",
-      "answer": "Claro! Aqui está a tabela atualizada com os produtos. Confira o PDF abaixo. Se quiser algum item específico, me diga o nome e a quantidade.",
+      "answer": "Claro! Aqui está a tabela atualizada com os produtos. Confira os PDFs abaixo. Se quiser algum item específico, me diga o nome e a quantidade.",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-catalog-request-reply",
-          "text": "Claro! Aqui está a tabela atualizada com os produtos. Confira o PDF abaixo. Se quiser algum item específico, me diga o nome e a quantidade.",
+          "text": "Claro! Aqui está a tabela atualizada com os produtos. Confira os PDFs abaixo. Se quiser algum item específico, me diga o nome e a quantidade.",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -466,7 +466,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Claro! Aqui está a tabela atualizada com os produtos. Confira o PDF abaixo. Se quiser algum item específico, me diga o nome e a quantidade."
+                  "text": "Claro! Aqui está a tabela atualizada com os produtos. Confira os PDFs abaixo. Se quiser algum item específico, me diga o nome e a quantidade."
                 }
               },
               {
@@ -482,6 +482,24 @@
                     "src": "https://chatcase.com.br/community/assets/casezap/catalogo-chatcase.pdf",
                     "downloadURL": "https://chatcase.com.br/community/assets/casezap/catalogo-chatcase.pdf",
                     "name": "catalogo-chatcase.pdf",
+                    "type": "application/pdf",
+                    "mimetype": "application/pdf"
+                  }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "file",
+                  "text": "HORSE POWER 2.0 em PDF",
+                  "metadata": {
+                    "src": "https://chatcase.com.br/community/assets/casezap/horse-power-2-0.pdf",
+                    "downloadURL": "https://chatcase.com.br/community/assets/casezap/horse-power-2-0.pdf",
+                    "name": "horse-power-2-0.pdf",
                     "type": "application/pdf",
                     "mimetype": "application/pdf"
                   }
@@ -689,12 +707,12 @@
       "intent_display_name": "returning_purchase",
       "question": "7",
       "language": "pt",
-      "answer": "Bom te ver de novo! Mande os produtos e quantidades ou diga se quer a tabela atualizada. A equipe confirma as informações atuais.",
+      "answer": "Bom te ver de novo! Mande os produtos e as quantidades. A equipe confirma preço, estoque, frete, pagamento e prazo.",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-returning-purchase-reply",
-          "text": "Bom te ver de novo! Mande os produtos e quantidades ou diga se quer a tabela atualizada. A equipe confirma as informações atuais.",
+          "text": "Bom te ver de novo! Mande os produtos e as quantidades. A equipe confirma preço, estoque, frete, pagamento e prazo.",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -724,11 +742,10 @@
           "y": 1040
         },
         "aliases": [
-          "Pedido / catálogo",
-          "Pedido / catalogo",
           "Comprar novamente",
           "Quero comprar de novo",
-          "repetir compra"
+          "repetir compra",
+          "Recompra"
         ]
       }
     },
