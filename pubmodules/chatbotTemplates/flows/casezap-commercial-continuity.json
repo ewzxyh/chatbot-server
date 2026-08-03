@@ -119,19 +119,19 @@
         "new_customer_menu": {
           "label": "Novo cliente",
           "messagePrefixes": ["Beleza, amigo! No primeiro pedido, escolha:"],
-          "sequence": ["text", "sticker"],
+          "sequence": ["text"],
           "routes": ["catalog_request", "order_request", "product_question", "human_request"]
         },
         "returning_customer_menu": {
           "label": "Cliente recorrente",
           "messagePrefixes": ["Bom te ver de novo, amigo! Pra continuar:"],
-          "sequence": ["text", "sticker"],
+          "sequence": ["text"],
           "routes": ["returning_purchase", "delivery_support", "after_sales", "payment_receipt", "human_request"]
         },
         "catalog_request": {
           "label": "Catálogo e PDFs",
-          "messagePrefixes": ["Claro! Aqui está a tabela atualizada com os produtos."],
-          "sequence": ["text", "file:[PDF_CATALOGO_DEMO]", "file:[PDF_COMPLEMENTAR_DEMO]", "handoff_check"]
+          "messagePrefixes": ["Segue a nova tabela 👇"],
+          "sequence": ["text", "file:[PDF_CATALOGO_DEMO]", "file:[PDF_COMPLEMENTAR_DEMO]", "text", "handoff_check"]
         },
         "order_request": {
           "label": "Novo pedido",
@@ -367,12 +367,12 @@
       "intent_display_name": "new_customer_menu",
       "question": "1",
       "language": "pt",
-      "answer": "Beleza, amigo! No primeiro pedido, escolha:\n\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com atendimento",
+      "answer": "Beleza, amigo! No primeiro pedido, escolha:\n\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com vendedor",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-new-customer-menu-reply",
-          "text": "Beleza, amigo! No primeiro pedido, escolha:\n\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com atendimento",
+          "text": "Beleza, amigo! No primeiro pedido, escolha:\n\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com vendedor",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -384,7 +384,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Beleza, amigo! No primeiro pedido, escolha:\n\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com atendimento",
+                  "text": "Beleza, amigo! No primeiro pedido, escolha:\n\n3 - Tabela atualizada\n4 - Fazer pedido ou orçamento\n5 - Dúvida de produto\n6 - Falar com vendedor",
                   "attributes": {
                     "attachment": {
                       "type": "text",
@@ -413,22 +413,6 @@
                     }
                   }
                 }
-              },
-              {
-                "type": "wait",
-                "time": 300
-              },
-              {
-                "type": "message",
-                "message": {
-                  "type": "sticker",
-                  "text": "",
-                  "metadata": {
-                    "src": "https://chatcase.com.br/community/assets/casezap/sticker-animated.webp",
-                    "downloadURL": "https://chatcase.com.br/community/assets/casezap/sticker-animated.webp",
-                    "type": "sticker"
-                  }
-                }
               }
             ]
           }
@@ -455,12 +439,12 @@
       "intent_display_name": "returning_customer_menu",
       "question": "2",
       "language": "pt",
-      "answer": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido / Recompra\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com atendimento\n\nPara receber a tabela atualizada, escreva \"tabela\".",
+      "answer": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido / Recompra\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com vendedor\n\nPara receber a tabela atualizada, escreva \"tabela\".",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-returning-customer-menu-reply",
-          "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido / Recompra\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com atendimento\n\nPara receber a tabela atualizada, escreva \"tabela\".",
+          "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido / Recompra\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com vendedor\n\nPara receber a tabela atualizada, escreva \"tabela\".",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -472,7 +456,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido ou catálogo atualizado\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com atendimento",
+                  "text": "Bom te ver de novo, amigo! Pra continuar:\n\n7 - Novo pedido ou catálogo atualizado\n8 - Entrega ou rastreio\n9 - Pós-venda ou reclamação\n10 - Pagamento ou comprovante\n6 - Falar com vendedor",
                   "attributes": {
                     "attachment": {
                       "type": "text",
@@ -499,22 +483,6 @@
                         }
                       ]
                     }
-                  }
-                }
-              },
-              {
-                "type": "wait",
-                "time": 300
-              },
-              {
-                "type": "message",
-                "message": {
-                  "type": "sticker",
-                  "text": "",
-                  "metadata": {
-                    "src": "https://chatcase.com.br/community/assets/casezap/sticker-static.webp",
-                    "downloadURL": "https://chatcase.com.br/community/assets/casezap/sticker-static.webp",
-                    "type": "sticker"
                   }
                 }
               }
@@ -547,12 +515,12 @@
       "intent_display_name": "catalog_request",
       "question": "3",
       "language": "pt",
-      "answer": "Claro! Aqui está a tabela atualizada com os produtos. Confira os PDFs abaixo. Se quiser algum item específico, me diga o nome e a quantidade.",
+      "answer": "Segue a nova tabela 👇",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-catalog-request-reply",
-          "text": "Claro! Aqui está a tabela atualizada com os produtos. Confira os PDFs abaixo. Se quiser algum item específico, me diga o nome e a quantidade.",
+          "text": "Segue a nova tabela 👇",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -564,7 +532,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Claro! Aqui está a tabela atualizada com os produtos. Confira os PDFs abaixo. Se quiser algum item específico, me diga o nome e a quantidade."
+                  "text": "Segue a nova tabela 👇"
                 }
               },
               {
@@ -601,6 +569,17 @@
                     "type": "application/pdf",
                     "mimetype": "application/pdf"
                   }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Confira os PDFs acima. Se quiser algum item específico, me diga o nome e a quantidade."
                 }
               }
             ]
@@ -641,12 +620,12 @@
       "intent_display_name": "order_request",
       "question": "4",
       "language": "pt",
-      "answer": "Certo! Mande os produtos, as quantidades e sua cidade ou CEP. A equipe confirma preço, estoque, frete, pagamento e prazo antes de fechar.",
+      "answer": "Certo! Mande os produtos e as quantidades. A equipe confirma preço, estoque, frete, pagamento e prazo antes de fechar.",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-order-request-reply",
-          "text": "Certo! Mande os produtos, as quantidades e sua cidade ou CEP. A equipe confirma preço, estoque, frete, pagamento e prazo antes de fechar.",
+          "text": "Certo! Mande os produtos e as quantidades. A equipe confirma preço, estoque, frete, pagamento e prazo antes de fechar.",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -658,7 +637,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Certo! Mande os produtos, as quantidades e sua cidade ou CEP. A equipe confirma preço, estoque, frete, pagamento e prazo antes de fechar."
+                  "text": "Certo! Mande os produtos e as quantidades. A equipe confirma preço, estoque, frete, pagamento e prazo antes de fechar."
                 }
               }
             ]
@@ -753,12 +732,12 @@
       "intent_display_name": "human_request",
       "question": "6",
       "language": "pt",
-      "answer": "Certo, amigo. Vou chamar a equipe. Pode resumir em uma mensagem o que você precisa.",
+      "answer": "Certo, amigo. Vou chamar o vendedor. Pode resumir em uma mensagem o que você precisa.",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-human-request-reply",
-          "text": "Certo, amigo. Vou chamar a equipe. Pode resumir em uma mensagem o que você precisa.",
+          "text": "Certo, amigo. Vou chamar o vendedor. Pode resumir em uma mensagem o que você precisa.",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -770,7 +749,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Certo, amigo. Vou chamar a equipe. Pode resumir em uma mensagem o que você precisa."
+                  "text": "Certo, amigo. Vou chamar o vendedor. Pode resumir em uma mensagem o que você precisa."
                 }
               }
             ]
@@ -791,6 +770,8 @@
           "Atendimento",
           "atendimento",
           "atendente",
+          "Falar com vendedor",
+          "falar com vendedor",
           "Falar com atendente",
           "falar com atendente",
           "falar com alguem",

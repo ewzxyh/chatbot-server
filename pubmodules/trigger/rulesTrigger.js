@@ -41,6 +41,19 @@ function resolveBotStartText(event, startText) {
   return casezapFlowStart || startText;
 }
 
+function resolveBotStartAttributes(event, startText) {
+  var attributes = { subtype: 'info', updateconversation: false };
+  if (
+    event &&
+    event.channel &&
+    event.channel.name === 'casezap' &&
+    (startText === '1' || startText === '2')
+  ) {
+    attributes.casezapFlowStart = startText;
+  }
+  return attributes;
+}
+
 var jwt = require('jsonwebtoken');
 
 const port = process.env.PORT || '3000';
@@ -741,6 +754,7 @@ class RulesTrigger {
                 startText = action.parameters.text;
               }
               startText = resolveBotStartText(eventTrigger.event, startText);
+              var startAttributes = resolveBotStartAttributes(eventTrigger.event, startText);
               winston.debug('runAction action startText: ' + startText);
 
 
@@ -757,7 +771,7 @@ class RulesTrigger {
                   startText, // /start controlla se chatbot nuovo manda /start altrimenti per i vecchi \start
                   id_project,
                   null,
-                  {subtype:'info', updateconversation : false}
+                  startAttributes
                 );
     
                   // TODO Add typing? 
@@ -811,14 +825,15 @@ class RulesTrigger {
                   winston.verbose('request.bot.launch action request_id: ' + request_id);
   
                   // rendi dinamico /start
+                  var startText = resolveBotStartText(eventTrigger.event, '/start');
                   messageService.send(
                     'system', 
                     'Bot',                                     
                     request_id,
-                    resolveBotStartText(eventTrigger.event, '/start'), // TODO CHANGE TO / start
+                    startText, // TODO CHANGE TO / start
                     id_project,
                     null,
-                    {subtype:'info', updateconversation : false}
+                    resolveBotStartAttributes(eventTrigger.event, startText)
                   );
       
                     // TODO Add typing? 
@@ -1501,5 +1516,6 @@ class RulesTrigger {
 
 var rulesTrigger = new RulesTrigger();
 rulesTrigger.resolveBotStartText = resolveBotStartText;
+rulesTrigger.resolveBotStartAttributes = resolveBotStartAttributes;
 module.exports = rulesTrigger;
 

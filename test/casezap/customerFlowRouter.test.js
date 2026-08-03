@@ -1,6 +1,7 @@
 var assert = require('assert');
 var router = require('../../pubmodules/casezap/customerFlowRouter');
 var rulesTrigger = require('../../pubmodules/trigger/rulesTrigger');
+var botEvent = require('../../event/botEvent');
 
 describe('CaseZap customer flow routing', function() {
   it('routes an unknown saved contact to the returning flow', function() {
@@ -59,6 +60,25 @@ describe('CaseZap customer flow routing', function() {
     assert.strictEqual(
       rulesTrigger.resolveBotStartText({ channel: { name: 'casezap' }, attributes: { casezapFlowStart: '2' } }, 'custom-start'),
       'custom-start'
+    );
+  });
+
+  it('accepts the classified CaseZap start marker without opening a bot loop', function() {
+    assert.strictEqual(
+      botEvent.isBotStartMessage({
+        sender: 'system',
+        text: '2',
+        attributes: { casezapFlowStart: '2' }
+      }),
+      true
+    );
+    assert.strictEqual(
+      botEvent.isBotStartMessage({ sender: 'bot_example', text: '2' }),
+      false
+    );
+    assert.strictEqual(
+      botEvent.isBotStartMessage({ sender: 'system', text: '2' }),
+      false
     );
   });
 });

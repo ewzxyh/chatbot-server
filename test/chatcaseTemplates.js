@@ -28,21 +28,8 @@ function assertCasezapAssetBaseUrl(detail, baseUrl) {
   const pdfs = messages.filter((message) => message.type === 'file' && message.metadata && message.metadata.type === 'application/pdf');
   const expectedBaseUrl = baseUrl.replace(/\/+$/, '');
 
-  assert.strictEqual(stickers.length, 2);
+  assert.strictEqual(stickers.length, 0);
   assert.strictEqual(pdfs.length, 2);
-  assert.deepStrictEqual(
-    stickers.map((message) => [message.metadata.src, message.metadata.downloadURL]).sort(),
-    [
-      [
-        `${expectedBaseUrl}/community/assets/casezap/sticker-animated.webp`,
-        `${expectedBaseUrl}/community/assets/casezap/sticker-animated.webp`
-      ],
-      [
-        `${expectedBaseUrl}/community/assets/casezap/sticker-static.webp`,
-        `${expectedBaseUrl}/community/assets/casezap/sticker-static.webp`
-      ]
-    ]
-  );
   assert.deepStrictEqual(
     pdfs.map((message) => [message.metadata.src, message.metadata.downloadURL]).sort(),
     [
@@ -264,7 +251,8 @@ describe('ChatCase chatbot templates', () => {
     const handoffOnline = detail.intents.find((intent) => intent.intent_display_name === 'handoff_online');
     const handoffOffline = detail.intents.find((intent) => intent.intent_display_name === 'handoff_offline');
     const catalogRequest = detail.intents.find((intent) => intent.intent_display_name === 'catalog_request');
-    const catalogResponse = 'Claro! Aqui está a tabela atualizada com os produtos. Confira os PDFs abaixo. Se quiser algum item específico, me diga o nome e a quantidade.';
+    const orderRequest = detail.intents.find((intent) => intent.intent_display_name === 'order_request');
+    const catalogResponse = 'Segue a nova tabela 👇';
     const returningPurchaseResponse = 'Bom te ver de novo! Mande os produtos e as quantidades. A equipe confirma preço, estoque, frete, pagamento e prazo.';
     const messages = detail.intents.flatMap(getIntentMessages);
     const stickers = messages.filter((message) => message.type === 'sticker');
@@ -286,7 +274,8 @@ describe('ChatCase chatbot templates', () => {
       getIntentMessages(catalogRequest).find((message) => message.type === 'text').text,
       catalogResponse
     );
-    assert.strictEqual(stickers.length, 2);
+    assert(!orderRequest.answer.includes('cidade ou CEP'));
+    assert.strictEqual(stickers.length, 0);
     assert.strictEqual(pdfs.length, 2);
     assertCasezapAssetBaseUrl(devDetail, 'https://chatcase-dev.69-6-250-104.sslip.io');
     assertCasezapAssetBaseUrl(fallbackDetail, 'https://chatcase.com.br');

@@ -7,6 +7,22 @@ const cacheEnabler = require("../services/cacheEnabler");
 var Faq = require("../models/faq");
 const { Webhook } = require('../models/webhook');
 
+function isBotStartMessage(message) {
+    if (!message || message.sender !== 'system' || !message.text) {
+        return false;
+    }
+
+    if (message.text === '\\start' || message.text === '/start') {
+        return true;
+    }
+
+    return Boolean(
+        (message.text === '1' || message.text === '2') &&
+        message.attributes &&
+        message.attributes.casezapFlowStart === message.text
+    );
+}
+
 // class BotEvent extends EventEmitter {}
 class BotEvent extends EventEmitter {
     
@@ -48,7 +64,7 @@ class BotEvent extends EventEmitter {
             // }
 
             if (message.sender === "system") {
-                if (message.text && (message.text == "\\start" || message.text == "/start")) {
+                if (isBotStartMessage(message)) {
                     winston.debug("it s a start message");
                 } else {
                     winston.debug("it s a message sent from system, exit");
@@ -184,6 +200,7 @@ class BotEvent extends EventEmitter {
 }
 
 const botEvent = new BotEvent();
+botEvent.isBotStartMessage = isBotStartMessage;
 
 //TODO use request. getBotId
 function getBotFromParticipants(participants) {
