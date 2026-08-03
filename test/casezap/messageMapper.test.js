@@ -130,6 +130,25 @@ describe('CaseZap messageMapper', function() {
       assert.strictEqual(result.metadata.src, 'https://media.url/img-root.jpg');
     });
 
+    it('should preserve UazApi stickers and their original mime type', function() {
+      var webhook = {
+        EventType: 'messages',
+        messageid: 'sticker-001',
+        chatid: 'redacted@example.invalid',
+        fromMe: false,
+        isGroup: false,
+        messageType: 'StickerMessage',
+        mimetype: 'image/webp',
+        fileURL: 'https://media.url/sticker.webp',
+        senderName: 'User'
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'sticker');
+      assert.strictEqual(result.metadata.src, 'https://media.url/sticker.webp');
+      assert.strictEqual(result.metadata.type, 'image/webp');
+      assert.strictEqual(result.metadata.mimetype, 'image/webp');
+    });
+
     it('should not leak raw content objects into image text or src', function() {
       var webhook = {
         EventType: 'messages',

@@ -65,7 +65,7 @@ function shouldPersistExternalMedia(mapped, baseFileUrl) {
     mapped.metadata.src &&
     isHttpUrl(mapped.metadata.src) &&
     !isLocalFileUrl(mapped.metadata.src, baseFileUrl) &&
-    (mapped.type === 'image' || mapped.type === 'frame' || mapped.type === 'file')
+    (mapped.type === 'image' || mapped.type === 'frame' || mapped.type === 'file' || mapped.type === 'sticker')
   );
 }
 
@@ -88,6 +88,9 @@ function extensionFromType(contentType, mapped) {
   }
   if (mapped.type === 'image') {
     return '.jpg';
+  }
+  if (mapped.type === 'sticker') {
+    return '.webp';
   }
   if (mapped.type === 'frame') {
     return '.mp4';
@@ -158,6 +161,9 @@ function canTrustDetectedContentType(mapped, detectedContentType) {
   }
   if (mapped.type === 'frame') {
     return detectedContentType.indexOf('video/') === 0;
+  }
+  if (mapped.type === 'sticker') {
+    return detectedContentType.indexOf('image/') === 0;
   }
   return true;
 }

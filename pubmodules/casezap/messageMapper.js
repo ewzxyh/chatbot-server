@@ -56,9 +56,20 @@ function cleanMime(value) {
   return value ? String(value).split(';')[0].trim().toLowerCase() : value;
 }
 
-function getDocumentType(message) {
+function getMediaMimeType(message) {
   var content = contentObject(message);
-  return cleanMime(message.mimetype || message.mimeType || message.contentType || content.mimetype || content.mimeType || content.contentType) || 'file';
+  return cleanMime(
+    message.mimetype ||
+    message.mimeType ||
+    message.contentType ||
+    content.mimetype ||
+    content.mimeType ||
+    content.contentType
+  );
+}
+
+function getDocumentType(message) {
+  return getMediaMimeType(message) || 'file';
 }
 
 function getDownloadId(message) {
@@ -446,8 +457,15 @@ function mapInbound(webhookData) {
 
     case 'stickermessage':
     case 'sticker':
-      result.type = 'image';
-      result.metadata = { src: getMediaUrl(message), type: 'image' };
+      var stickerMimeType = getMediaMimeType(message);
+      result.type = 'sticker';
+      result.metadata = {
+        src: getMediaUrl(message),
+        type: stickerMimeType || 'image/webp'
+      };
+      if (stickerMimeType) {
+        result.metadata.mimetype = stickerMimeType;
+      }
       break;
 
     case 'locationmessage':

@@ -67,7 +67,7 @@ describe('CaseZap mediaStorage', function() {
     assert.strictEqual(result.text, '[' + result.metadata.name + '](' + result.metadata.src + ')');
   });
 
-  it('uses detected image mime type when UazApi reports a wrong sticker content type', async function() {
+  it('rehosts stickers and keeps their original mime type when UazApi reports it incorrectly', async function() {
     const webp = Buffer.from('UklGRiAAAABXRUJQVlA4IAAAAAAwAQCdASoBAAEAAQAcJaQAA3AA/vuUAAA=', 'base64');
     const sourceUrl = 'https://chatcase.uazapi.com/files/sticker.jpg';
     const stored = [];
@@ -83,11 +83,12 @@ describe('CaseZap mediaStorage', function() {
 
     const mapped = {
       messageId: 'sticker-1',
-      type: 'image',
+      type: 'sticker',
       text: '',
       metadata: {
         src: sourceUrl,
-        type: 'image/jpeg'
+        type: 'image/jpeg',
+        mimetype: 'image/jpeg'
       }
     };
 
@@ -101,6 +102,9 @@ describe('CaseZap mediaStorage', function() {
     assert.strictEqual(stored[0].contentType, 'image/webp');
     assert.ok(stored[0].filename.endsWith('/sticker.webp'));
     assert.ok(result.metadata.src.startsWith('https://app.example/api/files?path='));
+    assert.strictEqual(result.type, 'sticker');
+    assert.strictEqual(result.metadata.mimetype, 'image/jpeg');
+    assert.strictEqual(result.metadata.type, 'image/webp');
   });
 
   it('does not rehost media that already points to the local ChatCase file endpoint', async function() {
