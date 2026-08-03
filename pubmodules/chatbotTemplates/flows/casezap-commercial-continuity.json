@@ -95,6 +95,99 @@
         "Testar menu e handoff online e offline em homologacao.",
         "Associar ao numero somente depois de aprovacao explicita."
       ]
+    },
+    "flowReference": {
+      "mode": "structure-preserved-content-neutralized",
+      "preserveMessageOrder": true,
+      "sensitiveContent": "replace_with_placeholder",
+      "blocks": {
+        "start": {
+          "label": "Entrada",
+          "messagePrefixes": ["Oi, amigo! Tudo bem?", "Pra te encaminhar certinho:"],
+          "sequence": ["text", "menu"]
+        },
+        "menu": {
+          "label": "Menu inicial",
+          "messagePrefixes": ["Oi, amigo! Tudo bem?", "Pra te encaminhar certinho:"],
+          "sequence": ["text", "menu"]
+        },
+        "new_customer_menu": {
+          "label": "Novo cliente",
+          "messagePrefixes": ["Beleza, amigo! No primeiro pedido, escolha:"],
+          "sequence": ["text", "sticker"],
+          "routes": ["catalog_request", "order_request", "product_question", "human_request"]
+        },
+        "returning_customer_menu": {
+          "label": "Cliente recorrente",
+          "messagePrefixes": ["Bom te ver de novo, amigo! Pra continuar:"],
+          "sequence": ["text", "sticker"],
+          "routes": ["returning_purchase", "delivery_support", "after_sales", "payment_receipt", "human_request"]
+        },
+        "catalog_request": {
+          "label": "Catálogo e PDFs",
+          "messagePrefixes": ["Claro! Aqui está a tabela atualizada com os produtos."],
+          "sequence": ["text", "file:[PDF_CATALOGO_DEMO]", "file:[PDF_COMPLEMENTAR_DEMO]", "handoff_check"]
+        },
+        "order_request": {
+          "label": "Novo pedido",
+          "messagePrefixes": ["Certo! Mande os produtos, as quantidades"],
+          "sequence": ["text", "handoff_check"]
+        },
+        "product_question": {
+          "label": "Dúvida de produto",
+          "messagePrefixes": ["Recebi sua dúvida."],
+          "sequence": ["text", "handoff_check"]
+        },
+        "human_request": {
+          "label": "Atendimento humano",
+          "messagePrefixes": ["Certo, amigo. Vou chamar a equipe."],
+          "sequence": ["text", "handoff_check"]
+        },
+        "returning_purchase": {
+          "label": "Recompra",
+          "messagePrefixes": ["Bom te ver de novo! Mande os produtos"],
+          "sequence": ["text", "handoff_check"]
+        },
+        "delivery_support": {
+          "label": "Entrega e rastreio",
+          "messagePrefixes": ["Entendi, amigo. Mande a referência do pedido"],
+          "sequence": ["text", "handoff_check"]
+        },
+        "after_sales": {
+          "label": "Pós-venda",
+          "messagePrefixes": ["Poxa, entendi. Mande a referência do pedido"],
+          "sequence": ["text", "handoff_check"]
+        },
+        "payment_receipt": {
+          "label": "Comprovante",
+          "messagePrefixes": ["Recebi seu aviso de pagamento ou comprovante."],
+          "sequence": ["text", "handoff_check"]
+        },
+        "media_received": {
+          "label": "Imagem ou arquivo recebido",
+          "messagePrefixes": ["Recebi sua imagem ou arquivo."],
+          "sequence": ["text", "handoff_check"]
+        },
+        "defaultFallback": {
+          "label": "Fallback",
+          "messagePrefixes": ["Não consegui identificar certinho."],
+          "sequence": ["text", "handoff_check"]
+        },
+        "handoff_check": {
+          "label": "Verificar disponibilidade",
+          "sequence": ["if_online"]
+        },
+        "handoff_online": {
+          "label": "Atendimento online",
+          "messagePrefixes": ["Certo, vou chamar alguém da equipe agora."],
+          "sequence": ["text", "agent"]
+        },
+        "handoff_offline": {
+          "label": "Atendimento offline",
+          "messagePrefixes": ["Agora não tem ninguém online."],
+          "sequence": ["text"]
+        }
+      }
     }
   },
   "intents": [
@@ -724,7 +817,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Bom te ver de novo! Mande os produtos e quantidades ou diga se quer a tabela atualizada. A equipe confirma as informações atuais."
+                  "text": "Bom te ver de novo! Mande os produtos e as quantidades. A equipe confirma preço, estoque, frete, pagamento e prazo."
                 }
               }
             ]
