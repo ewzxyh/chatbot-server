@@ -100,6 +100,11 @@
       "mode": "structure-preserved-content-neutralized",
       "preserveMessageOrder": true,
       "sensitiveContent": "replace_with_placeholder",
+      "entryRouting": {
+        "customer": "2 -> returning_customer_menu",
+        "new": "1 -> new_customer_menu",
+        "unknown": "1 -> new_customer_menu"
+      },
       "blocks": {
         "start": {
           "label": "Entrada",

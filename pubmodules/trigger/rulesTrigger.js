@@ -30,6 +30,17 @@ var request = require('retry-request', {
 });
 const uuidv4 = require('uuid/v4');
 
+function resolveBotStartText(event, startText) {
+  if (!event || !event.channel || event.channel.name !== 'casezap') {
+    return startText;
+  }
+  if (startText !== '/start' && startText !== '\\start') {
+    return startText;
+  }
+  var casezapFlowStart = event.attributes && event.attributes.casezapFlowStart;
+  return casezapFlowStart || startText;
+}
+
 var jwt = require('jsonwebtoken');
 
 const port = process.env.PORT || '3000';
@@ -729,6 +740,7 @@ class RulesTrigger {
               if (action.parameters && action.parameters.text) {
                 startText = action.parameters.text;
               }
+              startText = resolveBotStartText(eventTrigger.event, startText);
               winston.debug('runAction action startText: ' + startText);
 
 
@@ -803,7 +815,7 @@ class RulesTrigger {
                     'system', 
                     'Bot',                                     
                     request_id,
-                    '/start', // TODO CHANGE TO / start
+                    resolveBotStartText(eventTrigger.event, '/start'), // TODO CHANGE TO / start
                     id_project,
                     null,
                     {subtype:'info', updateconversation : false}
@@ -1488,5 +1500,6 @@ class RulesTrigger {
 }
 
 var rulesTrigger = new RulesTrigger();
+rulesTrigger.resolveBotStartText = resolveBotStartText;
 module.exports = rulesTrigger;
 

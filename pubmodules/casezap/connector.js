@@ -12,6 +12,7 @@ var Integration = require('../../models/integrations');
 var ChannelConstants = require('../../models/channelConstants');
 var MessageConstants = require('../../models/messageConstants');
 var Message = require('../../models/message');
+var Lead = require('../../models/lead');
 var Request = require('../../models/request');
 var Department = require('../../models/department');
 var User = require('../../models/user');
@@ -23,6 +24,7 @@ var chat21GroupRepairService = require('../../services/chat21GroupRepairService'
 var messageEvent = require('../../event/messageEvent');
 var integrationEvent = require('../../event/integrationEvent');
 var mediaStorage = require('./mediaStorage');
+var customerFlowRouter = require('./customerFlowRouter');
 var operationalLogger = require('../../services/operationalLogger');
 var chat21 = require('../../channels/chat21/chat21Client');
 var chat21Config = require('../../channels/chat21/chat21Config');
@@ -96,6 +98,26 @@ function userFullname(user) {
   if (!user) return '';
   var fullname = [user.firstname, user.lastname].filter(Boolean).join(' ').trim();
   return fullname || user.fullname || user.email || '';
+}
+
+async function applyCaseZapCustomerState(lead, isSavedContact) {
+  var currentAttributes = lead && lead.attributes || {};
+  var state = customerFlowRouter.buildAttributeUpdate(currentAttributes, isSavedContact);
+  var updateKeys = Object.keys(state.update);
+  if (!updateKeys.length) {
+    return { lead: lead, classification: state.classification };
+  }
+
+  var updatedLead = await Lead.findByIdAndUpdate(
+    lead._id,
+    { $set: state.update },
+    { new: true }
+  ).exec();
+
+  return {
+    lead: updatedLead || lead,
+    classification: state.classification
+  };
 }
 
 async function ensureCaseZapChat21Group(requestId, projectId, context, services) {
@@ -660,6 +682,8 @@ async function handleWebhook(integration, req, res) {
       null,
       mapped.phone
     );
+    var customerState = await applyCaseZapCustomerState(lead, mapped.isSavedContact);
+    lead = customerState.lead;
 
     // Serialize request creation per conversation within this process.
     var requestState = await withCaseZapRequestLock(
@@ -696,7 +720,10 @@ async function handleWebhook(integration, req, res) {
           createdBy: leadId,
           attributes: {
             casezapPhone: mapped.phone,
-            instanceLabel: instanceLabel
+            instanceLabel: instanceLabel,
+            casezapCustomerType: customerState.classification.customerType,
+            casezapCustomerTypeSource: customerState.classification.source,
+            casezapFlowStart: customerFlowRouter.getStartCommand(customerState.classification.customerType)
           }
         };
         await requestService.create(newRequest);
@@ -1202,6 +1229,7 @@ module.exports = {
   mapConnectionHealth: mapConnectionHealth,
   mapConnectionStatus: mapConnectionStatus,
   withCaseZapRequestLock: withCaseZapRequestLock,
+  applyCaseZapCustomerState: applyCaseZapCustomerState,
   setRedisClient: setRedisClient,
   casezapProjects: casezapProjects
 };
