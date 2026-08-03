@@ -3,7 +3,9 @@ FROM node:18-bullseye
 RUN sed -i 's/stable\/updates/stable-security\/updates/' /etc/apt/sources.list
 
 
-RUN apt-get update
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-por \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
 WORKDIR /usr/src/app

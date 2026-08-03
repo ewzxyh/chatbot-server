@@ -531,7 +531,8 @@ describe('CaseZap messageMapper', function() {
           downloadCdnUrl: 'https://media.example/sticker.webp',
           cdnUrl: 'https://cdn.example/sticker.webp',
           src: 'https://img.com/sticker.webp',
-          type: 'image'
+          type: 'image',
+          mimetype: 'image/webp'
         }
       }, '55');
       assert.deepStrictEqual(result, {
@@ -539,7 +540,8 @@ describe('CaseZap messageMapper', function() {
         body: {
           number: '55',
           file: 'https://media.example/sticker.webp',
-          type: 'sticker'
+          type: 'sticker',
+          mimetype: 'image/webp'
         }
       });
     });

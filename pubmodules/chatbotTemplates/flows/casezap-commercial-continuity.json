@@ -119,20 +119,14 @@
         "new_customer_menu": {
           "label": "Novo cliente",
           "messagePrefixes": ["Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?", "Escolha uma opção:"],
-          "sequence": ["text"],
-          "routes": ["catalog_request", "order_request", "human_request", "support_menu"]
+          "sequence": ["text", "sticker"],
+          "routes": ["catalog_request", "order_request", "human_request"]
         },
         "returning_customer_menu": {
           "label": "Cliente recorrente",
           "messagePrefixes": ["Bom te ver de novo, amigo! Pra continuar:"],
-          "sequence": ["text"],
-          "routes": ["catalog_request", "returning_purchase", "human_request", "support_menu"]
-        },
-        "support_menu": {
-          "label": "Outras opções",
-          "messagePrefixes": ["Claro! Escolha o assunto que você precisa:"],
-          "sequence": ["menu"],
-          "routes": ["product_question", "freight_question", "delivery_support", "after_sales", "payment_receipt"]
+          "sequence": ["text", "sticker"],
+          "routes": ["catalog_request", "returning_purchase", "human_request"]
         },
         "catalog_request": {
           "label": "Catálogo e PDFs",
@@ -414,14 +408,26 @@
                           "type": "text",
                           "value": "Falar com vendedor",
                           "label": "FALAR COM VENDEDOR"
-                        },
-                        {
-                          "type": "text",
-                          "value": "Outras dúvidas",
-                          "label": "OUTRAS DÚVIDAS"
                         }
                       ]
                     }
+                  }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "sticker",
+                  "text": "",
+                  "metadata": {
+                    "src": "https://chatcase.com.br/community/assets/casezap/sticker-animated.webp",
+                    "downloadURL": "https://chatcase.com.br/community/assets/casezap/sticker-animated.webp",
+                    "type": "sticker",
+                    "mimetype": "image/webp"
                   }
                 }
               }
@@ -486,14 +492,26 @@
                           "type": "text",
                           "value": "Falar com vendedor",
                           "label": "FALAR COM VENDEDOR"
-                        },
-                        {
-                          "type": "text",
-                          "value": "Outras dúvidas",
-                          "label": "OUTRAS DÚVIDAS"
                         }
                       ]
                     }
+                  }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "sticker",
+                  "text": "",
+                  "metadata": {
+                    "src": "https://chatcase.com.br/community/assets/casezap/sticker-static.webp",
+                    "downloadURL": "https://chatcase.com.br/community/assets/casezap/sticker-static.webp",
+                    "type": "sticker",
+                    "mimetype": "image/webp"
                   }
                 }
               }
@@ -580,6 +598,17 @@
                     "type": "application/pdf",
                     "mimetype": "application/pdf"
                   }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Pedido mínimo de R$200,00"
                 }
               },
               {
@@ -796,83 +825,6 @@
     {
       "webhook_enabled": false,
       "enabled": true,
-      "intent_id": "cc-commercial-support-menu",
-      "intent_display_name": "support_menu",
-      "question": "12",
-      "language": "pt",
-      "answer": "Claro! Escolha o assunto que você precisa:",
-      "actions": [
-        {
-          "_tdActionType": "reply",
-          "_tdActionId": "cc-commercial-support-menu-reply",
-          "text": "Claro! Escolha o assunto que você precisa:",
-          "attributes": {
-            "disableInputMessage": false,
-            "commands": [
-              {
-                "type": "wait",
-                "time": 300
-              },
-              {
-                "type": "message",
-                "message": {
-                  "type": "text",
-                  "text": "Claro! Escolha o assunto que você precisa:",
-                  "attributes": {
-                    "attachment": {
-                      "type": "text",
-                      "buttons": [
-                        {
-                          "type": "text",
-                          "value": "Dúvida de produto",
-                          "label": "Dúvida de produto"
-                        },
-                        {
-                          "type": "text",
-                          "value": "frete",
-                          "label": "Frete"
-                        },
-                        {
-                          "type": "text",
-                          "value": "Entrega",
-                          "label": "Entrega / rastreio"
-                        },
-                        {
-                          "type": "text",
-                          "value": "Pós-venda",
-                          "label": "Pós-venda"
-                        },
-                        {
-                          "type": "text",
-                          "value": "Comprovante",
-                          "label": "Comprovante"
-                        }
-                      ]
-                    }
-                  }
-                }
-              }
-            ]
-          }
-        }
-      ],
-      "attributes": {
-        "position": {
-          "x": 680,
-          "y": 1300
-        },
-        "aliases": [
-          "Outras dúvidas",
-          "Outras duvidas",
-          "Outros assuntos",
-          "Mais opções",
-          "Mais opcoes"
-        ]
-      }
-    },
-    {
-      "webhook_enabled": false,
-      "enabled": true,
       "intent_id": "cc-commercial-human-request",
       "intent_display_name": "human_request",
       "question": "6",
@@ -894,7 +846,10 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Certo, amigo. Vou chamar o vendedor. Pode resumir em uma mensagem o que você precisa."
+                  "text": "Certo, amigo. Vou chamar o vendedor. Pode resumir em uma mensagem o que você precisa.",
+                  "attributes": {
+                    "casezapHumanRequest": true
+                  }
                 }
               }
             ]

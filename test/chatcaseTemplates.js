@@ -28,7 +28,32 @@ function assertCasezapAssetBaseUrl(detail, baseUrl) {
   const pdfs = messages.filter((message) => message.type === 'file' && message.metadata && message.metadata.type === 'application/pdf');
   const expectedBaseUrl = baseUrl.replace(/\/+$/, '');
 
-  assert.strictEqual(stickers.length, 0);
+  assert.strictEqual(stickers.length, 2);
+  assert.deepStrictEqual(
+    stickers.map((message) => [
+      message.type,
+      message.metadata.type,
+      message.metadata.mimetype,
+      message.metadata.src,
+      message.metadata.downloadURL
+    ]).sort(),
+    [
+      [
+        'sticker',
+        'sticker',
+        'image/webp',
+        `${expectedBaseUrl}/community/assets/casezap/sticker-animated.webp`,
+        `${expectedBaseUrl}/community/assets/casezap/sticker-animated.webp`
+      ],
+      [
+        'sticker',
+        'sticker',
+        'image/webp',
+        `${expectedBaseUrl}/community/assets/casezap/sticker-static.webp`,
+        `${expectedBaseUrl}/community/assets/casezap/sticker-static.webp`
+      ]
+    ].sort()
+  );
   assert.strictEqual(pdfs.length, 2);
   assert.deepStrictEqual(
     pdfs.map((message) => [message.metadata.src, message.metadata.downloadURL]).sort(),
@@ -64,15 +89,17 @@ function getFlowSnapshot(template) {
   }));
 }
 
-function getReachableIntentIds(template) {
+function getReachableIntentIds(template, textIntentNames = []) {
   const startIntent = template.intents.find((intent) => intent.question === '\\start');
   const intentIds = new Set(template.intents.map((intent) => intent.intent_id));
-  const reachable = new Set(startIntent ? [startIntent.intent_id] : []);
-  const queue = startIntent ? [startIntent] : [];
+  const textIntents = template.intents.filter((intent) => textIntentNames.includes(intent.intent_display_name));
+  const initialIntents = [startIntent, ...textIntents].filter(Boolean);
+  const reachable = new Set(initialIntents.map((intent) => intent.intent_id));
+  const queue = initialIntents.slice();
 
-    while (queue.length) {
-      const currentIntent = queue.shift();
-      currentIntent.actions.forEach((action) => {
+  while (queue.length) {
+    const currentIntent = queue.shift();
+    currentIntent.actions.forEach((action) => {
       const targets = getActionButtons(action).map((button) => button.action);
       if (action._tdActionType === 'intent') targets.push(action.intentName);
       targets.push(action.trueIntent, action.falseIntent);
@@ -237,8 +264,8 @@ describe('ChatCase chatbot templates', () => {
 
     assert(metadata, 'CaseZap template should be listed');
     assert(detail, 'CaseZap template detail should resolve by slug');
-    assert.strictEqual(metadata.intentsCount, 19);
-    assert.strictEqual(detail.intents.length, 19);
+    assert.strictEqual(metadata.intentsCount, 18);
+    assert.strictEqual(detail.intents.length, 18);
     assert.strictEqual(metadata.attributes.exclusiveChannel, true);
     assert.strictEqual(metadata.attributes.targetChannel, 'casezap');
     assert.strictEqual(metadata.attributes.selectedChannel, 'casezap');
@@ -253,7 +280,16 @@ describe('ChatCase chatbot templates', () => {
     const catalogRequest = detail.intents.find((intent) => intent.intent_display_name === 'catalog_request');
     const freightQuestion = detail.intents.find((intent) => intent.intent_display_name === 'freight_question');
     const orderRequest = detail.intents.find((intent) => intent.intent_display_name === 'order_request');
-    const supportMenu = detail.intents.find((intent) => intent.intent_display_name === 'support_menu');
+    const humanRequest = detail.intents.find((intent) => intent.intent_display_name === 'human_request');
+    const directIntentAliases = {
+      freight_question: 'frete',
+      product_question: 'produto',
+      delivery_support: 'entrega',
+      after_sales: 'Pós-venda',
+      payment_receipt: 'comprovante'
+    };
+    const directIntentNames = Object.keys(directIntentAliases);
+    const directIntents = directIntentNames.map((name) => detail.intents.find((intent) => intent.intent_display_name === name));
     const catalogResponse = 'Segue a nova tabela 👇';
     const returningPurchaseResponse = 'Bom te ver de novo! Mande os produtos e as quantidades. A equipe confirma preço, estoque, frete, pagamento e prazo.';
     const messages = detail.intents.flatMap(getIntentMessages);
@@ -268,8 +304,7 @@ describe('ChatCase chatbot templates', () => {
       [
         ['Tabela atualizada', 'VER TABELA ATUALIZADA'],
         ['Fazer pedido', 'FAZER PEDIDO'],
-        ['Falar com vendedor', 'FALAR COM VENDEDOR'],
-        ['Outras dúvidas', 'OUTRAS DÚVIDAS']
+        ['Falar com vendedor', 'FALAR COM VENDEDOR']
       ]
     );
     assert.strictEqual(returningCustomer.question, '2');
@@ -286,15 +321,21 @@ describe('ChatCase chatbot templates', () => {
       [
         ['Tabela atualizada', 'VER TABELA ATUALIZADA'],
         ['Comprar novamente', 'FAZER PEDIDO / RECOMPRA'],
-        ['Falar com vendedor', 'FALAR COM VENDEDOR'],
-        ['Outras dúvidas', 'OUTRAS DÚVIDAS']
+        ['Falar com vendedor', 'FALAR COM VENDEDOR']
       ]
     );
-    assert(supportMenu, 'CaseZap template should expose a secondary support menu');
-    assert.deepStrictEqual(
-      getIntentButtons(supportMenu).map((button) => button.value),
-      ['Dúvida de produto', 'frete', 'Entrega', 'Pós-venda', 'Comprovante']
+    assert.strictEqual(
+      detail.intents.find((intent) => intent.intent_display_name === 'support_menu'),
+      undefined,
+      'CaseZap template should not expose support_menu'
     );
+    directIntents.forEach((intent, index) => {
+      assert(intent, `${directIntentNames[index]} should remain available by text`);
+      assert(
+        intent.attributes.aliases.includes(directIntentAliases[directIntentNames[index]]),
+        `${directIntentNames[index]} should keep its direct text alias`
+      );
+    });
     assert.strictEqual(returningPurchase.answer, returningPurchaseResponse);
     assert(!returningPurchase.answer.includes('tabela'));
     assert(!returningPurchase.attributes.aliases.includes('Pedido / catálogo'));
@@ -304,8 +345,15 @@ describe('ChatCase chatbot templates', () => {
       getIntentMessages(catalogRequest).find((message) => message.type === 'text').text,
       catalogResponse
     );
+    assert(messages.some((message) => message.text === 'Pedido mínimo de R$200,00'));
     assert(!orderRequest.answer.includes('cidade ou CEP'));
-    assert.strictEqual(stickers.length, 0);
+    assert(getIntentMessages(humanRequest).some((message) => message.attributes && message.attributes.casezapHumanRequest === true));
+    assert.strictEqual(stickers.length, 2);
+    stickers.forEach((sticker) => {
+      assert.strictEqual(sticker.type, 'sticker');
+      assert.strictEqual(sticker.metadata.type, 'sticker');
+      assert.strictEqual(sticker.metadata.mimetype, 'image/webp');
+    });
     assert.strictEqual(pdfs.length, 2);
     assert.strictEqual(
       messages.filter((message) => (message.text || '').includes('https://shopee.com.br/universal-link/product/1502208056/58262112206')).length,
@@ -319,7 +367,9 @@ describe('ChatCase chatbot templates', () => {
     assert(handoffOnline.actions.some((action) => action._tdActionType === 'agent'));
     assert(handoffOffline.actions.some((action) => action._tdActionType === 'reply'));
 
-    const reachable = getReachableIntentIds(detail);
+    const reachable = getReachableIntentIds(detail, directIntentNames);
+    directIntents.forEach((intent) => assert(reachable.has(intent.intent_id)));
+    assert(!reachable.has('cc-commercial-support-menu'));
     assert(reachable.has(handoffCheck.intent_id));
     assert(reachable.has(handoffOnline.intent_id));
     assert(reachable.has(handoffOffline.intent_id));
@@ -439,7 +489,10 @@ describe('ChatCase chatbot templates', () => {
   it('keeps imported template blocks reachable except for the fallback block', () => {
     chatcaseTemplates.listMetadata().forEach((template) => {
       const imported = chatcaseTemplates.getTemplatePayloadById(template._id);
-      const reachable = getReachableIntentIds(imported);
+      const textIntentNames = template._id === chatcaseTemplates.CHATCASE_TEMPLATE_IDS.CASEZAP_COMMERCIAL_CONTINUITY
+        ? ['freight_question', 'product_question', 'delivery_support', 'after_sales', 'payment_receipt']
+        : [];
+      const reachable = getReachableIntentIds(imported, textIntentNames);
       const disconnected = imported.intents.filter((intent) => !reachable.has(intent.intent_id));
 
       assert.deepStrictEqual(

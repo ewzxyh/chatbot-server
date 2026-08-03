@@ -14,6 +14,8 @@ const {
   mapConnectionHealth,
   mapConnectionStatus,
   sendOutboundMessage,
+  sendVictorInternalMessage,
+  isVictorAutomationIntegration,
   isTransientProviderError,
   shouldSkipCaseZapDepartmentBot,
   syncCaseZapChat21LastMessage,
@@ -657,5 +659,43 @@ describe('CaseZap connector', function() {
     assert.strictEqual(shouldSkipCaseZapDepartmentBot(null), true);
     assert.strictEqual(shouldSkipCaseZapDepartmentBot({ _id: 'department-1' }), true);
     assert.strictEqual(shouldSkipCaseZapDepartmentBot({ _id: 'department-1', id_bot: 'bot-1' }), false);
+  });
+
+  it('sends Victor notifications to Victor and to the connected instance number', async function() {
+    const originalPost = axios.post;
+    const calls = [];
+    axios.post = async function(url, body) {
+      calls.push({ url, body });
+      return { data: { success: true } };
+    };
+
+    try {
+      const skipped = await sendVictorInternalMessage({
+        value: { domain: 'https://uazapi.example/', token: 'token-1', number: '556198820985' }
+      }, '55 62 92174737', 'teste');
+      const sent = await sendVictorInternalMessage({
+        value: { domain: 'https://uazapi.example/', token: 'token-1', number: '5562999999999' }
+      }, '55 62 92174737', 'teste');
+
+      assert.strictEqual(skipped, true);
+      assert.strictEqual(sent, true);
+      assert.deepStrictEqual(calls, [
+        {
+          url: 'https://uazapi.example/send/text',
+          body: { number: '556292174737', text: 'teste' }
+        },
+        {
+          url: 'https://uazapi.example/send/text',
+          body: { number: '556292174737', text: 'teste' }
+        }
+      ]);
+    } finally {
+      axios.post = originalPost;
+    }
+  });
+
+  it('limits Victor order automation to the Victor instance', function() {
+    assert.strictEqual(isVictorAutomationIntegration({ value: { number: '55 61 98820-985' } }), true);
+    assert.strictEqual(isVictorAutomationIntegration({ value: { number: '5562999999999' } }), false);
   });
 });

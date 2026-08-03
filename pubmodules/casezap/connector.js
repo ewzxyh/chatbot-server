@@ -25,6 +25,7 @@ var messageEvent = require('../../event/messageEvent');
 var integrationEvent = require('../../event/integrationEvent');
 var mediaStorage = require('./mediaStorage');
 var customerFlowRouter = require('./customerFlowRouter');
+var victorOrderAutomation = require('./victorOrderAutomation');
 var operationalLogger = require('../../services/operationalLogger');
 var chat21 = require('../../channels/chat21/chat21Client');
 var chat21Config = require('../../channels/chat21/chat21Config');
@@ -40,6 +41,13 @@ var chat21MessagesConnection = null;
 var Chat21Message = null;
 var defaultChat21GroupRepair = chat21GroupRepairService.createChat21GroupRepairService();
 var CASEZAP_SHOPEE_GUARD_PATH = 'attributes.casezapShopeeFreightSent';
+var DEFAULT_VICTOR_INSTANCE_NUMBER = '556198820985';
+
+function isVictorAutomationIntegration(integration) {
+  var target = phoneDigits(process.env.CASEZAP_VICTOR_INSTANCE_NUMBER || DEFAULT_VICTOR_INSTANCE_NUMBER);
+  var current = phoneDigits(integration && integration.value && integration.value.number);
+  return Boolean(target && current && target === current);
+}
 
 function isCaseZapShopeeMessage(message, outbound) {
   var attributes = message && message.attributes || {};
@@ -660,6 +668,19 @@ async function handleWebhook(integration, req, res) {
       return res.status(200).json({ success: true, skipped: 'unmappable message type' });
     }
 
+    if (phoneDigits(mapped.phone) && phoneDigits(mapped.phone) === phoneDigits(integration.value && integration.value.number)) {
+      recordOperation({
+        id_project: projectId,
+        integrationId: integrationId,
+        messageId: mapped.messageId,
+        event: 'webhook.skipped',
+        status: 'skipped',
+        latencyMs: Date.now() - startedAt,
+        details: { reason: 'instance_self_chat' }
+      });
+      return res.status(200).json({ success: true, skipped: 'instance self-chat' });
+    }
+
     if (mapped.isGroup) {
       recordOperation({
         id_project: projectId,
@@ -833,6 +854,35 @@ async function handleWebhook(integration, req, res) {
     await syncCaseZapChat21LastMessage(requestId, projectId, savedMessage, messageContext);
     await syncCaseZapRequestLastMessage(requestId, projectId, savedMessage, messageContext);
 
+    if (isVictorAutomationIntegration(integration)) {
+      try {
+        await victorOrderAutomation.handleInboundMessage({
+          model: Request,
+          request: existingRequest || newRequest,
+          requestId: requestId,
+          projectId: projectId,
+          rawMessage: body,
+          mapped: mapped,
+          messageId: mapped.messageId,
+          trackId: victorOrderAutomation.extractTrackId(body, mapped),
+          pixKey: process.env.CASEZAP_PIX_KEY,
+          instancePhone: integration.value && integration.value.number,
+          notifyNumbers: victorOrderAutomation.DEFAULT_VICTOR_NOTIFY_NUMBERS,
+          sendInternalMessage: function(phone, text) {
+            return sendVictorInternalMessage(integration, phone, text);
+          },
+          sendAutomationMessage: function(automation) {
+            return sendVictorAutomationToClient(Object.assign({}, automation, { integration: integration }));
+          },
+          loadMedia: function() {
+            return loadVictorReceiptMedia(integration, mapped);
+          }
+        });
+      } catch (err) {
+        winston.warn('CaseZap Victor automation failed for message ' + mapped.messageId + ': ' + err.message);
+      }
+    }
+
     recordOperation({
       id_project: projectId,
       integrationId: integrationId,
@@ -997,6 +1047,90 @@ async function resolveInboundMedia(integration, mapped) {
   return mapped;
 }
 
+function phoneDigits(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+async function sendVictorInternalMessage(integration, phone, text) {
+  if (!integration || !integration.value || !integration.value.domain || !integration.value.token) {
+    return false;
+  }
+
+  var normalizedPhone = phoneDigits(phone);
+  if (!normalizedPhone) return false;
+
+  return sendOutboundWithRetry(integration, normalizedPhone, {
+    endpoint: '/send/text',
+    body: { number: normalizedPhone, text: text }
+  });
+}
+
+async function loadVictorReceiptMedia(integration, mapped) {
+  var metadata = mapped && mapped.metadata || {};
+  var source = metadata.externalSrc || metadata.src;
+  if (!source || typeof mediaStorage.downloadExternalMedia !== 'function') return null;
+
+  var downloaded = await mediaStorage.downloadExternalMedia(source);
+  return {
+    buffer: downloaded.buffer,
+    mimetype: downloaded.contentType || metadata.mimetype || metadata.mimeType ||
+      (String(metadata.type || '').indexOf('/') >= 0 ? metadata.type : 'application/octet-stream')
+  };
+}
+
+async function sendVictorAutomationToClient(options) {
+  options = options || {};
+  var request = options.request;
+  var projectId = options.projectId || request && request.id_project;
+  var requestId = request && request.request_id;
+  if (!request || !requestId || !projectId || !options.text || !options.integration) return { status: 'skipped' };
+
+  var lead = request.lead || {};
+  var leadId = lead.lead_id || request.attributes && request.attributes.casezapPhone || '';
+  var phone = phoneDigits(String(leadId).split('-').pop());
+  var automationAttributes = {
+    track_source: victorOrderAutomation.TRACK_SOURCE,
+    casezapVictorAutomation: true
+  };
+  var text = options.text;
+  var automationMessage = {
+    type: 'text',
+    text: text,
+    attributes: automationAttributes
+  };
+  var outbound = messageMapper.mapOutbound(automationMessage, phone);
+
+  if (isCaseZapShopeeMessage(automationMessage, outbound) &&
+      !(await claimCaseZapShopeeFlow(request, projectId))) {
+    text = victorOrderAutomation.buildVictorAutomationText(options.amountCents, options.pixKey, null);
+    automationMessage.text = text;
+    outbound = messageMapper.mapOutbound(automationMessage, phone);
+  }
+
+  await messageService.send(
+    'bot_casezap_victor_automation',
+    'Automação CaseZap',
+    requestId,
+    text,
+    projectId,
+    'bot_casezap_victor_automation',
+    automationAttributes,
+    'text',
+    { track_source: victorOrderAutomation.TRACK_SOURCE },
+    null
+  );
+
+  if (outbound) {
+    var delivered = await sendOutboundWithRetry(options.integration, phone, outbound);
+    return {
+      status: delivered ? 'sent' : 'failed',
+      track_source: victorOrderAutomation.TRACK_SOURCE
+    };
+  }
+
+  return { status: 'persisted', track_source: victorOrderAutomation.TRACK_SOURCE };
+}
+
 async function sendOutboundWithRetry(integration, phone, outbound) {
   if (!outbound || !outbound.endpoint || !outbound.body) return false;
   try {
@@ -1054,6 +1188,56 @@ async function sendOutboundMessage(message) {
     if (integration.value.status === 'disconnected') {
       winston.warn('CaseZap instance disconnected: ' + integration._id);
       return;
+    }
+
+    if (isVictorAutomationIntegration(integration) && victorOrderAutomation.isVictorOrderPrompt(message)) {
+      try {
+        await victorOrderAutomation.markOrderPrompt({
+          model: Request,
+          requestId: message.request.request_id,
+          projectId: projectId,
+          messageId: message._id,
+          trackId: victorOrderAutomation.extractTrackId(message)
+        });
+      } catch (err) {
+        winston.warn('CaseZap Victor order state update failed: ' + err.message);
+      }
+    }
+
+    if (isVictorAutomationIntegration(integration) && victorOrderAutomation.isVictorOriginPrompt(message)) {
+      try {
+        await victorOrderAutomation.claimOriginPrompt({
+          model: Request,
+          requestId: message.request.request_id,
+          projectId: projectId
+        });
+      } catch (err) {
+        winston.warn('CaseZap Victor origin state update failed: ' + err.message);
+      }
+    }
+
+    if (isVictorAutomationIntegration(integration) && victorOrderAutomation.isVictorHumanRequestPrompt(message)) {
+      try {
+        var humanClaim = await victorOrderAutomation.claimHumanHandoff({
+          model: Request,
+          requestId: message.request.request_id,
+          projectId: projectId
+        });
+        if (humanClaim) {
+          await victorOrderAutomation.notifyVictorNumbers({
+            text: victorOrderAutomation.buildHumanRequestNotification({
+              phone: message.request.attributes && message.request.attributes.casezapPhone,
+              origin: message.request.attributes && message.request.attributes.casezapOrigin,
+              text: message.request.first_text
+            }),
+            sendInternalMessage: function(phone, text) {
+              return sendVictorInternalMessage(integration, phone, text);
+            }
+          });
+        }
+      } catch (err) {
+        winston.warn('CaseZap Victor human handoff notification failed: ' + err.message);
+      }
     }
 
     var phone;
@@ -1133,6 +1317,7 @@ function isInternalOutboundMessage(message) {
   if (message.sender === 'system' || message.createdBy === 'system') return true;
   if (subtype === 'info' || subtype.indexOf('info/') === 0) return true;
   if (attributes.casezapExternalFromMe) return true;
+  if (attributes.casezapVictorAutomation) return true;
 
   return false;
 }
@@ -1309,5 +1494,9 @@ module.exports = {
   withCaseZapRequestLock: withCaseZapRequestLock,
   applyCaseZapCustomerState: applyCaseZapCustomerState,
   setRedisClient: setRedisClient,
-  casezapProjects: casezapProjects
+  casezapProjects: casezapProjects,
+  sendVictorInternalMessage: sendVictorInternalMessage,
+  sendVictorAutomationToClient: sendVictorAutomationToClient,
+  loadVictorReceiptMedia: loadVictorReceiptMedia,
+  isVictorAutomationIntegration: isVictorAutomationIntegration
 };

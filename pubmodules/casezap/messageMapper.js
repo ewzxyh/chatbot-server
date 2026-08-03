@@ -572,12 +572,15 @@ function mapOutbound(tiledeskMessage, recipientPhone) {
   if (type === 'sticker') {
     var stickerFile = outboundMediaUrl();
     if (typeof stickerFile !== 'string' || !stickerFile.trim()) return null;
+    var stickerMimeType = metadata.mimetype ||
+      (typeof metadata.type === 'string' && metadata.type.indexOf('/') >= 0 ? metadata.type : null);
     return {
       endpoint: '/send/media',
       body: {
         number: number,
         file: stickerFile,
-        type: 'sticker'
+        type: 'sticker',
+        ...(stickerMimeType ? { mimetype: stickerMimeType } : {})
       }
     };
   }
