@@ -120,7 +120,7 @@
         "new_customer_menu": {
           "label": "Novo cliente",
           "messagePrefixes": ["Vem de indicação de alguém?", "Escolha uma opção:"],
-          "sequence": ["text", "menu"],
+          "sequence": ["form:text", "menu"],
           "routes": ["catalog_request", "order_request", "human_request"]
         },
         "returning_customer_menu": {
@@ -373,7 +373,20 @@
       "intent_display_name": "new_customer_menu",
       "question": "1",
       "language": "pt",
-      "answer": "Vem de indicação de alguém?\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
+      "answer": "Escolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
+      "form": {
+        "name": "casezap_new_customer_origin",
+        "id": "cc-commercial-new-customer-origin",
+        "fields": [
+          {
+            "name": "casezapOrigin",
+            "type": "text",
+            "label": "Vem de indicação de alguém?"
+          }
+        ],
+        "cancelCommands": ["cancelar"],
+        "cancelReply": "Tudo bem. Pode escolher uma opção quando quiser."
+      },
       "actions": [
         {
           "_tdActionType": "reply",

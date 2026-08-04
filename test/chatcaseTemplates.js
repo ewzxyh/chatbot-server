@@ -282,7 +282,10 @@ describe('ChatCase chatbot templates', () => {
 
     assert(!JSON.stringify(detail).includes('Victor'));
     assert.strictEqual(newCustomer.question, '1');
-    assert(newCustomer.answer.includes('Vem de indicação de alguém?'));
+    assert(newCustomer.form);
+    assert.strictEqual(newCustomer.form.fields[0].name, 'casezapOrigin');
+    assert.strictEqual(newCustomer.form.fields[0].label, 'Vem de indicação de alguém?');
+    assert(!newCustomer.answer.includes('Vem de indicação de alguém?'));
     assert(!newCustomer.answer.includes('Victor'));
     assert(newCustomer.answer.includes('1 - VER TABELA ATUALIZADA'));
     assert.deepStrictEqual(
