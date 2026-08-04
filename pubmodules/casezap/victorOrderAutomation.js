@@ -210,7 +210,7 @@ function isVictorHumanRequestPrompt(message) {
 function isVictorOriginPrompt(message) {
   var text = getMessageText(message).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   if (/como (?:voce )?me encontrou/.test(text)) return true;
-  if (!/vem de indicacao de alguem/.test(text)) return false;
+  if (!/(?:vem de|veio (?:por|da)) indicacao de alguem/.test(text)) return false;
   var attributes = message && message.attributes || {};
   return attributes.fillParams !== true && attributes.markbot !== true;
 }

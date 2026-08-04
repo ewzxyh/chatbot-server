@@ -119,8 +119,8 @@
         },
         "new_customer_menu": {
           "label": "Novo cliente",
-          "messagePrefixes": ["Vem de indicação de alguém?", "Como você me encontrou?", "Escolha uma opção:"],
-          "sequence": ["form:text", "form:text", "menu"],
+          "messagePrefixes": ["Vem de indicação de alguém? Se sim, me fala quem.", "sticker:[STICKER_INDICACAO]", "Escolha uma opção:"],
+          "sequence": ["form:text", "wait:20000", "sticker:[STICKER_INDICACAO]", "menu"],
           "responseDelayMs": 10000,
           "routes": ["catalog_request", "order_request", "human_request"]
         },
@@ -381,14 +381,9 @@
         "delayAfterResponseMs": 10000,
         "fields": [
           {
-            "name": "casezapReferral",
-            "type": "text",
-            "label": "Vem de indicação de alguém?"
-          },
-          {
             "name": "casezapOrigin",
             "type": "text",
-            "label": "Como você me encontrou?"
+            "label": "Vem de indicação de alguém? Se sim, me fala quem."
           }
         ],
         "cancelCommands": ["cancelar"],
@@ -404,7 +399,25 @@
             "commands": [
               {
                 "type": "wait",
-                "time": 10000
+                "time": 20000
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "sticker",
+                  "text": "",
+                  "metadata": {
+                    "src": "https://chatcase-dev.69-6-250-104.sslip.io/community/assets/casezap/victor-referral-sticker.webp",
+                    "downloadURL": "https://chatcase-dev.69-6-250-104.sslip.io/community/assets/casezap/victor-referral-sticker.webp",
+                    "name": "victor-referral-sticker.webp",
+                    "type": "sticker",
+                    "mimetype": "image/webp"
+                  }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
               },
               {
                 "type": "message",

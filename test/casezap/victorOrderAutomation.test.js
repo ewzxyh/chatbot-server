@@ -133,6 +133,9 @@ describe('Victor order automation', function() {
       text: 'Vem de indicação de alguém?'
     }), true);
     assert.strictEqual(automation.isVictorOriginPrompt({
+      text: 'Vem de indicação de alguém? Se sim, me fala quem.'
+    }), true);
+    assert.strictEqual(automation.isVictorOriginPrompt({
       text: 'Vem de indicação de alguém?',
       attributes: { fillParams: true, markbot: true }
     }), false);

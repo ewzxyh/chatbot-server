@@ -481,7 +481,8 @@ function getActionButtons(action) {
   const commands = action && action.attributes && Array.isArray(action.attributes.commands)
     ? action.attributes.commands
     : [];
-  const messageCommand = commands.find((command) => command.type === 'message' && command.message);
+  const messageCommand = commands.find((command) => command.type === 'message' && command.message &&
+    command.message.attributes && command.message.attributes.attachment);
   const attachment = messageCommand && messageCommand.message.attributes &&
     messageCommand.message.attributes.attachment;
   return attachment && Array.isArray(attachment.buttons) ? attachment.buttons : [];

@@ -4,7 +4,8 @@ const chatcaseTemplates = require('../pubmodules/chatbotTemplates/chatcaseTempla
 function getIntentButtons(intent) {
   const commands = intent.actions
     .flatMap((action) => action.attributes && action.attributes.commands || []);
-  const messageCommand = commands.find((command) => command.type === 'message' && command.message);
+  const messageCommand = commands.find((command) => command.type === 'message' && command.message &&
+    command.message.attributes && command.message.attributes.attachment);
   return messageCommand &&
     messageCommand.message.attributes &&
     messageCommand.message.attributes.attachment &&
@@ -28,10 +29,14 @@ function assertCasezapAssetBaseUrl(detail, baseUrl) {
   const pdfs = messages.filter((message) => message.type === 'file' && message.metadata && message.metadata.type === 'application/pdf');
   const expectedBaseUrl = baseUrl.replace(/\/+$/, '');
 
-  assert.strictEqual(stickers.length, 2);
+  assert.strictEqual(stickers.length, 3);
   assert.deepStrictEqual(
     stickers.map((message) => [message.metadata.src, message.metadata.downloadURL]).sort(),
     [
+      [
+        `${expectedBaseUrl}/community/assets/casezap/victor-referral-sticker.webp`,
+        `${expectedBaseUrl}/community/assets/casezap/victor-referral-sticker.webp`
+      ],
       [
         `${expectedBaseUrl}/community/assets/casezap/victor-table-sticker-1.webp`,
         `${expectedBaseUrl}/community/assets/casezap/victor-table-sticker-1.webp`
@@ -286,8 +291,7 @@ describe('ChatCase chatbot templates', () => {
     assert.deepStrictEqual(
       newCustomer.form.fields.map((field) => [field.name, field.label]),
       [
-        ['casezapReferral', 'Vem de indicação de alguém?'],
-        ['casezapOrigin', 'Como você me encontrou?']
+        ['casezapOrigin', 'Vem de indicação de alguém? Se sim, me fala quem.']
       ]
     );
     assert.strictEqual(newCustomer.form.delayAfterResponseMs, 10000);
@@ -296,9 +300,10 @@ describe('ChatCase chatbot templates', () => {
       .forEach((intent) => {
         const reply = intent.actions.find((action) => action._tdActionType === 'reply');
         const firstWait = reply.attributes.commands.find((command) => command.type === 'wait');
-        assert.strictEqual(firstWait.time, 10000, `${intent.intent_display_name} should wait after the user response`);
+        const expectedFirstWait = intent.intent_display_name === 'new_customer_menu' ? 20000 : 10000;
+        assert.strictEqual(firstWait.time, expectedFirstWait, `${intent.intent_display_name} should wait after the user response`);
       });
-    assert(!newCustomer.answer.includes('Vem de indicação de alguém?'));
+    assert(!newCustomer.answer.includes('indicação'));
     assert(!newCustomer.answer.includes('Victor'));
     assert.strictEqual(newCustomer.actions.find((action) => action._tdActionType === 'reply').text, newCustomer.answer);
     assert(newCustomer.answer.includes('1 - VER TABELA ATUALIZADA'));
@@ -364,7 +369,7 @@ describe('ChatCase chatbot templates', () => {
     assert(messages.some((message) => message.text === 'Pedido mínimo de R$200,00'));
     assert(!orderRequest.answer.includes('cidade ou CEP'));
     assert(getIntentMessages(humanRequest).some((message) => message.attributes && message.attributes.casezapHumanRequest === true));
-    assert.strictEqual(stickers.length, 2);
+    assert.strictEqual(stickers.length, 3);
     assert.strictEqual(pdfs.length, 1);
     assert.strictEqual(
       messages.filter((message) => (message.text || '').includes('https://shopee.com.br/universal-link/product/1502208056/58262112206')).length,
