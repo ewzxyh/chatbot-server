@@ -286,10 +286,18 @@ describe('ChatCase chatbot templates', () => {
     assert.deepStrictEqual(
       newCustomer.form.fields.map((field) => [field.name, field.label]),
       [
-        ['casezapReferral', 'Vem de indicação de alguém? Responda sim ou não.'],
-        ['casezapOrigin', 'Como você me encontrou? Se não veio por indicação, responda não.']
+        ['casezapReferral', 'Vem de indicação de alguém?'],
+        ['casezapOrigin', 'Como você me encontrou?']
       ]
     );
+    assert.strictEqual(newCustomer.form.delayAfterResponseMs, 10000);
+    detail.intents
+      .filter((intent) => intent.actions.some((action) => action._tdActionType === 'reply'))
+      .forEach((intent) => {
+        const reply = intent.actions.find((action) => action._tdActionType === 'reply');
+        const firstWait = reply.attributes.commands.find((command) => command.type === 'wait');
+        assert.strictEqual(firstWait.time, 10000, `${intent.intent_display_name} should wait after the user response`);
+      });
     assert(!newCustomer.answer.includes('Vem de indicação de alguém?'));
     assert(!newCustomer.answer.includes('Victor'));
     assert.strictEqual(newCustomer.actions.find((action) => action._tdActionType === 'reply').text, newCustomer.answer);
