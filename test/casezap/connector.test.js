@@ -494,6 +494,7 @@ describe('CaseZap connector', function() {
     const originalSend = messageService.send;
     const calls = [];
     const saved = [];
+    const delays = [];
     axios.post = async function(url, body) {
       calls.push({ url, body });
       return { data: { success: true } };
@@ -513,6 +514,8 @@ describe('CaseZap connector', function() {
         projectId: 'project-1',
         text: 'O valor ficou em R$ 99,90. Faça o pagamento via PIX.',
         stickerUrl: 'https://media.example/victor-order-sticker.webp',
+        stickerDelayMs: 1200,
+        wait: async function(milliseconds) { delays.push(milliseconds); },
         integration: {
           value: { domain: 'https://uazapi.example/', token: 'token-1' }
         }
@@ -541,6 +544,7 @@ describe('CaseZap connector', function() {
         }
       }
     ]);
+    assert.deepStrictEqual(delays, [1200]);
   });
 
   it('sends the Victor Shopee quote in separate messages and suppresses the sequence after the guard', async function() {

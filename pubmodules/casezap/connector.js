@@ -1082,6 +1082,14 @@ async function loadVictorReceiptMedia(integration, mapped) {
   };
 }
 
+function waitForVictorAutomationDelay(options, delayMs) {
+  var milliseconds = Number(delayMs);
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return Promise.resolve();
+  milliseconds = Math.min(milliseconds, 30000);
+  if (typeof options.wait === 'function') return options.wait(milliseconds);
+  return new Promise(function(resolve) { setTimeout(resolve, milliseconds); });
+}
+
 async function sendVictorAutomationToClient(options) {
   options = options || {};
   var request = options.request;
@@ -1116,23 +1124,9 @@ async function sendVictorAutomationToClient(options) {
     messageEntries = messageEntries.filter(function(entry) { return !isShopeeEntry(entry); });
   }
 
-  var stickerUrl = options.stickerUrl || victorOrderAutomation.configuredVictorOrderStickerUrl();
-  var stickerAttributes = Object.assign({}, automationAttributes, { casezapVictorSticker: true });
-  var stickerMessage = {
-    type: 'sticker',
-    text: '',
-    attributes: stickerAttributes,
-    metadata: {
-      src: stickerUrl,
-      downloadURL: stickerUrl,
-      type: 'sticker',
-      mimetype: 'image/webp'
-    }
-  };
-  var stickerOutbound = messageMapper.mapOutbound(stickerMessage, phone);
-
   for (var index = 0; index < messageEntries.length; index++) {
     var entry = messageEntries[index];
+    await waitForVictorAutomationDelay(options, entry.delayMs);
     var entryAttributes = Object.assign({}, automationAttributes, entry.attributes || {});
     if (entry.shopee === true) entryAttributes.casezapShopeeFlow = 'victor_quote';
     var automationMessage = {
@@ -1160,7 +1154,27 @@ async function sendVictorAutomationToClient(options) {
     }
   }
 
+  if (!messageEntries.length || options.includeSticker === false) {
+    return { status: 'sent', track_source: victorOrderAutomation.TRACK_SOURCE };
+  }
+
+  var stickerUrl = options.stickerUrl || victorOrderAutomation.configuredVictorOrderStickerUrl();
+  var stickerAttributes = Object.assign({}, automationAttributes, { casezapVictorSticker: true });
+  var stickerMessage = {
+    type: 'sticker',
+    text: '',
+    attributes: stickerAttributes,
+    metadata: {
+      src: stickerUrl,
+      downloadURL: stickerUrl,
+      type: 'sticker',
+      mimetype: 'image/webp'
+    }
+  };
+  var stickerOutbound = messageMapper.mapOutbound(stickerMessage, phone);
   if (!stickerOutbound) return { status: 'sent', track_source: victorOrderAutomation.TRACK_SOURCE };
+
+  await waitForVictorAutomationDelay(options, options.stickerDelayMs);
 
   await messageService.send(
     'bot_casezap_victor_automation',

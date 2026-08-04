@@ -14,6 +14,7 @@ var TRACK_SOURCE = 'chatcase-victor-automation';
 var DEFAULT_VICTOR_NOTIFY_NUMBERS = ['556292174737', '556198820985'];
 var DEFAULT_SHOPEE_URL = 'https://shopee.com.br/universal-link/product/1502208056/58262112206';
 var DEFAULT_VICTOR_ORDER_STICKER_PATH = '/community/assets/casezap/victor-table-sticker-1.webp';
+var DEFAULT_VICTOR_QUOTE_STICKER_PATH = '/community/assets/casezap/victor-quote-sticker.webp';
 var GO_DF_DDDS = Object.freeze({ '61': true, '62': true, '64': true });
 var GO_DF_FREE_FREIGHT_THRESHOLD_CENTS = 60000;
 var OTHER_FREE_FREIGHT_THRESHOLD_CENTS = 100000;
@@ -39,6 +40,13 @@ function configuredVictorOrderStickerUrl(value) {
   if (configured) return String(configured).trim();
   var baseUrl = String(process.env.EXTERNAL_BASE_URL || 'https://chatcase-dev.69-6-250-104.sslip.io').replace(/\/+$/, '');
   return baseUrl + DEFAULT_VICTOR_ORDER_STICKER_PATH;
+}
+
+function configuredVictorQuoteStickerUrl(value) {
+  var configured = value === undefined ? process.env.CASEZAP_VICTOR_QUOTE_STICKER_URL : value;
+  if (configured) return String(configured).trim();
+  var baseUrl = String(process.env.EXTERNAL_BASE_URL || 'https://chatcase-dev.69-6-250-104.sslip.io').replace(/\/+$/, '');
+  return baseUrl + DEFAULT_VICTOR_QUOTE_STICKER_PATH;
 }
 
 function normalizePhoneDigits(value) {
@@ -490,10 +498,10 @@ function buildVictorAutomationMessages(amountCents, pixKey, shopeeUrl) {
   if (!shopeeUrl) return [];
 
   return [
-    { text: 'O frete é feito pela Shopee.', shopee: true },
-    { text: shopeeUrl, shopee: true },
-    { text: 'Aqui você paga o frete 👆', shopee: true },
-    { text: 'Você compra esse item fictício e vale pelo frete.', shopee: true }
+    { text: 'O frete é feito pela Shopee.', shopee: true, delayMs: 0 },
+    { text: shopeeUrl, shopee: true, delayMs: 1500 },
+    { text: 'Aqui você paga o frete 👆', shopee: true, delayMs: 1500 },
+    { text: 'Você compra esse item fictício e vale pelo frete.', shopee: true, delayMs: 2500 }
   ];
 }
 
@@ -505,8 +513,8 @@ function buildVictorAutomationText(amountCents, pixKey, shopeeUrl) {
 
 function buildFreeFreightMessages() {
   return [
-    { text: 'Nessa compra você ganhou frete grátis 🆓', shopee: false },
-    { text: 'Me manda o endereço de entrega completo, por favor: rua, número, complemento e CEP.', shopee: false }
+    { text: 'Nessa compra você ganhou frete grátis 🆓', shopee: false, delayMs: 0 },
+    { text: 'Me manda o endereço de entrega completo, por favor: rua, número, complemento e CEP.', shopee: false, delayMs: 8000 }
   ];
 }
 
@@ -671,6 +679,15 @@ async function handleInboundMessage(options) {
     });
     if (!quote) return { status: 'duplicate' };
 
+    await notifyVictorNumbers({
+      numbers: options.notifyNumbers,
+      text: buildQuoteNotification({
+        phone: mappedPhone,
+        amountCents: amountCents,
+        freeFreight: freeFreight
+      }),
+      sendInternalMessage: options.sendInternalMessage
+    });
     if (typeof options.sendAutomationMessage === 'function') {
       var automationMessages = freeFreight
         ? buildFreeFreightMessages()
@@ -682,18 +699,10 @@ async function handleInboundMessage(options) {
         pixKey: pixKey,
         messages: automationMessages,
         text: automationMessages.map(function(message) { return message.text; }).join('\n\n'),
-        stickerUrl: configuredVictorOrderStickerUrl(options.stickerUrl)
+        stickerUrl: configuredVictorQuoteStickerUrl(options.stickerUrl),
+        stickerDelayMs: 2000
       });
     }
-    await notifyVictorNumbers({
-      numbers: options.notifyNumbers,
-      text: buildQuoteNotification({
-        phone: mappedPhone,
-        amountCents: amountCents,
-        freeFreight: freeFreight
-      }),
-      sendInternalMessage: options.sendInternalMessage
-    });
     return { status: 'quoted', amountCents: amountCents, freeFreight: freeFreight, freightRule: freightRule };
   }
 
@@ -729,8 +738,10 @@ async function handleInboundMessage(options) {
         await options.sendAutomationMessage({
           request: request,
           projectId: projectId,
-          messages: [{ text: promptText, shopee: false }],
-          text: promptText
+          messages: [{ text: promptText, shopee: false, delayMs: 5000 }],
+          text: promptText,
+          includeSticker: false,
+          stickerDelayMs: 0
         });
       }
       return { status: 'awaiting_address', missing: addressValidation.missing };
@@ -825,11 +836,13 @@ module.exports = {
   DEFAULT_VICTOR_NOTIFY_NUMBERS: DEFAULT_VICTOR_NOTIFY_NUMBERS,
   DEFAULT_SHOPEE_URL: DEFAULT_SHOPEE_URL,
   DEFAULT_VICTOR_ORDER_STICKER_PATH: DEFAULT_VICTOR_ORDER_STICKER_PATH,
+  DEFAULT_VICTOR_QUOTE_STICKER_PATH: DEFAULT_VICTOR_QUOTE_STICKER_PATH,
   normalizeCaseZapPixKey: normalizeCaseZapPixKey,
   normalizePixKey: normalizeCaseZapPixKey,
   configuredPixKey: configuredPixKey,
   configuredShopeeUrl: configuredShopeeUrl,
   configuredVictorOrderStickerUrl: configuredVictorOrderStickerUrl,
+  configuredVictorQuoteStickerUrl: configuredVictorQuoteStickerUrl,
   normalizePhoneDigits: normalizePhoneDigits,
   extractPhoneDdd: extractPhoneDdd,
   classifyFreeFreight: classifyFreeFreight,

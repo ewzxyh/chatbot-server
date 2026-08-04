@@ -417,7 +417,7 @@
               },
               {
                 "type": "wait",
-                "time": 300
+                "time": 1000
               },
               {
                 "type": "message",
@@ -566,7 +566,7 @@
               },
               {
                 "type": "wait",
-                "time": 300
+                "time": 2500
               },
               {
                 "type": "message",
@@ -584,7 +584,7 @@
               },
               {
                 "type": "wait",
-                "time": 300
+                "time": 2500
               },
               {
                 "type": "message",
@@ -602,7 +602,7 @@
               },
               {
                 "type": "wait",
-                "time": 300
+                "time": 5000
               },
               {
                 "type": "message",
@@ -620,7 +620,7 @@
               },
               {
                 "type": "wait",
-                "time": 300
+                "time": 4000
               },
               {
                 "type": "message",
@@ -631,7 +631,7 @@
               },
               {
                 "type": "wait",
-                "time": 300
+                "time": 2500
               },
               {
                 "type": "message",
@@ -815,7 +815,7 @@
               },
               {
                 "type": "wait",
-                "time": 300
+                "time": 3000
               },
               {
                 "type": "message",
@@ -829,7 +829,7 @@
               },
               {
                 "type": "wait",
-                "time": 300
+                "time": 1500
               },
               {
                 "type": "message",
@@ -843,7 +843,7 @@
               },
               {
                 "type": "wait",
-                "time": 300
+                "time": 1500
               },
               {
                 "type": "message",
@@ -857,7 +857,7 @@
               },
               {
                 "type": "wait",
-                "time": 300
+                "time": 2500
               },
               {
                 "type": "message",

@@ -49,6 +49,7 @@ describe('Victor order automation', function() {
       'Você compra esse item fictício e vale pelo frete.'
     ]);
     assert.deepStrictEqual(messages.map((message) => message.shopee), [true, true, true, true]);
+    assert.deepStrictEqual(messages.map((message) => message.delayMs), [0, 1500, 1500, 2500]);
     assert.strictEqual(
       automation.buildVictorAutomationText(18000, 'redacted@example.invalid', automation.DEFAULT_SHOPEE_URL),
       messages.map((message) => message.text).join('\n\n')
@@ -257,7 +258,8 @@ describe('Victor order automation', function() {
     assert(automationMessages[0].text.includes(automation.DEFAULT_SHOPEE_URL));
     assert(!automationMessages[0].text.includes('redacted@example.invalid'));
     assert(!automationMessages[0].text.includes('pagamento via PIX'));
-    assert.strictEqual(automationMessages[0].stickerUrl, automation.configuredVictorOrderStickerUrl());
+    assert.strictEqual(automationMessages[0].stickerUrl, automation.configuredVictorQuoteStickerUrl());
+    assert.strictEqual(automationMessages[0].stickerDelayMs, 2000);
     assert.deepStrictEqual(internalMessages.map(function(item) { return item.number; }), [
       '556292174737',
       '556198820985'
@@ -301,6 +303,7 @@ describe('Victor order automation', function() {
       'Me manda o endereço de entrega completo, por favor: rua, número, complemento e CEP.'
     ]);
     assert(!automationMessages[0].text.includes(automation.DEFAULT_SHOPEE_URL));
+    assert.deepStrictEqual(automationMessages[0].messages.map(function(message) { return message.delayMs; }), [0, 8000]);
     assert(internalMessages[0].text.includes('Frete grátis'));
     assert.deepStrictEqual(internalMessages.map(function(item) { return item.number; }), [
       '556292174737',
