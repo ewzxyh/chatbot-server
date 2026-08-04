@@ -9,7 +9,7 @@ const CHATCASE_TEMPLATE_IDS = {
 };
 
 const CASEZAP_COMMERCIAL_CONTINUITY_FLOW = require('./flows/casezap-commercial-continuity.json');
-const CASEZAP_CANONICAL_BASE_URL = 'https://chatcase.com.br';
+const CASEZAP_CANONICAL_BASE_URL = 'https://chatcase-dev.69-6-250-104.sslip.io';
 const CASEZAP_ASSET_PATH = '/community/assets/casezap/';
 
 function clone(value) {

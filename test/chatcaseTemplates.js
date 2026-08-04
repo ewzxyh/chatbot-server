@@ -28,20 +28,28 @@ function assertCasezapAssetBaseUrl(detail, baseUrl) {
   const pdfs = messages.filter((message) => message.type === 'file' && message.metadata && message.metadata.type === 'application/pdf');
   const expectedBaseUrl = baseUrl.replace(/\/+$/, '');
 
-  assert.strictEqual(stickers.length, 0);
-  assert.strictEqual(pdfs.length, 2);
+  assert.strictEqual(stickers.length, 2);
   assert.deepStrictEqual(
-    pdfs.map((message) => [message.metadata.src, message.metadata.downloadURL]).sort(),
+    stickers.map((message) => [message.metadata.src, message.metadata.downloadURL]).sort(),
     [
       [
-        `${expectedBaseUrl}/community/assets/casezap/catalogo-chatcase.pdf`,
-        `${expectedBaseUrl}/community/assets/casezap/catalogo-chatcase.pdf`
+        `${expectedBaseUrl}/community/assets/casezap/victor-table-sticker-1.webp`,
+        `${expectedBaseUrl}/community/assets/casezap/victor-table-sticker-1.webp`
       ],
       [
-        `${expectedBaseUrl}/community/assets/casezap/horse-power-2-0.pdf`,
-        `${expectedBaseUrl}/community/assets/casezap/horse-power-2-0.pdf`
+        `${expectedBaseUrl}/community/assets/casezap/victor-table-sticker-2.webp`,
+        `${expectedBaseUrl}/community/assets/casezap/victor-table-sticker-2.webp`
       ]
     ].sort()
+  );
+  assert(stickers.every((message) => message.metadata.type === 'sticker'));
+  assert.strictEqual(pdfs.length, 1);
+  assert.deepStrictEqual(
+    pdfs.map((message) => [message.metadata.src, message.metadata.downloadURL]).sort(),
+    [[
+      `${expectedBaseUrl}/community/assets/casezap/horse-power-2-0.pdf`,
+      `${expectedBaseUrl}/community/assets/casezap/horse-power-2-0.pdf`
+    ]]
   );
 }
 
@@ -295,10 +303,10 @@ describe('ChatCase chatbot templates', () => {
       getIntentMessages(freightQuestion).map((message) => message.text),
       [
         'O frete fica em média R$ 35,00. O valor exato aparece de acordo com o seu endereço.',
-        'O frete agora é feito pela Shopee.',
+        'O frete é feito pela Shopee.',
         'https://shopee.com.br/universal-link/product/1502208056/58262112206',
-        'Esse aqui é o frete 👆',
-        'Você compra esse item e vale pelo frete.'
+        'Aqui você paga o frete 👆',
+        'Você compra esse item fictício e vale pelo frete.'
       ]
     );
     assert(getIntentMessages(freightQuestion).every((message) => {
@@ -339,14 +347,14 @@ describe('ChatCase chatbot templates', () => {
     assert(messages.some((message) => message.text === 'Pedido mínimo de R$200,00'));
     assert(!orderRequest.answer.includes('cidade ou CEP'));
     assert(getIntentMessages(humanRequest).some((message) => message.attributes && message.attributes.casezapHumanRequest === true));
-    assert.strictEqual(stickers.length, 0);
-    assert.strictEqual(pdfs.length, 2);
+    assert.strictEqual(stickers.length, 2);
+    assert.strictEqual(pdfs.length, 1);
     assert.strictEqual(
       messages.filter((message) => (message.text || '').includes('https://shopee.com.br/universal-link/product/1502208056/58262112206')).length,
       1
     );
     assertCasezapAssetBaseUrl(devDetail, 'https://chatcase-dev.69-6-250-104.sslip.io');
-    assertCasezapAssetBaseUrl(fallbackDetail, 'https://chatcase.com.br');
+    assertCasezapAssetBaseUrl(fallbackDetail, 'https://chatcase-dev.69-6-250-104.sslip.io');
     assert.strictEqual(handoffCheck.actions[0]._tdActionType, 'ifonlineagentsv2');
     assert.strictEqual(handoffCheck.actions[0].trueIntent, `#${handoffOnline.intent_id}`);
     assert.strictEqual(handoffCheck.actions[0].falseIntent, `#${handoffOffline.intent_id}`);

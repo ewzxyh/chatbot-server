@@ -13,7 +13,7 @@ var ORDER_STATES = Object.freeze({
 var TRACK_SOURCE = 'chatcase-victor-automation';
 var DEFAULT_VICTOR_NOTIFY_NUMBERS = ['556292174737', '556198820985'];
 var DEFAULT_SHOPEE_URL = 'https://shopee.com.br/universal-link/product/1502208056/58262112206';
-var DEFAULT_VICTOR_ORDER_STICKER_PATH = '/community/assets/casezap/victor-sticker-order.webp';
+var DEFAULT_VICTOR_ORDER_STICKER_PATH = '/community/assets/casezap/victor-table-sticker-1.webp';
 var GO_DF_DDDS = Object.freeze({ '61': true, '62': true, '64': true });
 var GO_DF_FREE_FREIGHT_THRESHOLD_CENTS = 60000;
 var OTHER_FREE_FREIGHT_THRESHOLD_CENTS = 100000;
@@ -37,7 +37,7 @@ function configuredShopeeUrl(value) {
 function configuredVictorOrderStickerUrl(value) {
   var configured = value === undefined ? process.env.CASEZAP_VICTOR_ORDER_STICKER_URL : value;
   if (configured) return String(configured).trim();
-  var baseUrl = String(process.env.EXTERNAL_BASE_URL || 'https://chatcase.com.br').replace(/\/+$/, '');
+  var baseUrl = String(process.env.EXTERNAL_BASE_URL || 'https://chatcase-dev.69-6-250-104.sslip.io').replace(/\/+$/, '');
   return baseUrl + DEFAULT_VICTOR_ORDER_STICKER_PATH;
 }
 
@@ -59,7 +59,7 @@ function classifyFreeFreight(amountCents, phone) {
   var goDf = Boolean(ddd && GO_DF_DDDS[ddd]);
   var thresholdCents = goDf ? GO_DF_FREE_FREIGHT_THRESHOLD_CENTS : OTHER_FREE_FREIGHT_THRESHOLD_CENTS;
   return {
-    free: Number(amountCents) > thresholdCents,
+    free: Number(amountCents) >= thresholdCents,
     ddd: ddd,
     region: goDf ? 'go_df' : 'other',
     thresholdCents: thresholdCents
@@ -484,17 +484,13 @@ function containsShopeeFlowText(value) {
 }
 
 function buildVictorAutomationMessages(amountCents, pixKey, shopeeUrl) {
-  var paymentText = 'O valor ficou em R$ ' + formatAmountCents(amountCents) +
-    '. Faça o pagamento via PIX na chave ' + pixKey + ' e envie o comprovante aqui.';
-
-  if (!shopeeUrl) return [{ text: paymentText, shopee: false }];
+  if (!shopeeUrl) return [];
 
   return [
-    { text: 'O frete agora é feito pela Shopee.', shopee: true },
+    { text: 'O frete é feito pela Shopee.', shopee: true },
     { text: shopeeUrl, shopee: true },
-    { text: 'Esse aqui é o frete 👆', shopee: true },
-    { text: 'Você compra esse item e vale pelo frete.', shopee: true },
-    { text: paymentText, shopee: false }
+    { text: 'Aqui você paga o frete 👆', shopee: true },
+    { text: 'Você compra esse item fictício e vale pelo frete.', shopee: true }
   ];
 }
 

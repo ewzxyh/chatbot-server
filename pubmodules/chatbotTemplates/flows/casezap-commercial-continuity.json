@@ -132,7 +132,7 @@
         "catalog_request": {
           "label": "Catálogo e PDFs",
           "messagePrefixes": ["Segue a nova tabela 👇"],
-          "sequence": ["text", "file:[PDF_CATALOGO_DEMO]", "file:[PDF_COMPLEMENTAR_DEMO]", "text", "handoff_check"]
+          "sequence": ["text", "sticker:[STICKER_TABELA_1]", "sticker:[STICKER_TABELA_2]", "file:[PDF_HORSE_POWER]", "text", "text", "handoff_check"]
         },
         "order_request": {
           "label": "Novo pedido",
@@ -141,7 +141,7 @@
         },
         "freight_question": {
           "label": "Dúvida sobre frete",
-          "messagePrefixes": ["O frete fica em média R$ 35,00.", "O frete agora é feito pela Shopee.", "Esse aqui é o frete 👆"],
+          "messagePrefixes": ["O frete fica em média R$ 35,00.", "O frete é feito pela Shopee.", "Aqui você paga o frete 👆"],
           "sequence": ["text", "text", "link", "text", "text"]
         },
         "product_question": {
@@ -538,14 +538,32 @@
               {
                 "type": "message",
                 "message": {
-                  "type": "file",
-                  "text": "Tabela em PDF",
+                  "type": "sticker",
+                  "text": "",
                   "metadata": {
-                    "src": "https://chatcase.com.br/community/assets/casezap/catalogo-chatcase.pdf",
-                    "downloadURL": "https://chatcase.com.br/community/assets/casezap/catalogo-chatcase.pdf",
-                    "name": "catalogo-chatcase.pdf",
-                    "type": "application/pdf",
-                    "mimetype": "application/pdf"
+                    "src": "https://chatcase-dev.69-6-250-104.sslip.io/community/assets/casezap/victor-table-sticker-1.webp",
+                    "downloadURL": "https://chatcase-dev.69-6-250-104.sslip.io/community/assets/casezap/victor-table-sticker-1.webp",
+                    "name": "victor-table-sticker-1.webp",
+                    "type": "sticker",
+                    "mimetype": "image/webp"
+                  }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "sticker",
+                  "text": "",
+                  "metadata": {
+                    "src": "https://chatcase-dev.69-6-250-104.sslip.io/community/assets/casezap/victor-table-sticker-2.webp",
+                    "downloadURL": "https://chatcase-dev.69-6-250-104.sslip.io/community/assets/casezap/victor-table-sticker-2.webp",
+                    "name": "victor-table-sticker-2.webp",
+                    "type": "sticker",
+                    "mimetype": "image/webp"
                   }
                 }
               },
@@ -559,8 +577,8 @@
                   "type": "file",
                   "text": "HORSE POWER 2.0 em PDF",
                   "metadata": {
-                    "src": "https://chatcase.com.br/community/assets/casezap/horse-power-2-0.pdf",
-                    "downloadURL": "https://chatcase.com.br/community/assets/casezap/horse-power-2-0.pdf",
+                    "src": "https://chatcase-dev.69-6-250-104.sslip.io/community/assets/casezap/horse-power-2-0.pdf",
+                    "downloadURL": "https://chatcase-dev.69-6-250-104.sslip.io/community/assets/casezap/horse-power-2-0.pdf",
                     "name": "horse-power-2-0.pdf",
                     "type": "application/pdf",
                     "mimetype": "application/pdf"
@@ -739,12 +757,12 @@
       "intent_display_name": "freight_question",
       "question": "frete",
       "language": "pt",
-      "answer": "O frete fica em média R$ 35,00. O valor exato aparece de acordo com o seu endereço.\n\nO frete agora é feito pela Shopee.\nhttps://shopee.com.br/universal-link/product/1502208056/58262112206\n\nEsse aqui é o frete 👆\nVocê compra esse item e vale pelo frete.",
+      "answer": "O frete fica em média R$ 35,00. O valor exato aparece de acordo com o seu endereço.\n\nO frete é feito pela Shopee.\nhttps://shopee.com.br/universal-link/product/1502208056/58262112206\n\nAqui você paga o frete 👆\nVocê compra esse item fictício e vale pelo frete.",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-freight-question-reply",
-          "text": "O frete fica em média R$ 35,00. O valor exato aparece de acordo com o seu endereço.\n\nO frete agora é feito pela Shopee.\nhttps://shopee.com.br/universal-link/product/1502208056/58262112206\n\nEsse aqui é o frete 👆\nVocê compra esse item e vale pelo frete.",
+          "text": "O frete fica em média R$ 35,00. O valor exato aparece de acordo com o seu endereço.\n\nO frete é feito pela Shopee.\nhttps://shopee.com.br/universal-link/product/1502208056/58262112206\n\nAqui você paga o frete 👆\nVocê compra esse item fictício e vale pelo frete.",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -770,7 +788,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "O frete agora é feito pela Shopee.",
+                  "text": "O frete é feito pela Shopee.",
                   "attributes": {
                     "casezapShopeeFlow": "freight_question"
                   }
@@ -798,7 +816,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Esse aqui é o frete 👆",
+                  "text": "Aqui você paga o frete 👆",
                   "attributes": {
                     "casezapShopeeFlow": "freight_question"
                   }
@@ -812,7 +830,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Você compra esse item e vale pelo frete.",
+                  "text": "Você compra esse item fictício e vale pelo frete.",
                   "attributes": {
                     "casezapShopeeFlow": "freight_question"
                   }

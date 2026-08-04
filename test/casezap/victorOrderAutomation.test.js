@@ -12,11 +12,11 @@ describe('Victor order automation', function() {
     assert.strictEqual(automation.parsePixAmountCents('valor R$ 10,00'), null);
   });
 
-  it('applies the strict free-freight thresholds by DDD', function() {
-    assert.strictEqual(automation.classifyFreeFreight(60001, '+55 (62) 9217-4737').free, true);
-    assert.strictEqual(automation.classifyFreeFreight(60000, '556292174737').free, false);
-    assert.strictEqual(automation.classifyFreeFreight(100001, '5511999999999').free, true);
-    assert.strictEqual(automation.classifyFreeFreight(100000, '5511999999999').free, false);
+  it('applies inclusive free-freight thresholds by DDD', function() {
+    assert.strictEqual(automation.classifyFreeFreight(60000, '+55 (62) 9217-4737').free, true);
+    assert.strictEqual(automation.classifyFreeFreight(59999, '556292174737').free, false);
+    assert.strictEqual(automation.classifyFreeFreight(100000, '5511999999999').free, true);
+    assert.strictEqual(automation.classifyFreeFreight(99999, '5511999999999').free, false);
     assert.strictEqual(automation.classifyFreeFreight(70000, '5565999999999').free, false);
   });
 
@@ -35,7 +35,7 @@ describe('Victor order automation', function() {
     assert.strictEqual(automation.isManualFromMe({ message: { fromMe: false, wasSentByApi: false } }), false);
   });
 
-  it('builds the Shopee and PIX sequence as separate messages', function() {
+  it('builds only the Shopee continuation after the manual PIX quote', function() {
     const messages = automation.buildVictorAutomationMessages(
       18000,
       'redacted@example.invalid',
@@ -43,13 +43,12 @@ describe('Victor order automation', function() {
     );
 
     assert.deepStrictEqual(messages.map((message) => message.text), [
-      'O frete agora é feito pela Shopee.',
+      'O frete é feito pela Shopee.',
       automation.DEFAULT_SHOPEE_URL,
-      'Esse aqui é o frete 👆',
-      'Você compra esse item e vale pelo frete.',
-      'O valor ficou em R$ 180,00. Faça o pagamento via PIX na chave redacted@example.invalid e envie o comprovante aqui.'
+      'Aqui você paga o frete 👆',
+      'Você compra esse item fictício e vale pelo frete.'
     ]);
-    assert.deepStrictEqual(messages.map((message) => message.shopee), [true, true, true, true, false]);
+    assert.deepStrictEqual(messages.map((message) => message.shopee), [true, true, true, true]);
     assert.strictEqual(
       automation.buildVictorAutomationText(18000, 'redacted@example.invalid', automation.DEFAULT_SHOPEE_URL),
       messages.map((message) => message.text).join('\n\n')
@@ -249,7 +248,8 @@ describe('Victor order automation', function() {
     assert.strictEqual(result.status, 'quoted');
     assert.strictEqual(result.amountCents, 9990);
     assert(automationMessages[0].text.includes(automation.DEFAULT_SHOPEE_URL));
-    assert(automationMessages[0].text.includes('redacted@example.invalid'));
+    assert(!automationMessages[0].text.includes('redacted@example.invalid'));
+    assert(!automationMessages[0].text.includes('pagamento via PIX'));
     assert.strictEqual(automationMessages[0].stickerUrl, automation.configuredVictorOrderStickerUrl());
     assert.deepStrictEqual(internalMessages.map(function(item) { return item.number; }), [
       '556292174737',
@@ -441,5 +441,45 @@ describe('Victor order automation', function() {
     assert.strictEqual(calls[0].update.$set['attributes.casezapOrder.receiptReview'], 'manual');
     assert.strictEqual(calls[1].update.$set['attributes.casezapOrder.ocrAmountsCents'][0], 12345);
     assert.deepStrictEqual(sent.map(function(item) { return item.number; }), ['556292174737', '556198820985']);
+  });
+
+  it('notifies both numbers when the proof is a PDF, while keeping it for manual review', async function() {
+    const calls = [];
+    const sent = [];
+    const model = {
+      findOneAndUpdate: async function(query, update) {
+        calls.push({ query, update });
+        return { request_id: 'request-1' };
+      }
+    };
+
+    const result = await automation.handleInboundMessage({
+      model,
+      request: {
+        request_id: 'request-1',
+        id_project: 'project-1',
+        attributes: { casezapOrder: { state: 'awaiting_receipt', quotedAmountCents: 12345 } }
+      },
+      rawMessage: { message: { fromMe: false, wasSentByApi: false } },
+      mapped: { type: 'file', text: '', phone: '5511999999999' },
+      messageId: 'receipt-pdf-1',
+      loadMedia: async function() {
+        return { buffer: Buffer.from('%PDF-1.7'), mimetype: 'application/pdf' };
+      },
+      runReceiptOcr: async function(input) {
+        assert.strictEqual(input.mimetype, 'application/pdf');
+        return { status: 'unreadable', amountsCents: [], text: '', reason: 'unsupported_media' };
+      },
+      sendInternalMessage: async function(number, text) {
+        sent.push({ number, text });
+        return true;
+      }
+    });
+
+    assert.strictEqual(result.status, 'receipt_review');
+    assert.strictEqual(result.result.reason, 'unsupported_media');
+    assert.strictEqual(calls[1].update.$set['attributes.casezapOrder.ocrStatus'], 'unreadable');
+    assert.deepStrictEqual(sent.map(function(item) { return item.number; }), ['556292174737', '556198820985']);
+    assert(sent[0].text.includes('unsupported_media'));
   });
 });

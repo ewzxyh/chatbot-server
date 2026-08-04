@@ -1116,13 +1116,6 @@ async function sendVictorAutomationToClient(options) {
     messageEntries = messageEntries.filter(function(entry) { return !isShopeeEntry(entry); });
   }
 
-  if (!messageEntries.length && options.amountCents !== undefined && options.pixKey) {
-    messageEntries = [{
-      text: victorOrderAutomation.buildVictorAutomationText(options.amountCents, options.pixKey, null),
-      shopee: false
-    }];
-  }
-
   var stickerUrl = options.stickerUrl || victorOrderAutomation.configuredVictorOrderStickerUrl();
   var stickerAttributes = Object.assign({}, automationAttributes, { casezapVictorSticker: true });
   var stickerMessage = {
