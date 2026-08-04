@@ -72,7 +72,10 @@ describe('Victor order automation', function() {
     };
 
     assert.strictEqual(automation.isVictorOriginPrompt({
-      text: 'Antes de continuar, me conta: como você conheceu o Victor?'
+      text: 'Vem de indicação de alguém?'
+    }), true);
+    assert.strictEqual(automation.isVictorOriginPrompt({
+      text: 'Como você me encontrou?'
     }), true);
     await automation.claimOriginPrompt({ model, requestId: 'request-1', projectId: 'project-1' });
     await automation.saveCustomerOrigin({

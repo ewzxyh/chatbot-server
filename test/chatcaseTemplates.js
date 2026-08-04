@@ -296,8 +296,10 @@ describe('ChatCase chatbot templates', () => {
     const stickers = messages.filter((message) => message.type === 'sticker');
     const pdfs = messages.filter((message) => message.type === 'file' && message.metadata && message.metadata.type === 'application/pdf');
 
+    assert(!JSON.stringify(detail).includes('Victor'));
     assert.strictEqual(newCustomer.question, '1');
-    assert(newCustomer.answer.includes('como você conheceu o Victor?'));
+    assert(newCustomer.answer.includes('Vem de indicação de alguém?'));
+    assert(!newCustomer.answer.includes('Victor'));
     assert(newCustomer.answer.includes('1 - VER TABELA ATUALIZADA'));
     assert.deepStrictEqual(
       getIntentButtons(newCustomer).map((button) => [button.value, button.label]),
@@ -308,7 +310,7 @@ describe('ChatCase chatbot templates', () => {
       ]
     );
     assert.strictEqual(returningCustomer.question, '2');
-    assert(!returningCustomer.answer.includes('como você conheceu o Victor?'));
+    assert(!returningCustomer.answer.includes('Victor'));
     assert.strictEqual(catalogRequest.question, '3');
     assert(freightQuestion.attributes.aliases.includes('quanto é o frete'));
     assert(freightQuestion.answer.includes('R$ 35,00'));

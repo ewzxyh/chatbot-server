@@ -171,7 +171,8 @@ function isVictorHumanRequestPrompt(message) {
 }
 
 function isVictorOriginPrompt(message) {
-  return /como voc(?:ê|e) conheceu o Victor/i.test(getMessageText(message));
+  var text = getMessageText(message).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /vem de indicacao de alguem|como (?:voce )?me encontrou/.test(text);
 }
 
 function buildIdClauses(messageId, trackId) {

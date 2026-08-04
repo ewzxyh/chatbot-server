@@ -118,7 +118,7 @@
         },
         "new_customer_menu": {
           "label": "Novo cliente",
-          "messagePrefixes": ["Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?", "Escolha uma opção:"],
+          "messagePrefixes": ["Vem de indicação de alguém?", "Escolha uma opção:"],
           "sequence": ["text", "sticker"],
           "routes": ["catalog_request", "order_request", "human_request"]
         },
@@ -372,12 +372,12 @@
       "intent_display_name": "new_customer_menu",
       "question": "1",
       "language": "pt",
-      "answer": "Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
+      "answer": "Vem de indicação de alguém?\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-new-customer-menu-reply",
-          "text": "Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
+          "text": "Vem de indicação de alguém?\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -389,7 +389,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Beleza, amigo! Antes de continuar, me conta: como você conheceu o Victor?\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
+                  "text": "Vem de indicação de alguém?\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
                   "attributes": {
                     "attachment": {
                       "type": "text",
