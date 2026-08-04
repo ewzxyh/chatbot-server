@@ -291,6 +291,19 @@ describe('ChatCase chatbot templates', () => {
     assert(freightQuestion.attributes.aliases.includes('quanto é o frete'));
     assert(freightQuestion.answer.includes('R$ 35,00'));
     assert(freightQuestion.answer.includes('https://shopee.com.br/universal-link/product/1502208056/58262112206'));
+    assert.deepStrictEqual(
+      getIntentMessages(freightQuestion).map((message) => message.text),
+      [
+        'O frete fica em média R$ 35,00. O valor exato aparece de acordo com o seu endereço.',
+        'O frete agora é feito pela Shopee.',
+        'https://shopee.com.br/universal-link/product/1502208056/58262112206',
+        'Esse aqui é o frete 👆',
+        'Você compra esse item e vale pelo frete.'
+      ]
+    );
+    assert(getIntentMessages(freightQuestion).every((message) => {
+      return message.attributes && message.attributes.casezapShopeeFlow === 'freight_question';
+    }));
     assert(returningCustomer.answer.includes('1 - VER TABELA ATUALIZADA'));
     assert(returningCustomer.answer.includes('2 - FAZER PEDIDO / RECOMPRA'));
     assert(!returningCustomer.answer.includes('Entrega ou rastreio'));

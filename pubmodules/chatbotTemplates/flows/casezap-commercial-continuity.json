@@ -141,8 +141,8 @@
         },
         "freight_question": {
           "label": "Dúvida sobre frete",
-          "messagePrefixes": ["O frete fica em média R$ 35,00.", "O valor exato aparece na Shopee"],
-          "sequence": ["text_with_shopee_link"]
+          "messagePrefixes": ["O frete fica em média R$ 35,00.", "O frete agora é feito pela Shopee.", "Esse aqui é o frete 👆"],
+          "sequence": ["text", "text", "link", "text", "text"]
         },
         "product_question": {
           "label": "Dúvida de produto",
@@ -739,12 +739,12 @@
       "intent_display_name": "freight_question",
       "question": "frete",
       "language": "pt",
-      "answer": "O frete fica em média R$ 35,00. O valor exato aparece na Shopee de acordo com o seu endereço. Você consegue conferir aqui: https://shopee.com.br/universal-link/product/1502208056/58262112206\n\nSe você estiver falando de rastreio, me mande a referência do pedido.",
+      "answer": "O frete fica em média R$ 35,00. O valor exato aparece de acordo com o seu endereço.\n\nO frete agora é feito pela Shopee.\nhttps://shopee.com.br/universal-link/product/1502208056/58262112206\n\nEsse aqui é o frete 👆\nVocê compra esse item e vale pelo frete.",
       "actions": [
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-freight-question-reply",
-          "text": "O frete fica em média R$ 35,00. O valor exato aparece na Shopee de acordo com o seu endereço. Você consegue conferir aqui: https://shopee.com.br/universal-link/product/1502208056/58262112206\n\nSe você estiver falando de rastreio, me mande a referência do pedido.",
+          "text": "O frete fica em média R$ 35,00. O valor exato aparece de acordo com o seu endereço.\n\nO frete agora é feito pela Shopee.\nhttps://shopee.com.br/universal-link/product/1502208056/58262112206\n\nEsse aqui é o frete 👆\nVocê compra esse item e vale pelo frete.",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -756,7 +756,63 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "O frete fica em média R$ 35,00. O valor exato aparece na Shopee de acordo com o seu endereço. Você consegue conferir aqui: https://shopee.com.br/universal-link/product/1502208056/58262112206\n\nSe você estiver falando de rastreio, me mande a referência do pedido.",
+                  "text": "O frete fica em média R$ 35,00. O valor exato aparece de acordo com o seu endereço.",
+                  "attributes": {
+                    "casezapShopeeFlow": "freight_question"
+                  }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "O frete agora é feito pela Shopee.",
+                  "attributes": {
+                    "casezapShopeeFlow": "freight_question"
+                  }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "https://shopee.com.br/universal-link/product/1502208056/58262112206",
+                  "attributes": {
+                    "casezapShopeeFlow": "freight_question"
+                  }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Esse aqui é o frete 👆",
+                  "attributes": {
+                    "casezapShopeeFlow": "freight_question"
+                  }
+                }
+              },
+              {
+                "type": "wait",
+                "time": 300
+              },
+              {
+                "type": "message",
+                "message": {
+                  "type": "text",
+                  "text": "Você compra esse item e vale pelo frete.",
                   "attributes": {
                     "casezapShopeeFlow": "freight_question"
                   }

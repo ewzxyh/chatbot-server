@@ -366,10 +366,31 @@ function formatAmountCents(amountCents) {
   return (Number(amountCents) / 100).toFixed(2).replace('.', ',');
 }
 
-function buildVictorAutomationText(amountCents, pixKey, shopeeUrl) {
-  var shopeeText = shopeeUrl ? 'Faça o pedido pela Shopee neste link:\n' + shopeeUrl + '\n\n' : '';
-  return shopeeText + 'O valor ficou em R$ ' + formatAmountCents(amountCents) +
+function containsShopeeFlowText(value) {
+  var text = String(value || '');
+  return /https?:\/\/(?:www\.)?shopee\.com\.br/i.test(text) ||
+    (/(?:shopee|shoope)/i.test(text) && /frete/i.test(text));
+}
+
+function buildVictorAutomationMessages(amountCents, pixKey, shopeeUrl) {
+  var paymentText = 'O valor ficou em R$ ' + formatAmountCents(amountCents) +
     '. Faça o pagamento via PIX na chave ' + pixKey + ' e envie o comprovante aqui.';
+
+  if (!shopeeUrl) return [{ text: paymentText, shopee: false }];
+
+  return [
+    { text: 'O frete agora é feito pela Shopee.', shopee: true },
+    { text: shopeeUrl, shopee: true },
+    { text: 'Esse aqui é o frete 👆', shopee: true },
+    { text: 'Você compra esse item e vale pelo frete.', shopee: true },
+    { text: paymentText, shopee: false }
+  ];
+}
+
+function buildVictorAutomationText(amountCents, pixKey, shopeeUrl) {
+  return buildVictorAutomationMessages(amountCents, pixKey, shopeeUrl)
+    .map(function(message) { return message.text; })
+    .join('\n\n');
 }
 
 function buildOrderNotification(options) {
@@ -476,6 +497,14 @@ async function handleInboundMessage(options) {
   if (fromMe === true) {
     if (!isManualFromMe(rawMessage)) return { status: 'skipped', reason: 'not_manual' };
     if (state !== ORDER_STATES.AWAITING_QUOTE) return { status: 'skipped', reason: 'state' };
+    var manualText = options.mapped && options.mapped.text || options.text || '';
+    if (containsShopeeFlowText(manualText) && typeof options.claimShopeeFlow === 'function') {
+      try {
+        await options.claimShopeeFlow();
+      } catch (err) {
+        // Keep the quote path available if this optional guard write fails.
+      }
+    }
     var pixKey = configuredPixKey(options.pixKey);
     if (!pixKey) return { status: 'skipped', reason: 'pix_key_missing' };
     var quoteText = options.mapped && options.mapped.text || options.text || '';
@@ -499,6 +528,7 @@ async function handleInboundMessage(options) {
         projectId: projectId,
         amountCents: amountCents,
         pixKey: pixKey,
+        messages: buildVictorAutomationMessages(amountCents, pixKey, configuredShopeeUrl(options.shopeeUrl)),
         text: buildVictorAutomationText(amountCents, pixKey, configuredShopeeUrl(options.shopeeUrl)),
         stickerUrl: configuredVictorOrderStickerUrl(options.stickerUrl)
       });
@@ -611,6 +641,8 @@ module.exports = {
   claimVictorQuote: claimVictorQuote,
   claimReceipt: claimReceipt,
   saveReceiptResult: saveReceiptResult,
+  containsShopeeFlowText: containsShopeeFlowText,
+  buildVictorAutomationMessages: buildVictorAutomationMessages,
   buildVictorAutomationText: buildVictorAutomationText,
   buildOrderNotification: buildOrderNotification,
   buildQuoteNotification: buildQuoteNotification,

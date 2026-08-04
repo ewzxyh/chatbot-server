@@ -18,6 +18,48 @@ describe('Victor order automation', function() {
     assert.strictEqual(automation.isManualFromMe({ message: { fromMe: false, wasSentByApi: false } }), false);
   });
 
+  it('builds the Shopee and PIX sequence as separate messages', function() {
+    const messages = automation.buildVictorAutomationMessages(
+      18000,
+      'redacted@example.invalid',
+      automation.DEFAULT_SHOPEE_URL
+    );
+
+    assert.deepStrictEqual(messages.map((message) => message.text), [
+      'O frete agora é feito pela Shopee.',
+      automation.DEFAULT_SHOPEE_URL,
+      'Esse aqui é o frete 👆',
+      'Você compra esse item e vale pelo frete.',
+      'O valor ficou em R$ 180,00. Faça o pagamento via PIX na chave redacted@example.invalid e envie o comprovante aqui.'
+    ]);
+    assert.deepStrictEqual(messages.map((message) => message.shopee), [true, true, true, true, false]);
+    assert.strictEqual(
+      automation.buildVictorAutomationText(18000, 'redacted@example.invalid', automation.DEFAULT_SHOPEE_URL),
+      messages.map((message) => message.text).join('\n\n')
+    );
+    assert.strictEqual(automation.containsShopeeFlowText('O frete é feito pela shoope'), true);
+  });
+
+  it('claims a manual Shopee message before the PIX quote resumes automation', async function() {
+    let claims = 0;
+    const result = await automation.handleInboundMessage({
+      model: { findOneAndUpdate: async function() { return { request_id: 'request-1' }; } },
+      request: {
+        request_id: 'request-1',
+        id_project: 'project-1',
+        attributes: { casezapOrder: { state: 'awaiting_quote' } }
+      },
+      pixKey: 'redacted@example.invalid',
+      rawMessage: { message: { fromMe: true, wasSentByApi: false } },
+      mapped: { text: 'O frete é feito pela shoope' },
+      claimShopeeFlow: async function() { claims += 1; return true; }
+    });
+
+    assert.strictEqual(result.status, 'skipped');
+    assert.strictEqual(result.reason, 'pix_key_not_found');
+    assert.strictEqual(claims, 1);
+  });
+
   it('marks the order prompt atomically without resetting a later state', async function() {
     const calls = [];
     const model = {

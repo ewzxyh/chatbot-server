@@ -68,7 +68,7 @@ function isCaseZapShopeeMessage(message, outbound) {
   ].filter(Boolean).join('\n');
 
   if (/shopee\.com\.br/i.test(text)) return true;
-  return /shopee/i.test(text) && /frete/i.test(text);
+  return /(?:shopee|shoope)/i.test(text) && /frete/i.test(text);
 }
 
 async function claimCaseZapShopeeFlow(request, projectId) {
@@ -874,6 +874,9 @@ async function handleWebhook(integration, req, res) {
           sendAutomationMessage: function(automation) {
             return sendVictorAutomationToClient(Object.assign({}, automation, { integration: integration }));
           },
+          claimShopeeFlow: function() {
+            return claimCaseZapShopeeFlow(existingRequest || newRequest, projectId);
+          },
           loadMedia: function() {
             return loadVictorReceiptMedia(integration, mapped);
           }
@@ -1084,7 +1087,10 @@ async function sendVictorAutomationToClient(options) {
   var request = options.request;
   var projectId = options.projectId || request && request.id_project;
   var requestId = request && request.request_id;
-  if (!request || !requestId || !projectId || !options.text || !options.integration) return { status: 'skipped' };
+  if (!request || !requestId || !projectId ||
+      (!options.text && !Array.isArray(options.messages)) || !options.integration) {
+    return { status: 'skipped' };
+  }
 
   var lead = request.lead || {};
   var leadId = lead.lead_id || request.attributes && request.attributes.casezapPhone || '';
@@ -1093,19 +1099,28 @@ async function sendVictorAutomationToClient(options) {
     track_source: victorOrderAutomation.TRACK_SOURCE,
     casezapVictorAutomation: true
   };
-  var text = options.text;
-  var automationMessage = {
-    type: 'text',
-    text: text,
-    attributes: automationAttributes
+  var messageEntries = (Array.isArray(options.messages) && options.messages.length ? options.messages : [
+    { text: options.text, shopee: false }
+  ]).map(function(entry) {
+    return typeof entry === 'string' ? { text: entry, shopee: false } : entry;
+  }).filter(function(entry) { return entry && entry.text; });
+  var isShopeeEntry = function(entry) {
+    return entry.shopee === true || isCaseZapShopeeMessage({
+      type: 'text',
+      text: entry.text,
+      attributes: entry.attributes || {}
+    });
   };
-  var outbound = messageMapper.mapOutbound(automationMessage, phone);
 
-  if (isCaseZapShopeeMessage(automationMessage, outbound) &&
-      !(await claimCaseZapShopeeFlow(request, projectId))) {
-    text = victorOrderAutomation.buildVictorAutomationText(options.amountCents, options.pixKey, null);
-    automationMessage.text = text;
-    outbound = messageMapper.mapOutbound(automationMessage, phone);
+  if (messageEntries.some(isShopeeEntry) && !(await claimCaseZapShopeeFlow(request, projectId))) {
+    messageEntries = messageEntries.filter(function(entry) { return !isShopeeEntry(entry); });
+  }
+
+  if (!messageEntries.length && options.amountCents !== undefined && options.pixKey) {
+    messageEntries = [{
+      text: victorOrderAutomation.buildVictorAutomationText(options.amountCents, options.pixKey, null),
+      shopee: false
+    }];
   }
 
   var stickerUrl = options.stickerUrl || victorOrderAutomation.configuredVictorOrderStickerUrl();
@@ -1123,50 +1138,55 @@ async function sendVictorAutomationToClient(options) {
   };
   var stickerOutbound = messageMapper.mapOutbound(stickerMessage, phone);
 
+  for (var index = 0; index < messageEntries.length; index++) {
+    var entry = messageEntries[index];
+    var entryAttributes = Object.assign({}, automationAttributes, entry.attributes || {});
+    if (entry.shopee === true) entryAttributes.casezapShopeeFlow = 'victor_quote';
+    var automationMessage = {
+      type: 'text',
+      text: entry.text,
+      attributes: entryAttributes
+    };
+    var outbound = messageMapper.mapOutbound(automationMessage, phone);
+
+    await messageService.send(
+      'bot_casezap_victor_automation',
+      'Automação CaseZap',
+      requestId,
+      entry.text,
+      projectId,
+      'bot_casezap_victor_automation',
+      entryAttributes,
+      'text',
+      { track_source: victorOrderAutomation.TRACK_SOURCE },
+      null
+    );
+
+    if (outbound && !(await sendOutboundWithRetry(options.integration, phone, outbound))) {
+      return { status: 'failed', track_source: victorOrderAutomation.TRACK_SOURCE };
+    }
+  }
+
+  if (!stickerOutbound) return { status: 'sent', track_source: victorOrderAutomation.TRACK_SOURCE };
+
   await messageService.send(
     'bot_casezap_victor_automation',
     'Automação CaseZap',
     requestId,
-    text,
+    '',
     projectId,
     'bot_casezap_victor_automation',
-    automationAttributes,
-    'text',
-    { track_source: victorOrderAutomation.TRACK_SOURCE },
+    stickerAttributes,
+    'sticker',
+    stickerMessage.metadata,
     null
   );
 
-  if (outbound) {
-    var delivered = await sendOutboundWithRetry(options.integration, phone, outbound);
-    if (!delivered) {
-      return { status: 'failed', track_source: victorOrderAutomation.TRACK_SOURCE };
-    }
-
-    if (!stickerOutbound) {
-      return { status: 'sent', track_source: victorOrderAutomation.TRACK_SOURCE };
-    }
-
-    await messageService.send(
-      'bot_casezap_victor_automation',
-      'AutomaÃ§Ã£o CaseZap',
-      requestId,
-      '',
-      projectId,
-      'bot_casezap_victor_automation',
-      stickerAttributes,
-      'sticker',
-      stickerMessage.metadata,
-      null
-    );
-
-    var stickerDelivered = await sendOutboundWithRetry(options.integration, phone, stickerOutbound);
-    return {
-      status: stickerDelivered ? 'sent' : 'failed',
-      track_source: victorOrderAutomation.TRACK_SOURCE
-    };
-  }
-
-  return { status: 'persisted', track_source: victorOrderAutomation.TRACK_SOURCE };
+  var stickerDelivered = await sendOutboundWithRetry(options.integration, phone, stickerOutbound);
+  return {
+    status: stickerDelivered ? 'sent' : 'failed',
+    track_source: victorOrderAutomation.TRACK_SOURCE
+  };
 }
 
 async function sendOutboundWithRetry(integration, phone, outbound) {

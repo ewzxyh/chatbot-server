@@ -16,6 +16,7 @@ const {
   sendOutboundMessage,
   sendVictorInternalMessage,
   sendVictorAutomationToClient,
+  isCaseZapShopeeMessage,
   isVictorAutomationIntegration,
   isTransientProviderError,
   shouldSkipCaseZapDepartmentBot,
@@ -542,7 +543,76 @@ describe('CaseZap connector', function() {
     ]);
   });
 
+  it('sends the Victor Shopee quote in separate messages and suppresses the sequence after the guard', async function() {
+    const originalFindOneAndUpdate = Request.findOneAndUpdate;
+    const originalPost = axios.post;
+    const originalSend = messageService.send;
+    const calls = [];
+    const saved = [];
+
+    Request.findOneAndUpdate = async function() {
+      return { _id: 'claimed-request' };
+    };
+    axios.post = async function(url, body) {
+      calls.push({ url, body });
+      return { data: { success: true } };
+    };
+    messageService.send = async function(sender, fullname, recipient, text, projectId, createdBy, attributes, type, metadata) {
+      saved.push({ text, type, attributes, metadata });
+      return { _id: 'saved-' + saved.length };
+    };
+
+    const request = {
+      request_id: 'request-1',
+      id_project: 'project-1',
+      lead: { lead_id: 'casezap-5511999999999' },
+      attributes: {}
+    };
+    const messages = [
+      { text: 'O frete agora é feito pela Shopee.', shopee: true },
+      { text: 'https://shopee.com.br/universal-link/product/1502208056/58262112206', shopee: true },
+      { text: 'Esse aqui é o frete 👆', shopee: true },
+      { text: 'Você compra esse item e vale pelo frete.', shopee: true },
+      { text: 'O valor ficou em R$ 180,00. Faça o pagamento via PIX.', shopee: false }
+    ];
+
+    try {
+      await sendVictorAutomationToClient({
+        request,
+        projectId: 'project-1',
+        messages,
+        stickerUrl: 'https://media.example/victor-order-sticker.webp',
+        integration: { value: { domain: 'https://uazapi.example/', token: 'token-1' } }
+      });
+      await sendVictorAutomationToClient({
+        request,
+        projectId: 'project-1',
+        messages,
+        stickerUrl: 'https://media.example/victor-order-sticker.webp',
+        integration: { value: { domain: 'https://uazapi.example/', token: 'token-1' } }
+      });
+    } finally {
+      Request.findOneAndUpdate = originalFindOneAndUpdate;
+      axios.post = originalPost;
+      messageService.send = originalSend;
+    }
+
+    assert.deepStrictEqual(saved.map((message) => [message.type, message.text]), [
+      ['text', 'O frete agora é feito pela Shopee.'],
+      ['text', 'https://shopee.com.br/universal-link/product/1502208056/58262112206'],
+      ['text', 'Esse aqui é o frete 👆'],
+      ['text', 'Você compra esse item e vale pelo frete.'],
+      ['text', 'O valor ficou em R$ 180,00. Faça o pagamento via PIX.'],
+      ['sticker', ''],
+      ['text', 'O valor ficou em R$ 180,00. Faça o pagamento via PIX.'],
+      ['sticker', '']
+    ]);
+    assert.strictEqual(calls.filter((call) => call.url.endsWith('/send/text')).length, 6);
+    assert.strictEqual(calls.filter((call) => call.url.endsWith('/send/media')).length, 2);
+  });
+
   it('persists the Shopee freight guard and suppresses later Shopee messages in the request', async function() {
+    assert.strictEqual(isCaseZapShopeeMessage({ text: 'O frete é feito pela shoope' }), true);
     const originalFindOne = Integration.findOne;
     const originalFindOneAndUpdate = Request.findOneAndUpdate;
     const originalPost = axios.post;
