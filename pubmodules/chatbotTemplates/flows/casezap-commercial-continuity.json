@@ -119,8 +119,8 @@
         },
         "new_customer_menu": {
           "label": "Novo cliente",
-          "messagePrefixes": ["Vem de indicação de alguém?", "Escolha uma opção:"],
-          "sequence": ["form:text", "menu"],
+          "messagePrefixes": ["Vem de indicação de alguém?", "Como você me encontrou?", "Escolha uma opção:"],
+          "sequence": ["form:text", "form:text", "menu"],
           "routes": ["catalog_request", "order_request", "human_request"]
         },
         "returning_customer_menu": {
@@ -375,13 +375,18 @@
       "language": "pt",
       "answer": "Escolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
       "form": {
-        "name": "casezap_new_customer_origin",
-        "id": "cc-commercial-new-customer-origin",
+        "name": "casezap_new_customer_referral",
+        "id": "cc-commercial-new-customer-referral",
         "fields": [
+          {
+            "name": "casezapReferral",
+            "type": "text",
+            "label": "Vem de indicação de alguém? Responda sim ou não."
+          },
           {
             "name": "casezapOrigin",
             "type": "text",
-            "label": "Vem de indicação de alguém?"
+            "label": "Como você me encontrou? Se não veio por indicação, responda não."
           }
         ],
         "cancelCommands": ["cancelar"],
@@ -391,7 +396,7 @@
         {
           "_tdActionType": "reply",
           "_tdActionId": "cc-commercial-new-customer-menu-reply",
-          "text": "Vem de indicação de alguém?\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
+          "text": "Escolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
           "attributes": {
             "disableInputMessage": false,
             "commands": [
@@ -403,7 +408,7 @@
                 "type": "message",
                 "message": {
                   "type": "text",
-                  "text": "Vem de indicação de alguém?\n\nEscolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
+                  "text": "Escolha uma opção:\n1 - VER TABELA ATUALIZADA\n2 - FAZER PEDIDO\n3 - FALAR COM VENDEDOR",
                   "attributes": {
                     "attachment": {
                       "type": "text",

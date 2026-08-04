@@ -283,10 +283,16 @@ describe('ChatCase chatbot templates', () => {
     assert(!JSON.stringify(detail).includes('Victor'));
     assert.strictEqual(newCustomer.question, '1');
     assert(newCustomer.form);
-    assert.strictEqual(newCustomer.form.fields[0].name, 'casezapOrigin');
-    assert.strictEqual(newCustomer.form.fields[0].label, 'Vem de indicação de alguém?');
+    assert.deepStrictEqual(
+      newCustomer.form.fields.map((field) => [field.name, field.label]),
+      [
+        ['casezapReferral', 'Vem de indicação de alguém? Responda sim ou não.'],
+        ['casezapOrigin', 'Como você me encontrou? Se não veio por indicação, responda não.']
+      ]
+    );
     assert(!newCustomer.answer.includes('Vem de indicação de alguém?'));
     assert(!newCustomer.answer.includes('Victor'));
+    assert.strictEqual(newCustomer.actions.find((action) => action._tdActionType === 'reply').text, newCustomer.answer);
     assert(newCustomer.answer.includes('1 - VER TABELA ATUALIZADA'));
     assert.deepStrictEqual(
       getIntentButtons(newCustomer).map((button) => [button.value, button.label]),

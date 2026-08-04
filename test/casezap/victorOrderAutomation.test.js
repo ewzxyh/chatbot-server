@@ -133,6 +133,10 @@ describe('Victor order automation', function() {
       text: 'Vem de indicação de alguém?'
     }), true);
     assert.strictEqual(automation.isVictorOriginPrompt({
+      text: 'Vem de indicação de alguém?',
+      attributes: { fillParams: true, markbot: true }
+    }), false);
+    assert.strictEqual(automation.isVictorOriginPrompt({
       text: 'Como você me encontrou?'
     }), true);
     await automation.claimOriginPrompt({ model, requestId: 'request-1', projectId: 'project-1' });
