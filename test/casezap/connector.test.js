@@ -15,9 +15,11 @@ const {
   mapConnectionStatus,
   sendOutboundMessage,
   sendVictorInternalMessage,
+  sendVictorAutomationToClient,
   isVictorAutomationIntegration,
   isTransientProviderError,
   shouldSkipCaseZapDepartmentBot,
+  shouldDownloadInboundMedia,
   syncCaseZapChat21LastMessage,
   syncCaseZapRequestLastMessage
 } = require('../../pubmodules/casezap/connector');
@@ -27,6 +29,7 @@ const leadService = require('../../services/leadService');
 const Integration = require('../../models/integrations');
 const axios = require('axios');
 const MessageConstants = require('../../models/messageConstants');
+const messageService = require('../../services/messageService');
 
 describe('CaseZap connector', function() {
   it('resolves legacy project webhooks by secret so multiple instances can coexist', function() {
@@ -397,6 +400,14 @@ describe('CaseZap connector', function() {
     }), false);
   });
 
+  it('downloads inbound stickers when UazApi only provides the message id', function() {
+    assert.strictEqual(shouldDownloadInboundMedia({
+      downloadId: 'sticker-1',
+      type: 'sticker',
+      metadata: { type: 'image/webp' }
+    }), true);
+  });
+
   it('sends command messages sequentially, including stickers and documents', async function() {
     const originalFindOne = Integration.findOne;
     const originalPost = axios.post;
@@ -472,6 +483,60 @@ describe('CaseZap connector', function() {
           file: 'https://media.example/report.pdf',
           type: 'document',
           docName: 'report.pdf'
+        }
+      }
+    ]);
+  });
+
+  it('sends the Victor order sticker after the automated quote', async function() {
+    const originalPost = axios.post;
+    const originalSend = messageService.send;
+    const calls = [];
+    const saved = [];
+    axios.post = async function(url, body) {
+      calls.push({ url, body });
+      return { data: { success: true } };
+    };
+    messageService.send = async function(sender, fullname, recipient, text, projectId, createdBy, attributes, type, metadata) {
+      saved.push({ sender, fullname, recipient, text, projectId, createdBy, attributes, type, metadata });
+      return { _id: 'saved-' + saved.length };
+    };
+
+    try {
+      await sendVictorAutomationToClient({
+        request: {
+          request_id: 'request-1',
+          id_project: 'project-1',
+          lead: { lead_id: 'casezap-5511999999999' }
+        },
+        projectId: 'project-1',
+        text: 'O valor ficou em R$ 99,90. Faça o pagamento via PIX.',
+        stickerUrl: 'https://media.example/victor-order-sticker.webp',
+        integration: {
+          value: { domain: 'https://uazapi.example/', token: 'token-1' }
+        }
+      });
+    } finally {
+      axios.post = originalPost;
+      messageService.send = originalSend;
+    }
+
+    assert.deepStrictEqual(saved.map(function(message) { return [message.type, message.text, message.metadata && message.metadata.mimetype]; }), [
+      ['text', 'O valor ficou em R$ 99,90. Faça o pagamento via PIX.', undefined],
+      ['sticker', '', 'image/webp']
+    ]);
+    assert.deepStrictEqual(calls, [
+      {
+        url: 'https://uazapi.example/send/text',
+        body: { number: '5511999999999', text: 'O valor ficou em R$ 99,90. Faça o pagamento via PIX.' }
+      },
+      {
+        url: 'https://uazapi.example/send/media',
+        body: {
+          number: '5511999999999',
+          file: 'https://media.example/victor-order-sticker.webp',
+          type: 'sticker',
+          mimetype: 'image/webp'
         }
       }
     ]);

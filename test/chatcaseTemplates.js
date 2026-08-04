@@ -28,32 +28,7 @@ function assertCasezapAssetBaseUrl(detail, baseUrl) {
   const pdfs = messages.filter((message) => message.type === 'file' && message.metadata && message.metadata.type === 'application/pdf');
   const expectedBaseUrl = baseUrl.replace(/\/+$/, '');
 
-  assert.strictEqual(stickers.length, 2);
-  assert.deepStrictEqual(
-    stickers.map((message) => [
-      message.type,
-      message.metadata.type,
-      message.metadata.mimetype,
-      message.metadata.src,
-      message.metadata.downloadURL
-    ]).sort(),
-    [
-      [
-        'sticker',
-        'sticker',
-        'image/webp',
-        `${expectedBaseUrl}/community/assets/casezap/sticker-animated.webp`,
-        `${expectedBaseUrl}/community/assets/casezap/sticker-animated.webp`
-      ],
-      [
-        'sticker',
-        'sticker',
-        'image/webp',
-        `${expectedBaseUrl}/community/assets/casezap/sticker-static.webp`,
-        `${expectedBaseUrl}/community/assets/casezap/sticker-static.webp`
-      ]
-    ].sort()
-  );
+  assert.strictEqual(stickers.length, 0);
   assert.strictEqual(pdfs.length, 2);
   assert.deepStrictEqual(
     pdfs.map((message) => [message.metadata.src, message.metadata.downloadURL]).sort(),
@@ -270,6 +245,7 @@ describe('ChatCase chatbot templates', () => {
     assert.strictEqual(metadata.attributes.targetChannel, 'casezap');
     assert.strictEqual(metadata.attributes.selectedChannel, 'casezap');
     assert.strictEqual(metadata.attributes.publication.wabaTemplates, undefined);
+    assert(detail.attributes.channelCompatibility.casezap.features.includes('media.sticker'));
 
     const newCustomer = detail.intents.find((intent) => intent.intent_display_name === 'new_customer_menu');
     const returningCustomer = detail.intents.find((intent) => intent.intent_display_name === 'returning_customer_menu');
@@ -350,12 +326,7 @@ describe('ChatCase chatbot templates', () => {
     assert(messages.some((message) => message.text === 'Pedido mínimo de R$200,00'));
     assert(!orderRequest.answer.includes('cidade ou CEP'));
     assert(getIntentMessages(humanRequest).some((message) => message.attributes && message.attributes.casezapHumanRequest === true));
-    assert.strictEqual(stickers.length, 2);
-    stickers.forEach((sticker) => {
-      assert.strictEqual(sticker.type, 'sticker');
-      assert.strictEqual(sticker.metadata.type, 'sticker');
-      assert.strictEqual(sticker.metadata.mimetype, 'image/webp');
-    });
+    assert.strictEqual(stickers.length, 0);
     assert.strictEqual(pdfs.length, 2);
     assert.strictEqual(
       messages.filter((message) => (message.text || '').includes('https://shopee.com.br/universal-link/product/1502208056/58262112206')).length,

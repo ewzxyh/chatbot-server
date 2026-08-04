@@ -191,6 +191,7 @@ describe('Victor order automation', function() {
     assert.strictEqual(result.amountCents, 9990);
     assert(automationMessages[0].text.includes(automation.DEFAULT_SHOPEE_URL));
     assert(automationMessages[0].text.includes('redacted@example.invalid'));
+    assert.strictEqual(automationMessages[0].stickerUrl, automation.configuredVictorOrderStickerUrl());
     assert.deepStrictEqual(internalMessages.map(function(item) { return item.number; }), [
       '556292174737',
       '556198820985'

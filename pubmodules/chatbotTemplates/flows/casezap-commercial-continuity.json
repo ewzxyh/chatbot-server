@@ -66,7 +66,8 @@
         "status": "supported",
         "title": "CaseZap / UAZAPI",
         "mode": "session",
-        "nativeInteractions": "menu"
+        "nativeInteractions": "menu",
+        "features": ["text", "buttons.text", "menu.numeric", "media.image", "media.document", "media.sticker", "human_handoff"]
       }
     },
     "nativeInteractions": {
@@ -119,13 +120,13 @@
         "new_customer_menu": {
           "label": "Novo cliente",
           "messagePrefixes": ["Vem de indicação de alguém?", "Escolha uma opção:"],
-          "sequence": ["text", "sticker"],
+          "sequence": ["text", "menu"],
           "routes": ["catalog_request", "order_request", "human_request"]
         },
         "returning_customer_menu": {
           "label": "Cliente recorrente",
           "messagePrefixes": ["Bom te ver de novo, amigo! Pra continuar:"],
-          "sequence": ["text", "sticker"],
+          "sequence": ["text", "menu"],
           "routes": ["catalog_request", "returning_purchase", "human_request"]
         },
         "catalog_request": {
@@ -413,23 +414,6 @@
                     }
                   }
                 }
-              },
-              {
-                "type": "wait",
-                "time": 300
-              },
-              {
-                "type": "message",
-                "message": {
-                  "type": "sticker",
-                  "text": "",
-                  "metadata": {
-                    "src": "https://chatcase.com.br/community/assets/casezap/sticker-animated.webp",
-                    "downloadURL": "https://chatcase.com.br/community/assets/casezap/sticker-animated.webp",
-                    "type": "sticker",
-                    "mimetype": "image/webp"
-                  }
-                }
               }
             ]
           }
@@ -495,23 +479,6 @@
                         }
                       ]
                     }
-                  }
-                }
-              },
-              {
-                "type": "wait",
-                "time": 300
-              },
-              {
-                "type": "message",
-                "message": {
-                  "type": "sticker",
-                  "text": "",
-                  "metadata": {
-                    "src": "https://chatcase.com.br/community/assets/casezap/sticker-static.webp",
-                    "downloadURL": "https://chatcase.com.br/community/assets/casezap/sticker-static.webp",
-                    "type": "sticker",
-                    "mimetype": "image/webp"
                   }
                 }
               }

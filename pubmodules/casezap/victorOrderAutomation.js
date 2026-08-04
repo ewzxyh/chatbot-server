@@ -12,6 +12,7 @@ var ORDER_STATES = Object.freeze({
 var TRACK_SOURCE = 'chatcase-victor-automation';
 var DEFAULT_VICTOR_NOTIFY_NUMBERS = ['556292174737', '556198820985'];
 var DEFAULT_SHOPEE_URL = 'https://shopee.com.br/universal-link/product/1502208056/58262112206';
+var DEFAULT_VICTOR_ORDER_STICKER_PATH = '/community/assets/casezap/victor-sticker-order.webp';
 
 function normalizeCaseZapPixKey(value) {
   if (value === undefined || value === null) return null;
@@ -27,6 +28,13 @@ function configuredPixKey(value) {
 function configuredShopeeUrl(value) {
   var url = value === undefined ? process.env.CASEZAP_SHOPEE_URL : value;
   return String(url || DEFAULT_SHOPEE_URL).trim() || DEFAULT_SHOPEE_URL;
+}
+
+function configuredVictorOrderStickerUrl(value) {
+  var configured = value === undefined ? process.env.CASEZAP_VICTOR_ORDER_STICKER_URL : value;
+  if (configured) return String(configured).trim();
+  var baseUrl = String(process.env.EXTERNAL_BASE_URL || 'https://chatcase.com.br').replace(/\/+$/, '');
+  return baseUrl + DEFAULT_VICTOR_ORDER_STICKER_PATH;
 }
 
 function containsConfiguredPixKey(text, pixKey) {
@@ -491,7 +499,8 @@ async function handleInboundMessage(options) {
         projectId: projectId,
         amountCents: amountCents,
         pixKey: pixKey,
-        text: buildVictorAutomationText(amountCents, pixKey, configuredShopeeUrl(options.shopeeUrl))
+        text: buildVictorAutomationText(amountCents, pixKey, configuredShopeeUrl(options.shopeeUrl)),
+        stickerUrl: configuredVictorOrderStickerUrl(options.stickerUrl)
       });
     }
     await notifyVictorNumbers({
@@ -577,10 +586,12 @@ module.exports = {
   TRACK_SOURCE: TRACK_SOURCE,
   DEFAULT_VICTOR_NOTIFY_NUMBERS: DEFAULT_VICTOR_NOTIFY_NUMBERS,
   DEFAULT_SHOPEE_URL: DEFAULT_SHOPEE_URL,
+  DEFAULT_VICTOR_ORDER_STICKER_PATH: DEFAULT_VICTOR_ORDER_STICKER_PATH,
   normalizeCaseZapPixKey: normalizeCaseZapPixKey,
   normalizePixKey: normalizeCaseZapPixKey,
   configuredPixKey: configuredPixKey,
   configuredShopeeUrl: configuredShopeeUrl,
+  configuredVictorOrderStickerUrl: configuredVictorOrderStickerUrl,
   containsConfiguredPixKey: containsConfiguredPixKey,
   parsePixAmountCents: parsePixAmountCents,
   parsePixValueCents: parsePixAmountCents,

@@ -1011,7 +1011,7 @@ function shouldDownloadInboundMedia(mapped) {
     mapped.downloadId &&
     mapped.metadata &&
     !mapped.metadata.src &&
-    (mapped.type === 'image' || mapped.type === 'frame' || mapped.type === 'file');
+    (mapped.type === 'image' || mapped.type === 'frame' || mapped.type === 'file' || mapped.type === 'sticker');
 }
 
 async function resolveInboundMedia(integration, mapped) {
@@ -1033,8 +1033,9 @@ async function resolveInboundMedia(integration, mapped) {
     }
 
     mapped.metadata.src = downloaded.fileURL;
-    if (downloaded.mimetype && mapped.type !== 'image') {
+    if (downloaded.mimetype) {
       mapped.metadata.type = downloaded.mimetype;
+      mapped.metadata.mimetype = downloaded.mimetype;
     }
     if (mapped.type === 'file' && mapped.metadata.name) {
       mapped.text = '[' + mapped.metadata.name + '](' + downloaded.fileURL + ')';
@@ -1107,6 +1108,21 @@ async function sendVictorAutomationToClient(options) {
     outbound = messageMapper.mapOutbound(automationMessage, phone);
   }
 
+  var stickerUrl = options.stickerUrl || victorOrderAutomation.configuredVictorOrderStickerUrl();
+  var stickerAttributes = Object.assign({}, automationAttributes, { casezapVictorSticker: true });
+  var stickerMessage = {
+    type: 'sticker',
+    text: '',
+    attributes: stickerAttributes,
+    metadata: {
+      src: stickerUrl,
+      downloadURL: stickerUrl,
+      type: 'sticker',
+      mimetype: 'image/webp'
+    }
+  };
+  var stickerOutbound = messageMapper.mapOutbound(stickerMessage, phone);
+
   await messageService.send(
     'bot_casezap_victor_automation',
     'Automação CaseZap',
@@ -1122,8 +1138,30 @@ async function sendVictorAutomationToClient(options) {
 
   if (outbound) {
     var delivered = await sendOutboundWithRetry(options.integration, phone, outbound);
+    if (!delivered) {
+      return { status: 'failed', track_source: victorOrderAutomation.TRACK_SOURCE };
+    }
+
+    if (!stickerOutbound) {
+      return { status: 'sent', track_source: victorOrderAutomation.TRACK_SOURCE };
+    }
+
+    await messageService.send(
+      'bot_casezap_victor_automation',
+      'AutomaÃ§Ã£o CaseZap',
+      requestId,
+      '',
+      projectId,
+      'bot_casezap_victor_automation',
+      stickerAttributes,
+      'sticker',
+      stickerMessage.metadata,
+      null
+    );
+
+    var stickerDelivered = await sendOutboundWithRetry(options.integration, phone, stickerOutbound);
     return {
-      status: delivered ? 'sent' : 'failed',
+      status: stickerDelivered ? 'sent' : 'failed',
       track_source: victorOrderAutomation.TRACK_SOURCE
     };
   }
@@ -1498,5 +1536,6 @@ module.exports = {
   sendVictorInternalMessage: sendVictorInternalMessage,
   sendVictorAutomationToClient: sendVictorAutomationToClient,
   loadVictorReceiptMedia: loadVictorReceiptMedia,
+  shouldDownloadInboundMedia: shouldDownloadInboundMedia,
   isVictorAutomationIntegration: isVictorAutomationIntegration
 };

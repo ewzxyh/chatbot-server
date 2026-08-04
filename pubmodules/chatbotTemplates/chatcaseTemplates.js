@@ -95,7 +95,7 @@ function buildChannelCompatibility(attributes) {
       title: 'CaseZap / UAZAPI',
       mode: 'session',
       nativeInteractions: 'menu',
-      features: ['text', 'buttons.text', 'menu.numeric', 'media.image', 'media.document', 'human_handoff']
+      features: ['text', 'buttons.text', 'menu.numeric', 'media.image', 'media.document', 'media.sticker', 'human_handoff']
     };
   }
 
