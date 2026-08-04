@@ -12,6 +12,23 @@ describe('Victor order automation', function() {
     assert.strictEqual(automation.parsePixAmountCents('valor R$ 10,00'), null);
   });
 
+  it('applies the strict free-freight thresholds by DDD', function() {
+    assert.strictEqual(automation.classifyFreeFreight(60001, '+55 (62) 9217-4737').free, true);
+    assert.strictEqual(automation.classifyFreeFreight(60000, '556292174737').free, false);
+    assert.strictEqual(automation.classifyFreeFreight(100001, '5511999999999').free, true);
+    assert.strictEqual(automation.classifyFreeFreight(100000, '5511999999999').free, false);
+    assert.strictEqual(automation.classifyFreeFreight(70000, '5565999999999').free, false);
+  });
+
+  it('builds the free-freight response without Shopee messages', function() {
+    assert.deepStrictEqual(automation.buildFreeFreightMessages().map(function(message) {
+      return message.text;
+    }), [
+      'Nessa compra você ganhou frete grátis 🆓',
+      'Me manda o endereço de entrega completo, por favor: rua, número, complemento e CEP.'
+    ]);
+  });
+
   it('accepts only manual fromMe messages', function() {
     assert.strictEqual(automation.isManualFromMe({ message: { fromMe: true, wasSentByApi: false } }), true);
     assert.strictEqual(automation.isManualFromMe({ message: { fromMe: true, wasSentByApi: true } }), false);
@@ -238,6 +255,148 @@ describe('Victor order automation', function() {
       '556292174737',
       '556198820985'
     ]);
+  });
+
+  it('moves a GO quote above the threshold to awaiting_address', async function() {
+    const updates = [];
+    const automationMessages = [];
+    const internalMessages = [];
+    const model = {
+      findOneAndUpdate: async function(query, update) {
+        updates.push({ query, update });
+        return { request_id: 'request-1' };
+      }
+    };
+
+    const result = await automation.handleInboundMessage({
+      model,
+      request: {
+        request_id: 'request-1',
+        id_project: 'project-1',
+        attributes: { casezapOrder: { state: 'awaiting_quote' } }
+      },
+      pixKey: 'redacted@example.invalid',
+      rawMessage: { message: { fromMe: true, wasSentByApi: false } },
+      mapped: { phone: '5562999999999', text: 'PIX redacted@example.invalid R$ 650,00' },
+      messageId: 'quote-free-1',
+      sendAutomationMessage: async function(message) { automationMessages.push(message); },
+      sendInternalMessage: async function(number, text) {
+        internalMessages.push({ number, text });
+        return true;
+      }
+    });
+
+    assert.strictEqual(result.status, 'quoted');
+    assert.strictEqual(result.freeFreight, true);
+    assert.strictEqual(updates[0].update.$set['attributes.casezapOrder.state'], 'awaiting_address');
+    assert.deepStrictEqual(automationMessages[0].messages.map(function(message) { return message.text; }), [
+      'Nessa compra você ganhou frete grátis 🆓',
+      'Me manda o endereço de entrega completo, por favor: rua, número, complemento e CEP.'
+    ]);
+    assert(!automationMessages[0].text.includes(automation.DEFAULT_SHOPEE_URL));
+    assert(internalMessages[0].text.includes('Frete grátis'));
+    assert.deepStrictEqual(internalMessages.map(function(item) { return item.number; }), [
+      '556292174737',
+      '556198820985'
+    ]);
+  });
+
+  it('persists an incomplete address once and does not loop the follow-up', async function() {
+    const updates = [];
+    const prompts = [];
+    let calls = 0;
+    const model = {
+      findOneAndUpdate: async function(query, update) {
+        calls += 1;
+        updates.push({ query, update });
+        if (calls === 6) return null;
+        return { request_id: 'request-1' };
+      }
+    };
+    const request = {
+      request_id: 'request-1',
+      id_project: 'project-1',
+      attributes: { casezapOrder: { state: 'awaiting_address', quotedAmountCents: 65000 } }
+    };
+
+    const first = await automation.handleInboundMessage({
+      model,
+      request,
+      rawMessage: { message: { fromMe: false, wasSentByApi: false } },
+      mapped: { phone: '5562999999999', text: 'Rua das Flores, 10' },
+      messageId: 'address-1',
+      sendAutomationMessage: async function(message) { prompts.push(message.text); }
+    });
+    const second = await automation.handleInboundMessage({
+      model,
+      request: {
+        request_id: 'request-1',
+        id_project: 'project-1',
+        attributes: {
+          casezapOrder: {
+            state: 'awaiting_address',
+            quotedAmountCents: 65000,
+            addressMessages: ['Rua das Flores, 10']
+          }
+        }
+      },
+      rawMessage: { message: { fromMe: false, wasSentByApi: false } },
+      mapped: { phone: '5562999999999', text: 'Apto 2' },
+      messageId: 'address-2',
+      sendAutomationMessage: async function(message) { prompts.push(message.text); }
+    });
+
+    assert.strictEqual(first.status, 'awaiting_address');
+    const addressUpdate = updates.find(function(item) {
+      return item.update.$push && item.update.$push['attributes.casezapOrder.addressMessages'];
+    });
+    assert.deepStrictEqual(addressUpdate.update.$push['attributes.casezapOrder.addressMessages'].$each, ['Rua das Flores, 10']);
+    assert.strictEqual(prompts.length, 1);
+    assert(prompts[0].includes('complemento'));
+    assert.strictEqual(second.status, 'awaiting_address');
+  });
+
+  it('advances a complete address to receipt review and notifies both numbers', async function() {
+    const updates = [];
+    const sent = [];
+    const model = {
+      findOneAndUpdate: async function(query, update) {
+        updates.push({ query, update });
+        return { request_id: 'request-1' };
+      }
+    };
+
+    const result = await automation.handleInboundMessage({
+      model,
+      request: {
+        request_id: 'request-1',
+        id_project: 'project-1',
+        attributes: { casezapOrder: { state: 'awaiting_address', quotedAmountCents: 65000 } }
+      },
+      rawMessage: { message: { fromMe: false, wasSentByApi: false } },
+      mapped: {
+        phone: '5562999999999',
+        text: 'Rua das Flores, 10, apto 2, CEP 74000-000'
+      },
+      messageId: 'address-complete-1',
+      sendInternalMessage: async function(number, text) {
+        sent.push({ number, text });
+        return true;
+      }
+    });
+
+    assert.strictEqual(result.status, 'awaiting_receipt');
+    const addressUpdate = updates.find(function(item) {
+      return item.update.$set && item.update.$set['attributes.casezapOrder.addressText'];
+    });
+    assert.strictEqual(addressUpdate.update.$set['attributes.casezapOrder.state'], 'awaiting_receipt');
+    assert.strictEqual(addressUpdate.update.$set['attributes.casezapOrder.addressText'], 'Rua das Flores, 10, apto 2, CEP 74000-000');
+    assert.deepStrictEqual(sent.map(function(item) { return item.number; }), [
+      '556292174737',
+      '556198820985'
+    ]);
+    assert(sent[0].text.includes('Rua das Flores'));
+    assert(sent[0].text.includes('Aguardando comprovante'));
   });
 
   it('keeps receipt_review/manual, calls OCR once, and notifies both numbers', async function() {
