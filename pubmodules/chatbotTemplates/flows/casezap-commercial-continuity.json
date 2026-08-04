@@ -119,8 +119,8 @@
         },
         "new_customer_menu": {
           "label": "Novo cliente",
-          "messagePrefixes": ["Vem de indicação de alguém? Se sim, me fala quem.", "sticker:[STICKER_INDICACAO]", "Escolha uma opção:"],
-          "sequence": ["form:text", "wait:20000", "sticker:[STICKER_INDICACAO]", "menu"],
+          "messagePrefixes": ["Vem de indicação de alguém? Se sim, me fala quem.", "Escolha uma opção:"],
+          "sequence": ["form:text", "wait:20000", "menu"],
           "responseDelayMs": 10000,
           "routes": ["catalog_request", "order_request", "human_request"]
         },
@@ -400,24 +400,6 @@
               {
                 "type": "wait",
                 "time": 20000
-              },
-              {
-                "type": "message",
-                "message": {
-                  "type": "sticker",
-                  "text": "",
-                  "metadata": {
-                    "src": "https://chatcase-dev.69-6-250-104.sslip.io/community/assets/casezap/victor-referral-sticker.webp",
-                    "downloadURL": "https://chatcase-dev.69-6-250-104.sslip.io/community/assets/casezap/victor-referral-sticker.webp",
-                    "name": "victor-referral-sticker.webp",
-                    "type": "sticker",
-                    "mimetype": "image/webp"
-                  }
-                }
-              },
-              {
-                "type": "wait",
-                "time": 1000
               },
               {
                 "type": "message",

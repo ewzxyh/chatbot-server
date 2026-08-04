@@ -29,14 +29,10 @@ function assertCasezapAssetBaseUrl(detail, baseUrl) {
   const pdfs = messages.filter((message) => message.type === 'file' && message.metadata && message.metadata.type === 'application/pdf');
   const expectedBaseUrl = baseUrl.replace(/\/+$/, '');
 
-  assert.strictEqual(stickers.length, 3);
+  assert.strictEqual(stickers.length, 2);
   assert.deepStrictEqual(
     stickers.map((message) => [message.metadata.src, message.metadata.downloadURL]).sort(),
     [
-      [
-        `${expectedBaseUrl}/community/assets/casezap/victor-referral-sticker.webp`,
-        `${expectedBaseUrl}/community/assets/casezap/victor-referral-sticker.webp`
-      ],
       [
         `${expectedBaseUrl}/community/assets/casezap/victor-table-sticker-1.webp`,
         `${expectedBaseUrl}/community/assets/casezap/victor-table-sticker-1.webp`
@@ -369,7 +365,7 @@ describe('ChatCase chatbot templates', () => {
     assert(messages.some((message) => message.text === 'Pedido mínimo de R$200,00'));
     assert(!orderRequest.answer.includes('cidade ou CEP'));
     assert(getIntentMessages(humanRequest).some((message) => message.attributes && message.attributes.casezapHumanRequest === true));
-    assert.strictEqual(stickers.length, 3);
+    assert.strictEqual(stickers.length, 2);
     assert.strictEqual(pdfs.length, 1);
     assert.strictEqual(
       messages.filter((message) => (message.text || '').includes('https://shopee.com.br/universal-link/product/1502208056/58262112206')).length,
