@@ -409,6 +409,29 @@ describe('CaseZap messageMapper', function() {
       assert.strictEqual(result.text, 'Falar atendente');
     });
 
+    it('should map template button reply message to selected button text', function() {
+      var webhook = {
+        EventType: 'messages',
+        message: {
+          messageid: 'template-button-response-001',
+          chatid: 'redacted@example.invalid',
+          fromMe: false,
+          isGroup: false,
+          messageType: 'templateButtonReplyMessage',
+          content: {
+            templateButtonReplyMessage: {
+              selectedDisplayText: 'Primeiro pedido',
+              selectedButtonId: 'cc-commercial-new-customer-menu'
+            }
+          },
+          senderName: 'User'
+        }
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'text');
+      assert.strictEqual(result.text, 'Primeiro pedido');
+    });
+
     it('should map list response message to selected item id', function() {
       var webhook = {
         EventType: 'messages',

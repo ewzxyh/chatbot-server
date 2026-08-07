@@ -517,6 +517,7 @@ function mapInbound(webhookData) {
       break;
 
     case 'buttonsresponsemessage':
+    case 'templatebuttonreplymessage':
       result.type = 'text';
       result.text = getButtonText(message) || 'Resposta de botão';
       break;
