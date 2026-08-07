@@ -179,6 +179,59 @@ async function hasVictorCustomerOrderContext(request, projectId) {
     return false;
   }
 }
+
+async function resumeVictorAutomationFromDashboardMessage(message, integration, phone) {
+  if (!isVictorAutomationIntegration(integration) || !message || !message.request) return;
+
+  var text = String(message.text || '');
+  var pixKey = victorOrderAutomation.configuredPixKey(process.env.CASEZAP_PIX_KEY);
+  if (!pixKey || !victorOrderAutomation.containsConfiguredPixKey(text, pixKey) ||
+      !victorOrderAutomation.parsePixAmountCents(text, { allowWithoutPix: true })) return;
+
+  var request = message.request;
+  var projectId = message.id_project || request.id_project;
+  var requestId = request.request_id;
+  var messageId = message._id || message.id;
+  if (!projectId || !requestId || !messageId) return;
+
+  var orderState = victorOrderAutomation.getOrderState(request);
+  var allowUninitializedQuote = orderState === null &&
+    await hasVictorCustomerOrderContext(request, projectId);
+  if (orderState !== victorOrderAutomation.ORDER_STATES.AWAITING_QUOTE && !allowUninitializedQuote) return;
+
+  try {
+    await victorOrderAutomation.handleInboundMessage({
+      model: Request,
+      request: request,
+      requestId: requestId,
+      projectId: projectId,
+      rawMessage: { fromMe: true, wasSentByApi: false },
+      mapped: {
+        messageId: String(messageId),
+        text: text,
+        phone: phone,
+        type: 'text'
+      },
+      messageId: String(messageId),
+      trackId: victorOrderAutomation.extractTrackId(message),
+      pixKey: pixKey,
+      allowUninitializedQuote: allowUninitializedQuote,
+      instancePhone: integration.value && integration.value.number,
+      notifyNumbers: victorOrderAutomation.DEFAULT_VICTOR_NOTIFY_NUMBERS,
+      sendInternalMessage: function(targetPhone, internalText) {
+        return sendVictorInternalMessage(integration, targetPhone, internalText);
+      },
+      sendAutomationMessage: function(automation) {
+        return sendVictorAutomationToClient(Object.assign({}, automation, { integration: integration }));
+      },
+      claimShopeeFlow: function() {
+        return claimCaseZapShopeeFlow(request, projectId);
+      }
+    });
+  } catch (err) {
+    winston.warn('CaseZap Victor dashboard automation failed for message ' + messageId + ': ' + err.message);
+  }
+}
 var casezapProjects = new Map();
 var casezapEnabled = process.env.CASEZAP_ENABLED !== 'false';
 
@@ -1396,13 +1449,18 @@ async function sendOutboundMessage(message, options) {
     }
 
     if (commandPlan.some(function(command) { return command.type === 'message'; })) {
+      var commandPlanDelivered = true;
       for (var planIndex = 0; planIndex < commandPlan.length; planIndex++) {
         var plannedCommand = commandPlan[planIndex];
         if (plannedCommand.type === 'wait') {
           await new Promise(function(resolve) { setTimeout(resolve, plannedCommand.time); });
         } else if (!(await sendOutboundWithRetry(integration, phone, plannedCommand.outbound))) {
+          commandPlanDelivered = false;
           break;
         }
+      }
+      if (commandPlanDelivered && dashboardFallback) {
+        await resumeVictorAutomationFromDashboardMessage(message, integration, phone);
       }
       return;
     }
@@ -1415,7 +1473,10 @@ async function sendOutboundMessage(message, options) {
       if (!shopeeFlowAllowed) return;
     }
 
-    await sendOutboundWithRetry(integration, phone, fallbackOutbound);
+    var delivered = await sendOutboundWithRetry(integration, phone, fallbackOutbound);
+    if (delivered && dashboardFallback) {
+      await resumeVictorAutomationFromDashboardMessage(message, integration, phone);
+    }
 
   } catch (err) {
     winston.error('CaseZap outbound error: ' + describeProviderError(err));
@@ -1604,6 +1665,7 @@ module.exports = {
   extractWebhookReceipt: extractWebhookReceipt,
   hasStoredCaseZapMessage: hasStoredCaseZapMessage,
   isCaseZapDashboardMessage: isCaseZapDashboardMessage,
+  resumeVictorAutomationFromDashboardMessage: resumeVictorAutomationFromDashboardMessage,
   isCaseZapShopeeMessage: isCaseZapShopeeMessage,
   claimCaseZapShopeeFlow: claimCaseZapShopeeFlow,
   sendOutboundMessage: sendOutboundMessage,

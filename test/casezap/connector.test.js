@@ -26,12 +26,14 @@ const {
   syncCaseZapRequestLastMessage
 } = require('../../pubmodules/casezap/connector');
 const Lead = require('../../models/lead');
+const Message = require('../../models/message');
 const Request = require('../../models/request');
 const leadService = require('../../services/leadService');
 const Integration = require('../../models/integrations');
 const axios = require('axios');
 const MessageConstants = require('../../models/messageConstants');
 const messageService = require('../../services/messageService');
+const victorOrderAutomation = require('../../pubmodules/casezap/victorOrderAutomation');
 
 describe('CaseZap connector', function() {
   it('resolves legacy project webhooks by secret so multiple instances can coexist', function() {
@@ -424,6 +426,88 @@ describe('CaseZap connector', function() {
       attributes: { request_channel: 'casezap' },
       request: { channel: { name: 'casezap' }, participants: ['agent-1'] }
     }), false);
+  });
+
+  it('resumes a Victor quote after a dashboard message is delivered', async function() {
+    const originalFindOne = Integration.findOne;
+    const originalMessageFindOne = Message.findOne;
+    const originalPost = axios.post;
+    const originalHandle = victorOrderAutomation.handleInboundMessage;
+    const originalPixKey = process.env.CASEZAP_PIX_KEY;
+    const calls = [];
+    let automationInput;
+
+    process.env.CASEZAP_PIX_KEY = 'redacted@example.invalid';
+    Integration.findOne = function() {
+      return Promise.resolve({
+        _id: 'integration-1',
+        value: {
+          number: '556198820985',
+          status: 'active',
+          domain: 'https://uazapi.example/',
+          token: 'token-1'
+        }
+      });
+    };
+    Message.findOne = function() {
+      return {
+        select: function() {
+          return { lean: function() { return Promise.resolve({ _id: 'order-message-1' }); } };
+        }
+      };
+    };
+    axios.post = async function(url, body) {
+      calls.push({ url, body });
+      return { data: { success: true } };
+    };
+    victorOrderAutomation.handleInboundMessage = async function(options) {
+      automationInput = options;
+      return { status: 'quoted' };
+    };
+
+    const message = {
+      _id: 'dashboard-quote-1',
+      id_project: 'project-1',
+      status: MessageConstants.CHAT_MESSAGE_STATUS.RECEIVED,
+      channel_type: MessageConstants.CHANNEL_TYPE.GROUP,
+      sender: 'agent-1',
+      type: 'text',
+      text: 'DAINA ADRIELLY\\nBanco SANTANDER\\nPix e-mail: redacted@example.invalid\\nValor: R$ 660,00',
+      attributes: { request_channel: 'casezap' },
+      createdAt: '2026-08-07T17:57:13.618Z',
+      updatedAt: '2026-08-07T17:57:13.618Z',
+      request: {
+        request_id: 'request-1',
+        id_project: 'project-1',
+        channel: { name: 'casezap' },
+        participants: ['agent-1'],
+        lead: { lead_id: 'casezap-5511999999999' },
+        attributes: { casezapPhone: '5511999999999' }
+      }
+    };
+
+    try {
+      await sendOutboundMessage(message, { allowReceived: true });
+    } finally {
+      Integration.findOne = originalFindOne;
+      Message.findOne = originalMessageFindOne;
+      axios.post = originalPost;
+      victorOrderAutomation.handleInboundMessage = originalHandle;
+      if (originalPixKey === undefined) delete process.env.CASEZAP_PIX_KEY;
+      else process.env.CASEZAP_PIX_KEY = originalPixKey;
+    }
+
+    assert.deepStrictEqual(calls, [{
+      url: 'https://uazapi.example/send/text',
+      body: {
+        number: '5511999999999',
+        text: 'DAINA ADRIELLY\\nBanco SANTANDER\\nPix e-mail: redacted@example.invalid\\nValor: R$ 660,00'
+      }
+    }]);
+    assert.strictEqual(automationInput.allowUninitializedQuote, true);
+    assert.strictEqual(automationInput.mapped.text, message.text);
+    assert.strictEqual(automationInput.rawMessage.fromMe, true);
+    assert.strictEqual(automationInput.rawMessage.wasSentByApi, false);
   });
 
   it('downloads inbound stickers when UazApi only provides the message id', function() {
