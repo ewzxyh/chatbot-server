@@ -9,6 +9,7 @@ const {
   ensureCaseZapChat21Group,
   extractWebhookReceipt,
   hasStoredCaseZapMessage,
+  isCaseZapDashboardMessage,
   isInternalOutboundMessage,
   isTypingPresence,
   mapConnectionHealth,
@@ -398,6 +399,30 @@ describe('CaseZap connector', function() {
       createdBy: '69ed37fb4c5c780013165040',
       text: 'Ola',
       attributes: {}
+    }), false);
+  });
+
+  it('recognizes dashboard CaseZap messages initially stored as received', function() {
+    assert.strictEqual(isCaseZapDashboardMessage({
+      status: MessageConstants.CHAT_MESSAGE_STATUS.RECEIVED,
+      channel_type: MessageConstants.CHANNEL_TYPE.GROUP,
+      sender: 'agent-1',
+      createdAt: '2026-08-07T17:57:13.618Z',
+      updatedAt: '2026-08-07T17:57:13.618Z',
+      attributes: { request_channel: 'casezap' },
+      request: {
+        channel: { name: 'casezap' },
+        participants: ['agent-1']
+      }
+    }), true);
+    assert.strictEqual(isCaseZapDashboardMessage({
+      status: MessageConstants.CHAT_MESSAGE_STATUS.RECEIVED,
+      channel_type: MessageConstants.CHANNEL_TYPE.GROUP,
+      sender: 'agent-1',
+      createdAt: '2026-08-07T17:57:13.618Z',
+      updatedAt: '2026-08-07T17:57:13.619Z',
+      attributes: { request_channel: 'casezap' },
+      request: { channel: { name: 'casezap' }, participants: ['agent-1'] }
     }), false);
   });
 

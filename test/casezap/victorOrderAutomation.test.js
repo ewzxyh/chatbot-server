@@ -266,6 +266,36 @@ describe('Victor order automation', function() {
     ]);
   });
 
+  it('resumes a manual PIX quote when the order state was not initialized', async function() {
+    const updates = [];
+    const automationMessages = [];
+    const model = {
+      findOneAndUpdate: async function(query, update) {
+        updates.push({ query, update });
+        return { request_id: 'request-1' };
+      }
+    };
+
+    const result = await automation.handleInboundMessage({
+      model,
+      request: {
+        request_id: 'request-1',
+        id_project: 'project-1',
+        attributes: {}
+      },
+      pixKey: 'redacted@example.invalid',
+      allowUninitializedQuote: true,
+      rawMessage: { message: { fromMe: true, wasSentByApi: false } },
+      mapped: { phone: '5511999999999', text: 'PIX redacted@example.invalid R$ 99,90' },
+      messageId: 'quote-uninitialized-1',
+      sendAutomationMessage: async function(message) { automationMessages.push(message); }
+    });
+
+    assert.strictEqual(result.status, 'quoted');
+    assert(updates[0].query.$or);
+    assert.strictEqual(automationMessages.length, 1);
+  });
+
   it('moves a GO quote above the threshold to awaiting_address', async function() {
     const updates = [];
     const automationMessages = [];

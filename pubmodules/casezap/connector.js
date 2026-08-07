@@ -137,6 +137,48 @@ async function hasStoredCaseZapMessage(projectId, messageId, model) {
   }).select('_id').lean();
   return Boolean(existing);
 }
+
+function isCaseZapDashboardMessage(message) {
+  var attributes = message && message.attributes || {};
+  var request = message && message.request;
+  if (!message || message.status !== MessageConstants.CHAT_MESSAGE_STATUS.RECEIVED ||
+    message.channel_type !== MessageConstants.CHANNEL_TYPE.GROUP ||
+    !request || !request.channel || request.channel.name !== ChannelConstants.CASEZAP ||
+    attributes.request_channel !== ChannelConstants.CASEZAP ||
+    attributes.casezapMessageId || attributes.casezapExternalFromMe ||
+    attributes.casezapVictorAutomation || attributes.subtype) {
+    return false;
+  }
+
+  var createdAt = new Date(message.createdAt).getTime();
+  var updatedAt = new Date(message.updatedAt).getTime();
+  if (!Number.isFinite(createdAt) || createdAt !== updatedAt) return false;
+
+  return Array.isArray(request.participants) && request.participants.some(function(participant) {
+    return String(participant) === String(message.sender);
+  });
+}
+
+async function hasVictorCustomerOrderContext(request, projectId) {
+  var attributes = request && request.attributes || {};
+  var phone = phoneDigits(attributes.casezapPhone);
+  if (!request || !request.request_id || !projectId || !phone) return false;
+
+  try {
+    // ponytail: numeric-message heuristic; replace with explicit order state when every entry path persists it.
+    var customerOrder = await Message.findOne({
+      id_project: projectId,
+      recipient: request.request_id,
+      sender: 'casezap-' + phone,
+      type: 'text',
+      text: /\d/
+    }).select('_id').lean();
+    return Boolean(customerOrder);
+  } catch (err) {
+    winston.warn('CaseZap Victor order context lookup failed: ' + err.message);
+    return false;
+  }
+}
 var casezapProjects = new Map();
 var casezapEnabled = process.env.CASEZAP_ENABLED !== 'false';
 
@@ -855,6 +897,10 @@ async function handleWebhook(integration, req, res) {
     await syncCaseZapRequestLastMessage(requestId, projectId, savedMessage, messageContext);
 
     if (isVictorAutomationIntegration(integration)) {
+      var allowUninitializedQuote = false;
+      if (victorOrderAutomation.isManualFromMe(body)) {
+        allowUninitializedQuote = await hasVictorCustomerOrderContext(existingRequest || newRequest, projectId);
+      }
       try {
         await victorOrderAutomation.handleInboundMessage({
           model: Request,
@@ -866,6 +912,7 @@ async function handleWebhook(integration, req, res) {
           messageId: mapped.messageId,
           trackId: victorOrderAutomation.extractTrackId(body, mapped),
           pixKey: process.env.CASEZAP_PIX_KEY,
+          allowUninitializedQuote: allowUninitializedQuote,
           instancePhone: integration.value && integration.value.number,
           notifyNumbers: victorOrderAutomation.DEFAULT_VICTOR_NOTIFY_NUMBERS,
           sendInternalMessage: function(phone, text) {
@@ -1225,11 +1272,12 @@ function isTransientProviderError(err) {
   return Boolean(err && ['ECONNABORTED', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND'].includes(err.code));
 }
 
-async function sendOutboundMessage(message) {
+async function sendOutboundMessage(message, options) {
   try {
     if (!message || !message.request) return;
     if (!message.request.channel || !message.request.channel.name) return;
-    if (message.status !== MessageConstants.CHAT_MESSAGE_STATUS.SENDING) return;
+    var dashboardFallback = options && options.allowReceived === true && isCaseZapDashboardMessage(message);
+    if (message.status !== MessageConstants.CHAT_MESSAGE_STATUS.SENDING && !dashboardFallback) return;
     if (message.channel_type !== MessageConstants.CHANNEL_TYPE.GROUP) return;
     if (message.request.channel.name !== ChannelConstants.CASEZAP) return;
 
@@ -1391,6 +1439,11 @@ function setupOutboundListener() {
   messageEvent.on('message.sending', function(message) {
     sendOutboundMessage(message);
   });
+  messageEvent.on('message.received', function(message) {
+    if (isCaseZapDashboardMessage(message)) {
+      sendOutboundMessage(message, { allowReceived: true });
+    }
+  });
   winston.info('CaseZap outbound listener registered');
 }
 
@@ -1550,6 +1603,7 @@ module.exports = {
   extractConnectionStatus: extractConnectionStatus,
   extractWebhookReceipt: extractWebhookReceipt,
   hasStoredCaseZapMessage: hasStoredCaseZapMessage,
+  isCaseZapDashboardMessage: isCaseZapDashboardMessage,
   isCaseZapShopeeMessage: isCaseZapShopeeMessage,
   claimCaseZapShopeeFlow: claimCaseZapShopeeFlow,
   sendOutboundMessage: sendOutboundMessage,

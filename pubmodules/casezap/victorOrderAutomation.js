@@ -343,9 +343,14 @@ async function claimVictorQuote(options) {
   var model = options.model || Request;
   var query = {
     request_id: options.requestId,
-    id_project: options.projectId,
-    'attributes.casezapOrder.state': ORDER_STATES.AWAITING_QUOTE
+    id_project: options.projectId
   };
+  query[options.allowUninitialized ? '$or' : 'attributes.casezapOrder.state'] = options.allowUninitialized
+    ? [
+      { 'attributes.casezapOrder.state': ORDER_STATES.AWAITING_QUOTE },
+      { 'attributes.casezapOrder.state': { $exists: false } }
+    ]
+    : ORDER_STATES.AWAITING_QUOTE;
   query.$and = buildIdClauses(options.messageId, options.trackId);
   var freightRule = options.freightRule || {};
   var set = {
@@ -648,7 +653,10 @@ async function handleInboundMessage(options) {
 
   if (fromMe === true) {
     if (!isManualFromMe(rawMessage)) return { status: 'skipped', reason: 'not_manual' };
-    if (state !== ORDER_STATES.AWAITING_QUOTE) return { status: 'skipped', reason: 'state' };
+    var allowUninitializedQuote = state === null && options.allowUninitializedQuote === true;
+    if (state !== ORDER_STATES.AWAITING_QUOTE && !allowUninitializedQuote) {
+      return { status: 'skipped', reason: 'state' };
+    }
     var manualText = options.mapped && options.mapped.text || options.text || '';
     if (containsShopeeFlowText(manualText) && typeof options.claimShopeeFlow === 'function') {
       try {
@@ -675,7 +683,8 @@ async function handleInboundMessage(options) {
       trackId: trackId,
       amountCents: amountCents,
       nextState: freeFreight ? ORDER_STATES.AWAITING_ADDRESS : ORDER_STATES.AWAITING_RECEIPT,
-      freightRule: freightRule
+      freightRule: freightRule,
+      allowUninitialized: allowUninitializedQuote
     });
     if (!quote) return { status: 'duplicate' };
 
