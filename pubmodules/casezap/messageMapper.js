@@ -31,19 +31,27 @@ function getText(message) {
   return '';
 }
 
+function getButtonFallbackText(message) {
+  var text = getText(message);
+  var messageType = String(message.messageType || message.type || '').toLowerCase();
+  return messageType && String(text).trim().toLowerCase() === '[' + messageType + ']' ? '' : text;
+}
+
 function getButtonText(message) {
   var content = contentObject(message);
-  var button = content.buttonsResponseMessage || content.buttonsMessage || content.templateButtonReplyMessage || content;
+  var button = content.buttonsResponseMessage || content.buttonsMessage || content.templateButtonReplyMessage || content.listResponseMessage || content;
   return firstTruthy([
-    getText(message),
     message.buttonOrListid,
     content.buttonOrListid,
     button.selectedDisplayText,
     button.selectedButtonId,
+    button.title,
+    button.selectedRowId,
+    button.singleSelectReply && button.singleSelectReply.selectedRowId,
     button.displayText,
     button.contentText,
-    button.title,
-    button.text
+    button.text,
+    getButtonFallbackText(message)
   ]);
 }
 

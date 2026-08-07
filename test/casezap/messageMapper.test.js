@@ -418,6 +418,7 @@ describe('CaseZap messageMapper', function() {
           fromMe: false,
           isGroup: false,
           messageType: 'templateButtonReplyMessage',
+          text: '[templatebuttonreplymessage]',
           content: {
             templateButtonReplyMessage: {
               selectedDisplayText: 'Primeiro pedido',
@@ -449,6 +450,56 @@ describe('CaseZap messageMapper', function() {
       var result = messageMapper.mapInbound(webhook);
       assert.strictEqual(result.type, 'text');
       assert.strictEqual(result.text, 'Plano mensal');
+    });
+
+    it('should map nested list response when provider text is a placeholder', function() {
+      var webhook = {
+        EventType: 'messages',
+        message: {
+          messageid: 'nested-list-response-001',
+          chatid: 'redacted@example.invalid',
+          fromMe: false,
+          isGroup: false,
+          messageType: 'listResponseMessage',
+          text: '[listresponsemessage]',
+          content: {
+            listResponseMessage: {
+              title: 'Fazer pedido',
+              singleSelectReply: { selectedRowId: 'cc-commercial-order' }
+            }
+          },
+          senderName: 'User'
+        },
+        chat: {}
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'text');
+      assert.strictEqual(result.text, 'Fazer pedido');
+    });
+
+    it('should prefer nested button reply over provider placeholder text', function() {
+      var webhook = {
+        EventType: 'messages',
+        message: {
+          messageid: 'nested-button-response-001',
+          chatid: 'redacted@example.invalid',
+          fromMe: false,
+          isGroup: false,
+          messageType: 'buttonsResponseMessage',
+          text: '[buttonsresponsemessage]',
+          content: {
+            buttonsResponseMessage: {
+              selectedDisplayText: 'Falar com vendedor',
+              selectedButtonId: 'cc-commercial-human'
+            }
+          },
+          senderName: 'User'
+        },
+        chat: {}
+      };
+      var result = messageMapper.mapInbound(webhook);
+      assert.strictEqual(result.type, 'text');
+      assert.strictEqual(result.text, 'Falar com vendedor');
     });
 
     it('should map button message without leaking provider type', function() {
